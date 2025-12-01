@@ -1,0 +1,8 @@
+# This directory will contain the built WASM files after running:
+#   npm run build:wasm:full
+#
+# Expected output files:
+#   - soffice.wasm    - Main WebAssembly binary
+#   - soffice.js      - Emscripten JavaScript glue code
+#   - soffice.data    - Preloaded data/resources
+

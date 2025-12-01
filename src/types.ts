@@ -1,0 +1,401 @@
+/**
+ * LibreOffice WASM Document Conversion Types
+ * Headless document format conversion toolkit
+ */
+
+/**
+ * Supported input document formats
+ */
+export type InputFormat =
+  // Microsoft Office formats
+  | 'doc'
+  | 'docx'
+  | 'xls'
+  | 'xlsx'
+  | 'ppt'
+  | 'pptx'
+  // OpenDocument formats
+  | 'odt'
+  | 'ods'
+  | 'odp'
+  | 'odg'
+  | 'odf'
+  // Other formats
+  | 'rtf'
+  | 'txt'
+  | 'html'
+  | 'htm'
+  | 'csv'
+  | 'xml'
+  | 'epub'
+  | 'pdf';
+
+/**
+ * Supported output document formats
+ */
+export type OutputFormat =
+  | 'pdf'
+  | 'docx'
+  | 'doc'
+  | 'odt'
+  | 'rtf'
+  | 'txt'
+  | 'html'
+  | 'xlsx'
+  | 'xls'
+  | 'ods'
+  | 'csv'
+  | 'pptx'
+  | 'ppt'
+  | 'odp'
+  | 'png'
+  | 'jpg'
+  | 'svg';
+
+/**
+ * Document conversion options
+ */
+export interface ConversionOptions {
+  /**
+   * Output format for the conversion
+   */
+  outputFormat: OutputFormat;
+
+  /**
+   * Input format hint (auto-detected if not provided)
+   */
+  inputFormat?: InputFormat;
+
+  /**
+   * PDF-specific options
+   */
+  pdf?: PdfOptions;
+
+  /**
+   * Image output options (for png, jpg, svg)
+   */
+  image?: ImageOptions;
+
+  /**
+   * Password for encrypted documents
+   */
+  password?: string;
+}
+
+/**
+ * PDF-specific conversion options
+ */
+export interface PdfOptions {
+  /**
+   * PDF/A conformance level
+   */
+  pdfaLevel?: 'PDF/A-1b' | 'PDF/A-2b' | 'PDF/A-3b';
+
+  /**
+   * PDF quality (0-100, affects image compression)
+   * @default 90
+   */
+  quality?: number;
+}
+
+/**
+ * Image output options
+ */
+export interface ImageOptions {
+  /**
+   * Image width in pixels
+   */
+  width?: number;
+
+  /**
+   * Image height in pixels
+   */
+  height?: number;
+
+  /**
+   * DPI for rendering
+   * @default 150
+   */
+  dpi?: number;
+}
+
+/**
+ * Result of a document conversion
+ */
+export interface ConversionResult {
+  /**
+   * The converted document data
+   */
+  data: Uint8Array;
+
+  /**
+   * MIME type of the output
+   */
+  mimeType: string;
+
+  /**
+   * Suggested filename with new extension
+   */
+  filename: string;
+
+  /**
+   * Conversion duration in milliseconds
+   */
+  duration: number;
+}
+
+/**
+ * LibreOffice WASM module initialization options
+ */
+export interface LibreOfficeWasmOptions {
+  /**
+   * Path to WASM files directory
+   * @default './wasm'
+   */
+  wasmPath?: string;
+
+  /**
+   * Enable verbose logging
+   * @default false
+   */
+  verbose?: boolean;
+
+  /**
+   * Called when WASM module is ready
+   */
+  onReady?: () => void;
+
+  /**
+   * Called on initialization error
+   */
+  onError?: (error: Error) => void;
+
+  /**
+   * Called with progress updates during initialization
+   */
+  onProgress?: (progress: ProgressInfo) => void;
+}
+
+/**
+ * Progress information
+ */
+export interface ProgressInfo {
+  phase: 'loading' | 'initializing' | 'converting' | 'complete';
+  percent: number;
+  message: string;
+}
+
+/**
+ * Error codes for conversion failures
+ */
+export enum ConversionErrorCode {
+  UNKNOWN = 'UNKNOWN',
+  INVALID_INPUT = 'INVALID_INPUT',
+  UNSUPPORTED_FORMAT = 'UNSUPPORTED_FORMAT',
+  CORRUPTED_DOCUMENT = 'CORRUPTED_DOCUMENT',
+  PASSWORD_REQUIRED = 'PASSWORD_REQUIRED',
+  WASM_NOT_INITIALIZED = 'WASM_NOT_INITIALIZED',
+  CONVERSION_FAILED = 'CONVERSION_FAILED',
+  LOAD_FAILED = 'LOAD_FAILED',
+}
+
+/**
+ * Custom error class for conversion errors
+ */
+export class ConversionError extends Error {
+  public readonly code: ConversionErrorCode;
+  public readonly details?: string;
+
+  constructor(code: ConversionErrorCode, message: string, details?: string) {
+    super(message);
+    this.name = 'ConversionError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/**
+ * Emscripten Module interface
+ */
+export interface EmscriptenModule {
+  // Core Emscripten functions
+  ccall: (
+    name: string,
+    returnType: string | null,
+    argTypes: string[],
+    args: unknown[]
+  ) => unknown;
+  cwrap: (
+    name: string,
+    returnType: string | null,
+    argTypes: string[]
+  ) => (...args: unknown[]) => unknown;
+
+  // Memory management
+  _malloc: (size: number) => number;
+  _free: (ptr: number) => void;
+  HEAPU8: Uint8Array;
+  HEAP32: Int32Array;
+  HEAPU32: Uint32Array;
+
+  // File system
+  FS: EmscriptenFS;
+
+  // Lifecycle
+  onRuntimeInitialized?: () => void;
+  calledRun?: boolean;
+
+  // LibreOfficeKit hooks (exported C functions)
+  _lok_preinit?: (path: number, args: number) => number;
+  _lok_preinit_2?: (path: number, args: number, callback: number) => number;
+  _libreofficekit_hook?: (path: number) => number;
+  _libreofficekit_hook_2?: (path: number, userProfile: number) => number;
+  _main?: (argc: number, argv: number) => number;
+
+  // WebAssembly function table for indirect calls
+  wasmTable?: WebAssembly.Table;
+
+  // Module locator
+  locateFile?: (path: string) => string;
+  print?: (text: string) => void;
+  printErr?: (text: string) => void;
+
+  // Runtime ready promise (some builds)
+  ready?: Promise<EmscriptenModule>;
+}
+
+/**
+ * Emscripten virtual filesystem
+ */
+export interface EmscriptenFS {
+  mkdir: (path: string) => void;
+  writeFile: (path: string, data: Uint8Array | string, opts?: { encoding?: string }) => void;
+  readFile: (path: string, opts?: { encoding?: string }) => Uint8Array | string;
+  unlink: (path: string) => void;
+  readdir: (path: string) => string[];
+  stat: (path: string) => { size: number; isDirectory: () => boolean };
+  rmdir: (path: string) => void;
+  rename: (oldPath: string, newPath: string) => void;
+}
+
+/**
+ * Filter name mapping for LibreOffice export
+ */
+export const FORMAT_FILTERS: Record<OutputFormat, string> = {
+  pdf: 'writer_pdf_Export',
+  docx: 'MS Word 2007 XML',
+  doc: 'MS Word 97',
+  odt: 'writer8',
+  rtf: 'Rich Text Format',
+  txt: 'Text',
+  html: 'HTML (StarWriter)',
+  xlsx: 'Calc MS Excel 2007 XML',
+  xls: 'MS Excel 97',
+  ods: 'calc8',
+  csv: 'Text - txt - csv (StarCalc)',
+  pptx: 'Impress MS PowerPoint 2007 XML',
+  ppt: 'MS PowerPoint 97',
+  odp: 'impress8',
+  png: 'writer_png_Export',
+  jpg: 'writer_jpg_Export',
+  svg: 'writer_svg_Export',
+};
+
+/**
+ * MIME types for output formats
+ */
+export const FORMAT_MIME_TYPES: Record<OutputFormat, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  odt: 'application/vnd.oasis.opendocument.text',
+  rtf: 'application/rtf',
+  txt: 'text/plain',
+  html: 'text/html',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  csv: 'text/csv',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppt: 'application/vnd.ms-powerpoint',
+  odp: 'application/vnd.oasis.opendocument.presentation',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  svg: 'image/svg+xml',
+};
+
+/**
+ * File extension to format mapping
+ */
+export const EXTENSION_TO_FORMAT: Record<string, InputFormat> = {
+  doc: 'doc',
+  docx: 'docx',
+  xls: 'xls',
+  xlsx: 'xlsx',
+  ppt: 'ppt',
+  pptx: 'pptx',
+  odt: 'odt',
+  ods: 'ods',
+  odp: 'odp',
+  odg: 'odg',
+  odf: 'odf',
+  rtf: 'rtf',
+  txt: 'txt',
+  html: 'html',
+  htm: 'html',
+  csv: 'csv',
+  xml: 'xml',
+  epub: 'epub',
+  pdf: 'pdf',
+};
+
+/**
+ * LibreOfficeKit document types (from LibreOfficeKitEnums.h)
+ */
+export enum LOKDocumentType {
+  TEXT = 0,
+  SPREADSHEET = 1,
+  PRESENTATION = 2,
+  DRAWING = 3,
+  OTHER = 4,
+}
+
+/**
+ * Map output format to LOK format string
+ * These are the format names used by LibreOfficeKit's saveAs
+ */
+export const OUTPUT_FORMAT_TO_LOK: Record<OutputFormat, string> = {
+  pdf: 'pdf',
+  docx: 'docx',
+  doc: 'doc',
+  odt: 'odt',
+  rtf: 'rtf',
+  txt: 'txt',
+  html: 'html',
+  xlsx: 'xlsx',
+  xls: 'xls',
+  ods: 'ods',
+  csv: 'csv',
+  pptx: 'pptx',
+  ppt: 'ppt',
+  odp: 'odp',
+  png: 'png',
+  jpg: 'jpg',
+  svg: 'svg',
+};
+
+/**
+ * Filter options for specific format conversions
+ * These are passed to LibreOfficeKit's saveAs as the filterOptions parameter
+ */
+export const FORMAT_FILTER_OPTIONS: Partial<Record<OutputFormat, string>> = {
+  // PDF options can include things like:
+  // - SelectPdfVersion (0=PDF 1.4, 1=PDF/A-1, 2=PDF/A-2, 3=PDF/A-3)
+  // - UseLosslessCompression
+  // - Quality
+  pdf: '',
+  // CSV can specify separator, encoding, etc.
+  csv: '44,34,76,1,,0,false,true,false,false,false,-1',
+  // Text encoding
+  txt: 'UTF8',
+};

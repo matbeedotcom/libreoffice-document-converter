@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # WASM Build Service
+  # Builds LibreOffice to WebAssembly
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - ./wasm:/output
+      - libreoffice-ccache:/ccache
+    environment:
+      - BUILD_JOBS=4
+      - CLEAN_BUILD=false
+    # Build takes 2-4 hours depending on hardware
+    # Increase these limits as needed
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+
+  # Development Server
+  # Runs the HTTP API for testing conversions
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./wasm:/app/wasm:ro
+    environment:
+      - PORT=3000
+      - WASM_PATH=/app/wasm
+      - VERBOSE=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  # Cache for ccache to speed up rebuilds
+  libreoffice-ccache:
+

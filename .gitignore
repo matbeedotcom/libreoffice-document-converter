@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# WASM build outputs (large files)
+wasm/*.wasm
+wasm/*.data
+wasm/*.js
+!wasm/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+.nyc_output/
+
+# Docker
+.docker/
+
+# Cache
+.cache/
+.ccache/
+.eslintcache
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+

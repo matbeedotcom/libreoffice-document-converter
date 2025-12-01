@@ -1,0 +1,88 @@
+# LibreOffice WASM Build Configuration
+# MINIMAL headless build for document conversion ONLY
+# No UI, no desktop, no extras - pure conversion engine
+#
+# Based on static/README.wasm.md documentation for headless builds.
+
+# Core WASM target
+--host=wasm32-local-emscripten
+--disable-gui
+
+# Main module (writer for document processing)
+--with-main-module=writer
+
+# Enable WASM stripping for smaller binary
+--enable-wasm-strip
+
+# Disable ALL desktop/UI capabilities
+--disable-avmedia
+--disable-dbus
+--disable-sdremote
+--disable-sdremote-bluetooth
+--disable-gio
+--disable-cups
+--disable-randr
+--disable-gstreamer-1-0
+--disable-cairo-canvas
+--disable-skia
+--disable-gtk3
+--disable-gtk4
+--disable-qt5
+--disable-qt6
+--disable-kf5
+--disable-kf6
+
+# Disable database connectivity (not needed for conversion)
+--disable-database-connectivity
+--disable-firebird-sdbc
+--disable-postgresql-sdbc
+--disable-mariadb-sdbc
+
+# Disable extensions and scripting (not needed for conversion)
+--disable-extensions
+--disable-extension-integration
+--disable-extension-update
+--disable-scripting
+--disable-librelogo
+
+# Disable unnecessary features
+--disable-report-builder
+--disable-lpsolve
+--disable-coinmp
+--disable-ldap
+--disable-opencl
+--disable-xmlhelp
+--disable-cve-tests
+--disable-lotuswordpro
+--disable-odk
+--disable-online-update
+--disable-crashdump
+--disable-community-flavor
+
+# PDF handling (keep for conversion capabilities)
+# Uncomment these to further reduce size if you don't need PDF input
+# --disable-pdfimport
+# --disable-pdfium
+
+# Disable crypto (not needed for basic conversion)
+--disable-openssl
+--disable-nss
+
+# Build optimization
+--disable-debug
+--enable-sal-log
+--enable-optimized=yes
+--enable-lto
+--disable-ccache
+--disable-split-debug
+--disable-symbols
+
+# Use internal libraries (required for WASM)
+--with-system-libs=no
+--without-java
+--without-doxygen
+--without-helppack-integration
+--without-myspell-dicts
+
+# Parallelization
+--with-parallelism=4

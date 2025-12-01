@@ -1,0 +1,12 @@
+# Patch files for LibreOffice WASM build
+# Add any necessary patches here
+#
+# Patches should be named with the format:
+#   NNN-description.patch
+#
+# Where NNN is a three-digit number for ordering.
+#
+# Example:
+#   001-fix-emscripten-build.patch
+#   002-disable-unsupported-feature.patch
+

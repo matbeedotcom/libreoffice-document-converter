@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibreOffice WASM Browser Demo</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary: #1a1a25;
+      --accent-cyan: #00e5ff;
+      --accent-magenta: #ff00aa;
+      --accent-yellow: #ffea00;
+      --text-primary: #ffffff;
+      --text-secondary: #8b8b9e;
+      --text-muted: #4a4a5a;
+      --border: #2a2a3a;
+      --success: #00ff88;
+      --error: #ff4757;
+    }
+
+    body {
+      font-family: 'Space Grotesk', -apple-system, system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1.5rem;
+      background-image: 
+        radial-gradient(ellipse at top left, rgba(0,229,255,0.05) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(255,0,170,0.05) 0%, transparent 50%);
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .tagline {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      font-weight: 300;
+    }
+
+    main {
+      width: 100%;
+      max-width: 700px;
+    }
+
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 3rem 2rem;
+      text-align: center;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      background: var(--bg-tertiary);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.active {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.03);
+      box-shadow: 0 0 40px rgba(0, 229, 255, 0.1);
+    }
+
+    .drop-zone.has-file {
+      border-style: solid;
+      border-color: var(--success);
+    }
+
+    .drop-icon {
+      font-size: 3.5rem;
+      margin-bottom: 1rem;
+      opacity: 0.6;
+    }
+
+    .drop-zone h3 {
+      font-size: 1.2rem;
+      font-weight: 500;
+      margin-bottom: 0.5rem;
+    }
+
+    .drop-zone p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .file-info {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: rgba(0, 255, 136, 0.1);
+      border-radius: 8px;
+      color: var(--success);
+      display: none;
+    }
+
+    .file-info.show {
+      display: block;
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 0.875rem 1rem;
+      font-family: inherit;
+      font-size: 1rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b8b9e'%3E%3Cpath d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.15);
+    }
+
+    button {
+      width: 100%;
+      margin-top: 1.5rem;
+      padding: 1rem 2rem;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+      color: var(--bg-primary);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 40px rgba(0, 229, 255, 0.3);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .progress-container {
+      margin-top: 1.5rem;
+      display: none;
+    }
+
+    .progress-container.show {
+      display: block;
+    }
+
+    .progress-bar {
+      height: 4px;
+      background: var(--bg-tertiary);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+    .status {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border-radius: 8px;
+      text-align: center;
+      display: none;
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    .status.success {
+      background: rgba(0, 255, 136, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(0, 255, 136, 0.2);
+    }
+
+    .status.error {
+      background: rgba(255, 71, 87, 0.1);
+      color: var(--error);
+      border: 1px solid rgba(255, 71, 87, 0.2);
+    }
+
+    .formats-section {
+      margin-top: 2rem;
+    }
+
+    .formats-section h4 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    .format-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .format-tag {
+      padding: 0.35rem 0.75rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    footer {
+      margin-top: 3rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    footer a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .loading {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LibreOffice WASM</h1>
+    <p class="tagline">Document conversion in your browser</p>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-icon">📄</div>
+        <h3>Drop your document here</h3>
+        <p>or click to browse files</p>
+      </div>
+
+      <div class="file-info" id="fileInfo">
+        <strong id="fileName"></strong>
+        <span id="fileSize"></span>
+      </div>
+
+      <input type="file" id="fileInput" hidden>
+
+      <div class="options-grid">
+        <div>
+          <label for="outputFormat">Output Format</label>
+          <select id="outputFormat">
+            <optgroup label="Documents">
+              <option value="pdf" selected>PDF</option>
+              <option value="docx">DOCX (Word)</option>
+              <option value="odt">ODT (OpenDocument)</option>
+              <option value="rtf">RTF</option>
+              <option value="txt">Plain Text</option>
+              <option value="html">HTML</option>
+            </optgroup>
+            <optgroup label="Spreadsheets">
+              <option value="xlsx">XLSX (Excel)</option>
+              <option value="ods">ODS (OpenDocument)</option>
+              <option value="csv">CSV</option>
+            </optgroup>
+            <optgroup label="Presentations">
+              <option value="pptx">PPTX (PowerPoint)</option>
+              <option value="odp">ODP (OpenDocument)</option>
+            </optgroup>
+            <optgroup label="Images">
+              <option value="png">PNG</option>
+              <option value="jpg">JPEG</option>
+              <option value="svg">SVG</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div>
+          <label for="pdfQuality">PDF Quality</label>
+          <select id="pdfQuality">
+            <option value="90" selected>High (90%)</option>
+            <option value="75">Medium (75%)</option>
+            <option value="50">Low (50%)</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="convertBtn" disabled>
+        Convert Document
+      </button>
+
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p class="progress-text" id="progressText">Initializing...</p>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="formats-section">
+      <h4>Supported Input Formats</h4>
+      <div class="format-tags">
+        <span class="format-tag">DOC</span>
+        <span class="format-tag">DOCX</span>
+        <span class="format-tag">XLS</span>
+        <span class="format-tag">XLSX</span>
+        <span class="format-tag">PPT</span>
+        <span class="format-tag">PPTX</span>
+        <span class="format-tag">ODT</span>
+        <span class="format-tag">ODS</span>
+        <span class="format-tag">ODP</span>
+        <span class="format-tag">RTF</span>
+        <span class="format-tag">TXT</span>
+        <span class="format-tag">HTML</span>
+        <span class="format-tag">CSV</span>
+        <span class="format-tag">PDF</span>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>
+      Powered by <a href="https://www.libreoffice.org/" target="_blank">LibreOffice</a> 
+      compiled to WebAssembly
+    </p>
+  </footer>
+
+  <script type="module">
+    // Import from the browser build
+    // In production: import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+    
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const outputFormat = document.getElementById('outputFormat');
+    const pdfQuality = document.getElementById('pdfQuality');
+    const convertBtn = document.getElementById('convertBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const status = document.getElementById('status');
+
+    let selectedFile = null;
+
+    // File selection
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('active');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('active');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('active');
+      if (e.dataTransfer.files.length) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      selectedFile = file;
+      dropZone.classList.add('has-file');
+      
+      fileName.textContent = file.name;
+      fileSize.textContent = ` (${formatBytes(file.size)})`;
+      fileInfo.classList.add('show');
+      
+      convertBtn.disabled = false;
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    // Conversion
+    convertBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      convertBtn.disabled = true;
+      progressContainer.classList.add('show');
+      status.classList.remove('show', 'success', 'error');
+
+      try {
+        // Show loading state
+        updateProgress(10, 'Loading converter...');
+
+        // In production, use the actual converter
+        // For demo, we'll simulate the conversion
+        await simulateConversion();
+
+        status.textContent = '✓ Conversion complete! Download started.';
+        status.classList.add('show', 'success');
+      } catch (error) {
+        status.textContent = '✗ Error: ' + error.message;
+        status.classList.add('show', 'error');
+      } finally {
+        convertBtn.disabled = false;
+        setTimeout(() => {
+          progressContainer.classList.remove('show');
+        }, 2000);
+      }
+    });
+
+    function updateProgress(percent, message) {
+      progressFill.style.width = percent + '%';
+      progressText.textContent = message;
+    }
+
+    async function simulateConversion() {
+      // Simulate the conversion process
+      // In production, replace this with actual BrowserConverter usage
+      
+      updateProgress(20, 'Initializing LibreOffice WASM...');
+      await sleep(500);
+      
+      updateProgress(40, 'Loading document...');
+      await sleep(300);
+      
+      updateProgress(60, 'Converting...');
+      await sleep(800);
+      
+      updateProgress(80, 'Generating output...');
+      await sleep(400);
+      
+      updateProgress(100, 'Complete!');
+      
+      // Simulate download
+      const blob = new Blob(['Demo output - actual conversion requires WASM build'], {
+        type: 'application/octet-stream'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = selectedFile.name.replace(/\.[^.]+$/, '.' + outputFormat.value);
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+  </script>
+</body>
+</html>
+
