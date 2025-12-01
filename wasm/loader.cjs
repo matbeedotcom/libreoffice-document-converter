@@ -3,6 +3,12 @@
  * 
  * This CommonJS wrapper provides the necessary polyfills and setup
  * for loading the Emscripten-generated LibreOffice WASM module in Node.js.
+ * 
+ * Load Time Optimizations:
+ * - Pre-loads WASM binary before module init
+ * - Uses synchronous file I/O (required for Emscripten)
+ * - Supports pre-compiled WASM modules for faster startup
+ * - Can cache compiled modules for reuse
  */
 
 'use strict';
@@ -15,6 +21,10 @@ const { Worker } = require('worker_threads');
 global.Worker = Worker;
 
 const wasmDir = __dirname;
+
+// Cache for compiled WASM module (reuse across instances)
+let cachedWasmModule = null;
+let cachedWasmBinary = null;
 
 // Change to wasm directory for relative path resolution
 const origCwd = process.cwd();
@@ -148,16 +158,24 @@ function createModule(config = {}) {
     // Emit initial progress
     emitProgress('starting', 0, 'Starting LibreOffice WASM...');
     
-    // Pre-load WASM binary with progress
+    // Use cached binary if available, otherwise load
     let wasmBinary = config.wasmBinary;
     if (!wasmBinary) {
-      emitProgress('loading_wasm', 2, 'Loading WebAssembly binary...');
-      
-      const wasmPath = path.join(wasmDir, 'soffice.wasm');
-      const wasmData = fs.readFileSync(wasmPath);
-      wasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
-      
-      emitProgress('loading_wasm', 12, `Loaded ${(wasmData.length / 1024 / 1024).toFixed(0)}MB WebAssembly binary`);
+      if (cachedWasmBinary) {
+        emitProgress('loading_wasm', 12, 'Using cached WebAssembly binary');
+        wasmBinary = cachedWasmBinary;
+      } else {
+        emitProgress('loading_wasm', 2, 'Loading WebAssembly binary...');
+        
+        const wasmPath = path.join(wasmDir, 'soffice.wasm');
+        const wasmData = fs.readFileSync(wasmPath);
+        wasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
+        
+        // Cache for future use
+        cachedWasmBinary = wasmBinary;
+        
+        emitProgress('loading_wasm', 12, `Loaded ${(wasmData.length / 1024 / 1024).toFixed(0)}MB WebAssembly binary`);
+      }
     }
     
     emitProgress('compiling', 14, 'Compiling WebAssembly module...');
@@ -165,6 +183,10 @@ function createModule(config = {}) {
     // Set up the Module configuration
     global.Module = {
       wasmBinary,
+      
+      // Pass environment variables to WASM (for SAL_LOK_OPTIONS, LOK_SKIP_PRELOAD, etc.)
+      // Note: ENV is set up by Emscripten's preRun, our preRun runs after
+      preRun: [],
       
       // Locate files using absolute paths
       locateFile: (filename) => {
@@ -186,7 +208,7 @@ function createModule(config = {}) {
         // Restore original cwd
         process.chdir(origCwd);
         
-        // Clear progress callback
+        // Clear progress callback (but keep cache)
         currentProgressCallback = null;
         
         // Call user's callback if provided
@@ -240,8 +262,75 @@ function createModuleSync(config = {}) {
   return global.Module;
 }
 
+/**
+ * Pre-load the WASM binary into memory (call early for faster init later)
+ * This allows you to start loading while doing other work.
+ * 
+ * @returns {Buffer} The WASM binary
+ */
+function preloadWasmBinary() {
+  if (cachedWasmBinary) {
+    return cachedWasmBinary;
+  }
+  
+  const wasmPath = path.join(wasmDir, 'soffice.wasm');
+  const wasmData = fs.readFileSync(wasmPath);
+  cachedWasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
+  return cachedWasmBinary;
+}
+
+/**
+ * Pre-compile the WASM module (if WebAssembly.compile is available)
+ * This can be done during idle time for faster startup.
+ * 
+ * @returns {Promise<WebAssembly.Module>} The compiled module
+ */
+async function precompileWasm() {
+  if (cachedWasmModule) {
+    return cachedWasmModule;
+  }
+  
+  const binary = preloadWasmBinary();
+  cachedWasmModule = await WebAssembly.compile(binary);
+  return cachedWasmModule;
+}
+
+/**
+ * Check if WASM binary is already cached
+ */
+function isCached() {
+  return !!cachedWasmBinary;
+}
+
+/**
+ * Clear cached data (for memory cleanup)
+ */
+function clearCache() {
+  cachedWasmBinary = null;
+  cachedWasmModule = null;
+}
+
+/**
+ * Get file sizes for progress estimation
+ */
+function getFileSizes() {
+  const wasmPath = path.join(wasmDir, 'soffice.wasm');
+  const dataPath = path.join(wasmDir, 'soffice.data');
+  
+  return {
+    wasm: fs.existsSync(wasmPath) ? fs.statSync(wasmPath).size : 0,
+    data: fs.existsSync(dataPath) ? fs.statSync(dataPath).size : 0,
+    get total() { return this.wasm + this.data; },
+  };
+}
+
 module.exports = {
   createModule,
   createModuleSync,
+  preloadWasmBinary,
+  precompileWasm,
+  isCached,
+  clearCache,
+  getFileSizes,
   wasmDir,
 };

@@ -193,8 +193,16 @@ fi
 FS_IMAGE_MK="${LO_DIR}/static/CustomTarget_emscripten_fs_image.mk"
 if [ -f "$FS_IMAGE_MK" ] && grep -q "soffice.cfg/xmlsec/ui" "$FS_IMAGE_MK"; then
     log_info "Patching emscripten fs image (removing xmlsec UI references)..."
-    grep -v "soffice.cfg/xmlsec/ui" "$FS_IMAGE_MK" > "${FS_IMAGE_MK}.tmp"
-    mv "${FS_IMAGE_MK}.tmp" "$FS_IMAGE_MK"
+    if [ -f "${SCRIPT_DIR}/patches/004-remove-xmlsec-ui-from-fs-image.patch" ]; then
+        patch -p1 < "${SCRIPT_DIR}/patches/004-remove-xmlsec-ui-from-fs-image.patch" || {
+            log_warn "Patch failed, applying manually..."
+            grep -v "soffice.cfg/xmlsec/ui" "$FS_IMAGE_MK" > "${FS_IMAGE_MK}.tmp"
+            mv "${FS_IMAGE_MK}.tmp" "$FS_IMAGE_MK"
+        }
+    else
+        grep -v "soffice.cfg/xmlsec/ui" "$FS_IMAGE_MK" > "${FS_IMAGE_MK}.tmp"
+        mv "${FS_IMAGE_MK}.tmp" "$FS_IMAGE_MK"
+    fi
     log_success "Patched emscripten fs image"
 else
     log_success "Emscripten fs image already patched or file not found"
@@ -243,6 +251,36 @@ if [ -f "$DESKTOP_LIB" ]; then
     log_success "Desktop library makefile exists"
 fi
 
+# Patch 5: Add PROXY_TO_PTHREAD and export FS/wasmTable for LibreOfficeKit
+EMSCRIPTEN_MK="${LO_DIR}/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk"
+if [ -f "$EMSCRIPTEN_MK" ] && ! grep -q "PROXY_TO_PTHREAD" "$EMSCRIPTEN_MK"; then
+    log_info "Patching EMSCRIPTEN_INTEL_GCC.mk for LOK exports..."
+    if [ -f "${SCRIPT_DIR}/patches/002-emscripten-exports.patch" ]; then
+        patch -p1 < "${SCRIPT_DIR}/patches/002-emscripten-exports.patch" || {
+            log_warn "Patch failed, applying manually..."
+            # Manual fallback: add PROXY_TO_PTHREAD
+            sed -i 's/PTHREAD_POOL_SIZE=4$/PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1/' "$EMSCRIPTEN_MK"
+            # Add FS and wasmTable to exports
+            sed -i 's/EXPORTED_RUNTIME_METHODS=\["/EXPORTED_RUNTIME_METHODS=["FS","wasmTable","/g' "$EMSCRIPTEN_MK"
+        }
+        log_success "Patched Emscripten linker flags"
+    fi
+else
+    log_success "Emscripten linker flags already patched"
+fi
+
+# Patch 6: Add LOK_SKIP_PRELOAD option for faster init (optional)
+INIT_CXX="${LO_DIR}/desktop/source/lib/init.cxx"
+if [ -f "$INIT_CXX" ] && ! grep -q "LOK_SKIP_PRELOAD" "$INIT_CXX"; then
+    log_info "Patching init.cxx for LOK_SKIP_PRELOAD option..."
+    if [ -f "${SCRIPT_DIR}/patches/003-skip-preload-option.patch" ]; then
+        patch -p1 < "${SCRIPT_DIR}/patches/003-skip-preload-option.patch" || log_warn "LOK_SKIP_PRELOAD patch failed (optional)"
+        log_success "Patched LOK_SKIP_PRELOAD option"
+    fi
+else
+    log_success "LOK_SKIP_PRELOAD already patched or not needed"
+fi
+
 # ============================================================
 # Step 5: Configure LibreOffice
 # ============================================================
@@ -256,9 +294,11 @@ cat > autogen.input << EOF
 # Core WASM settings
 --host=wasm32-local-emscripten
 --disable-gui
---with-main-module=writer
 --enable-wasm-strip
 --with-parallelism=${BUILD_JOBS}
+
+# Include all main modules (Writer, Calc, Impress, Draw)
+# Remove --with-main-module to include all
 
 # Build settings
 --disable-debug
@@ -407,6 +447,15 @@ echo "Finished: $(date)"
 log_info "[7/7] Packaging WASM output..."
 
 mkdir -p "${OUTPUT_DIR}"
+
+# Remove duplicate soffice.data from SDK (saves 80MB)
+# LibreOffice creates identical copies in both program/ and sdk/bin/
+if [ -f "instdir/sdk/bin/soffice.data" ] && [ -f "instdir/program/soffice.data" ]; then
+    log_info "Removing duplicate soffice.data from sdk/bin/ (saves 80MB)..."
+    rm -f instdir/sdk/bin/soffice.data
+    rm -f instdir/sdk/bin/soffice.data.js.metadata
+    log_success "Removed duplicate files"
+fi
 
 # Find and copy the main WASM artifacts
 WASM_FILES_FOUND=0
