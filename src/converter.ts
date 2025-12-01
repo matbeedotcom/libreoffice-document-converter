@@ -69,14 +69,20 @@ export class LibreOfficeConverter {
     this.emitProgress('loading', 0, 'Loading LibreOffice WASM module...');
 
     try {
+      // Load WASM module (progress 0-45% handled by loader)
       this.module = await this.loadModule();
-      this.emitProgress('initializing', 50, 'Initializing LibreOffice...');
+      
+      this.emitProgress('initializing', 50, 'Setting up virtual filesystem...');
 
       // Create directories in virtual filesystem
       this.setupFileSystem();
+      
+      this.emitProgress('initializing', 60, 'Initializing LibreOfficeKit...');
 
       // Initialize LibreOfficeKit
       await this.initializeLibreOfficeKit();
+      
+      this.emitProgress('initializing', 90, 'LibreOfficeKit ready');
 
       this.initialized = true;
       this.emitProgress('complete', 100, 'LibreOffice ready');
@@ -157,11 +163,15 @@ export class LibreOfficeConverter {
     // Load the loader module
     const loader = require(pathModule.resolve(loaderPath));
 
-    // Use the loader's createModule function
+    // Use the loader's createModule function with progress callback
     const config = {
       verbose: this.options.verbose,
       print: this.options.verbose ? console.log : () => {},
       printErr: this.options.verbose ? console.error : () => {},
+      onProgress: (_phase: string, percent: number, message: string) => {
+        // Map loader progress to our progress phases
+        this.emitProgress('loading', percent, message);
+      },
     };
 
     return await loader.createModule(config);
