@@ -1,0 +1,21 @@
+diff --git a/Repository.mk b/Repository.mk
+index 4a505655d..9e103a493 100644
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -285,14 +285,14 @@ $(eval $(call gb_Helper_register_plugins_for_install,OOOLIBS,calc, \
+ 
+ $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,graphicfilter, \
+ 	svgfilter \
+-	wpftdraw \
++	$(if $(ENABLE_CDR),wpftdraw) \
+ 	graphicfilter \
+ ))
+ 
+ $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,impress, \
+ 	animcore \
+ 	PresentationMinimizer \
+-	wpftimpress \
++	$(if $(ENABLE_ETONYEK),wpftimpress) \
+ ))
+ 
+ $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,onlineupdate, \

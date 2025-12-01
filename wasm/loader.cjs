@@ -15,12 +15,24 @@
 
 const fs = require('fs');
 const path = require('path');
-const { Worker } = require('worker_threads');
+const { Worker: NodeWorker } = require('worker_threads');
+
+const wasmDir = __dirname;
+
+// Custom Worker wrapper that resolves paths to absolute paths in wasmDir
+class Worker extends NodeWorker {
+  constructor(filename, options) {
+    // If filename is relative or just a filename, resolve it to wasmDir
+    let resolvedPath = filename;
+    if (!path.isAbsolute(filename)) {
+      resolvedPath = path.join(wasmDir, path.basename(filename));
+    }
+    super(resolvedPath, options);
+  }
+}
 
 // Make Worker globally available
 global.Worker = Worker;
-
-const wasmDir = __dirname;
 
 // Cache for compiled WASM module (reuse across instances)
 let cachedWasmModule = null;

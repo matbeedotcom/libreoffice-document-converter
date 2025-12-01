@@ -102,6 +102,7 @@ export class LOKBindings {
 
     try {
       // Call libreofficekit_hook to get LOK instance
+      // Note: Do NOT call _lok_preinit - it causes issues with the optimized build
       this.lokPtr = this.module._libreofficekit_hook(pathPtr);
 
       if (this.lokPtr === 0) {
@@ -147,25 +148,24 @@ export class LOKBindings {
       throw new Error('LOK not initialized');
     }
 
+    console.log('[LOK] documentLoad: path =', path);
     const lokClassPtr = this.readPtr(this.lokPtr);
     const documentLoadPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoad);
-
     const documentLoad = this.getFunc<(lok: number, path: number) => number>(documentLoadPtr);
 
-    // Use file:// URL for local paths
-    const url = path.startsWith('file://') ? path : `file://${path}`;
-    this.log('Loading document:', url);
-    const pathPtr = this.allocString(url);
+    const pathPtr = this.allocString(path);
+    console.log('[LOK] documentLoad: Calling native function...');
 
     try {
+      const startTime = Date.now();
       const docPtr = documentLoad(this.lokPtr, pathPtr);
+      console.log('[LOK] documentLoad: Returned in', Date.now() - startTime, 'ms, docPtr =', docPtr);
 
       if (docPtr === 0) {
         const error = this.getError();
         throw new Error(`Failed to load document: ${error || 'unknown error'}`);
       }
 
-      this.log('Document loaded, ptr:', docPtr);
       return docPtr;
     } finally {
       this.module._free(pathPtr);
@@ -190,9 +190,9 @@ export class LOKBindings {
 
     const loadWithOpts = this.getFunc<(lok: number, path: number, opts: number) => number>(loadWithOptsPtr);
 
-    const url = path.startsWith('file://') ? path : `file://${path}`;
-    this.log('Loading document with options:', url, options);
-    const pathPtr = this.allocString(url);
+    // Use raw path for WASM virtual filesystem
+    this.log('Loading document with options:', path, options);
+    const pathPtr = this.allocString(path);
     const optsPtr = this.allocString(options);
 
     try {
@@ -229,11 +229,10 @@ export class LOKBindings {
 
     const saveAs = this.getFunc<(doc: number, url: number, format: number, opts: number) => number>(saveAsPtr);
 
-    // Use file:// URL
-    const url = outputPath.startsWith('file://') ? outputPath : `file://${outputPath}`;
-    this.log('Saving document to:', url, 'format:', format, 'options:', filterOptions);
+    // Use raw path for WASM virtual filesystem
+    this.log('Saving document to:', outputPath, 'format:', format, 'options:', filterOptions);
 
-    const urlPtr = this.allocString(url);
+    const urlPtr = this.allocString(outputPath);
     const formatPtr = this.allocString(format);
     const optsPtr = this.allocString(filterOptions);
 

@@ -5,20 +5,30 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Test files: Writer (DOCX/ODT) and Calc (ODS)
+// Note: XLSX loading is extremely slow in WASM - use ODS instead
+// Note: PPTX requires Impress module which isn't in the current build
 const testFiles = [
-  'tests/sample_test_1.pptx',
-  'tests/sample_test_2.docx', 
-  'tests/sample_test_3.docx'
+  // Writer conversions - fast and reliable
+  { path: 'tests/sample_test_2.docx', format: 'pdf', type: 'Writer' },
+  { path: 'tests/sample_test_3.docx', format: 'pdf', type: 'Writer' },
+  { path: 'tests/sample_test_2.docx', format: 'odt', type: 'Writer' },
+  { path: 'tests/sample_test_2.docx', format: 'txt', type: 'Writer' },
+  // Calc conversions - ODS is fast, XLSX is slow
+  { path: 'tests/sample_test_4.ods', format: 'pdf', type: 'Calc' },
+  { path: 'tests/sample_test_4.ods', format: 'xlsx', type: 'Calc' },
+  // Note: Loading XLSX files is very slow in WASM (~minutes)
+  // { path: 'tests/sample_test_5.xlsx', format: 'pdf', type: 'Calc' },
 ];
 
-console.log('╔══════════════════════════════════════════════════════════╗');
-console.log('║        LibreOffice WASM Conversion Test                  ║');
-console.log('╚══════════════════════════════════════════════════════════╝');
+console.log('╔══════════════════════════════════════════════════════════════╗');
+console.log('║     LibreOffice WASM Multi-Document Conversion Test         ║');
+console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log('');
 
 const startTotal = Date.now();
 
-// Initialize converter
+// Initialize converter (one-time cost)
 console.log('Initializing converter...');
 const initStart = Date.now();
 
@@ -39,35 +49,49 @@ if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
 }
 
-// Convert each file
+// Convert all files sequentially (reusing the same converter instance)
 const results = [];
 
-for (const file of testFiles) {
+console.log(`Converting ${testFiles.length} documents...`);
+console.log('');
+
+for (const testFile of testFiles) {
+  const inputName = path.basename(testFile.path);
+  const outputFormat = testFile.format;
+  
   console.log(`─────────────────────────────────────────`);
-  console.log(`Converting: ${path.basename(file)}`);
+  console.log(`[${testFile.type}] ${inputName} → ${outputFormat.toUpperCase()}`);
   
   try {
-    const inputPath = path.join(__dirname, file);
+    const inputPath = path.join(__dirname, testFile.path);
+    
+    if (!fs.existsSync(inputPath)) {
+      console.log(`  ⚠️  File not found, skipping`);
+      results.push({ file: inputName, format: outputFormat, success: false, error: 'File not found' });
+      continue;
+    }
+    
     const inputData = fs.readFileSync(inputPath);
-    console.log(`  Input size: ${(inputData.length / 1024).toFixed(1)} KB`);
+    console.log(`  Input: ${(inputData.length / 1024).toFixed(1)} KB`);
     
     const convStart = Date.now();
     const result = await converter.convert(inputData, {
-      outputFormat: 'pdf',
-    }, path.basename(file));
+      outputFormat: outputFormat,
+    }, inputName);
     const convTime = Date.now() - convStart;
     
     // Save output
     const outputPath = path.join(outputDir, result.filename);
     fs.writeFileSync(outputPath, result.data);
     
-    console.log(`  Output: ${result.filename}`);
-    console.log(`  Output size: ${(result.data.length / 1024).toFixed(1)} KB`);
+    console.log(`  Output: ${result.filename} (${(result.data.length / 1024).toFixed(1)} KB)`);
     console.log(`  Time: ${(convTime/1000).toFixed(2)}s`);
     console.log(`  ✅ Success`);
     
     results.push({
-      file: path.basename(file),
+      file: inputName,
+      format: outputFormat,
+      type: testFile.type,
       success: true,
       time: convTime,
       inputSize: inputData.length,
@@ -77,7 +101,9 @@ for (const file of testFiles) {
   } catch (error) {
     console.log(`  ❌ Error: ${error.message}`);
     results.push({
-      file: path.basename(file),
+      file: inputName,
+      format: outputFormat,
+      type: testFile.type,
       success: false,
       error: error.message
     });
@@ -86,30 +112,54 @@ for (const file of testFiles) {
 
 // Summary
 console.log('');
-console.log('═══════════════════════════════════════════');
-console.log('                  SUMMARY');
-console.log('═══════════════════════════════════════════');
+console.log('═══════════════════════════════════════════════════════════════');
+console.log('                         SUMMARY');
+console.log('═══════════════════════════════════════════════════════════════');
 
 const successful = results.filter(r => r.success);
 const failed = results.filter(r => !r.success);
 
-console.log(`Total files: ${results.length}`);
+console.log(`Total conversions: ${results.length}`);
 console.log(`Successful: ${successful.length}`);
 console.log(`Failed: ${failed.length}`);
 console.log('');
 
-if (successful.length > 0) {
-  const avgTime = successful.reduce((a, b) => a + b.time, 0) / successful.length;
-  console.log(`Average conversion time: ${(avgTime/1000).toFixed(2)}s`);
+// Group by type
+const writerResults = successful.filter(r => r.type === 'Writer');
+const calcResults = successful.filter(r => r.type === 'Calc');
+
+if (writerResults.length > 0) {
+  const avgTime = writerResults.reduce((a, b) => a + b.time, 0) / writerResults.length;
+  console.log(`Writer avg conversion: ${(avgTime/1000).toFixed(2)}s (${writerResults.length} files)`);
 }
 
-console.log(`Initialization time: ${(initTime/1000).toFixed(1)}s`);
-console.log(`Total time: ${((Date.now()-startTotal)/1000).toFixed(1)}s`);
+if (calcResults.length > 0) {
+  const avgTime = calcResults.reduce((a, b) => a + b.time, 0) / calcResults.length;
+  console.log(`Calc avg conversion: ${(avgTime/1000).toFixed(2)}s (${calcResults.length} files)`);
+}
+
+if (successful.length > 0) {
+  const totalConvTime = successful.reduce((a, b) => a + b.time, 0);
+  console.log('');
+  console.log(`Total conversion time: ${(totalConvTime/1000).toFixed(2)}s`);
+  console.log(`Average per document: ${(totalConvTime/successful.length/1000).toFixed(2)}s`);
+}
+
+console.log('');
+console.log(`Initialization (one-time): ${(initTime/1000).toFixed(1)}s`);
+console.log(`Total elapsed: ${((Date.now()-startTotal)/1000).toFixed(1)}s`);
 
 console.log('');
 console.log('Output files saved to: tests/output/');
+
+if (failed.length > 0) {
+  console.log('');
+  console.log('Failed conversions:');
+  failed.forEach(f => console.log(`  - ${f.file} → ${f.format}: ${f.error}`));
+}
+
 console.log('');
 
-// Clean exit
+// Clean exit (required due to LibreOffice pthread workers)
 await converter.destroy();
 process.exit(0);
