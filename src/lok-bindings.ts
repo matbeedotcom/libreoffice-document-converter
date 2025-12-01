@@ -2,29 +2,28 @@
  * LibreOfficeKit Low-Level Bindings
  *
  * This module provides direct access to the LibreOfficeKit C API
- * through the WASM module.
+ * through the WASM module using the stable lok_* shim exports.
  *
- * Struct layouts for WASM32 (4-byte pointers):
- *
- * LibreOfficeKitClass:
- *   offset 0: nSize (size_t)
- *   offset 4: destroy (function pointer)
- *   offset 8: documentLoad (function pointer)
- *   offset 12: getError (function pointer)
- *   offset 16: documentLoadWithOptions (function pointer)
- *   offset 20: freeError (function pointer)
- *   ...
- *
- * LibreOfficeKitDocumentClass:
- *   offset 0: nSize (size_t)
- *   offset 4: destroy (function pointer)
- *   offset 8: saveAs (function pointer)
- *   ... more methods
+ * The shim functions are defined in desktop/source/lib/init.cxx:
+ *   - lok_documentLoad(pKit, pPath)
+ *   - lok_documentLoadWithOptions(pKit, pPath, pOptions)
+ *   - lok_documentSaveAs(pDoc, pUrl, pFormat, pFilterOptions)
+ *   - lok_documentDestroy(pDoc)
+ *   - lok_getError(pKit)
  */
 
 import type { EmscriptenModule } from './types.js';
 
-// Offsets for WASM32 (4-byte pointers)
+// Extended module type with our LOK shim exports
+interface LOKModule extends EmscriptenModule {
+  _lok_documentLoad?: (lok: number, path: number) => number;
+  _lok_documentLoadWithOptions?: (lok: number, path: number, options: number) => number;
+  _lok_documentSaveAs?: (doc: number, url: number, format: number, opts: number) => number;
+  _lok_documentDestroy?: (doc: number) => void;
+  _lok_getError?: (lok: number) => number;
+}
+
+// Fallback offsets for WASM32 (4-byte pointers) if shims not available
 const LOK_CLASS = {
   nSize: 0,
   destroy: 4,
@@ -41,13 +40,22 @@ const DOC_CLASS = {
 };
 
 export class LOKBindings {
-  private module: EmscriptenModule;
+  private module: LOKModule;
   private lokPtr: number = 0;
   private verbose: boolean;
+  private useShims: boolean = false;
 
   constructor(module: EmscriptenModule, verbose = false) {
-    this.module = module;
+    this.module = module as LOKModule;
     this.verbose = verbose;
+    
+    // Check if the new shim exports are available
+    this.useShims = typeof this.module._lok_documentLoad === 'function';
+    if (this.useShims) {
+      this.log('Using direct LOK shim exports');
+    } else {
+      this.log('Using vtable traversal (shims not available)');
+    }
   }
 
   private log(...args: unknown[]): void {
@@ -86,7 +94,7 @@ export class LOKBindings {
   }
 
   /**
-   * Get a function from the WASM table
+   * Get a function from the WASM table (fallback for vtable traversal)
    */
   private getFunc<T>(ptr: number): T {
     const wasmTable = this.module.wasmTable as WebAssembly.Table;
@@ -101,8 +109,6 @@ export class LOKBindings {
     const pathPtr = this.allocString(installPath);
 
     try {
-      // Call libreofficekit_hook to get LOK instance
-      // Note: Do NOT call _lok_preinit - it causes issues with the optimized build
       this.lokPtr = this.module._libreofficekit_hook(pathPtr);
 
       if (this.lokPtr === 0) {
@@ -120,14 +126,18 @@ export class LOKBindings {
   getError(): string | null {
     if (this.lokPtr === 0) return null;
 
+    if (this.useShims && this.module._lok_getError) {
+      const errPtr = this.module._lok_getError(this.lokPtr);
+      return this.readString(errPtr);
+    }
+
+    // Fallback: vtable traversal
     const lokClassPtr = this.readPtr(this.lokPtr);
     const getErrorPtr = this.readPtr(lokClassPtr + LOK_CLASS.getError);
-
     if (getErrorPtr === 0) return null;
 
     const getError = this.getFunc<(lok: number) => number>(getErrorPtr);
     const errPtr = getError(this.lokPtr);
-
     return this.readString(errPtr);
   }
 
@@ -135,8 +145,6 @@ export class LOKBindings {
    * Get version info
    */
   getVersionInfo(): string | null {
-    // This would need the getFilterTypes or similar method
-    // For now, return a placeholder
     return 'LibreOffice WASM';
   }
 
@@ -148,18 +156,25 @@ export class LOKBindings {
       throw new Error('LOK not initialized');
     }
 
-    console.log('[LOK] documentLoad: path =', path);
-    const lokClassPtr = this.readPtr(this.lokPtr);
-    const documentLoadPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoad);
-    const documentLoad = this.getFunc<(lok: number, path: number) => number>(documentLoadPtr);
-
+    this.log('Loading document:', path);
     const pathPtr = this.allocString(path);
-    console.log('[LOK] documentLoad: Calling native function...');
 
     try {
       const startTime = Date.now();
-      const docPtr = documentLoad(this.lokPtr, pathPtr);
-      console.log('[LOK] documentLoad: Returned in', Date.now() - startTime, 'ms, docPtr =', docPtr);
+      let docPtr: number;
+
+      if (this.useShims && this.module._lok_documentLoad) {
+        // Use direct shim export
+        docPtr = this.module._lok_documentLoad(this.lokPtr, pathPtr);
+      } else {
+        // Fallback: vtable traversal
+        const lokClassPtr = this.readPtr(this.lokPtr);
+        const documentLoadPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoad);
+        const documentLoad = this.getFunc<(lok: number, path: number) => number>(documentLoadPtr);
+        docPtr = documentLoad(this.lokPtr, pathPtr);
+      }
+
+      this.log('Document loaded in', Date.now() - startTime, 'ms, ptr:', docPtr);
 
       if (docPtr === 0) {
         const error = this.getError();
@@ -180,23 +195,29 @@ export class LOKBindings {
       throw new Error('LOK not initialized');
     }
 
-    const lokClassPtr = this.readPtr(this.lokPtr);
-    const loadWithOptsPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoadWithOptions);
-
-    if (loadWithOptsPtr === 0) {
-      // Fall back to regular load
-      return this.documentLoad(path);
-    }
-
-    const loadWithOpts = this.getFunc<(lok: number, path: number, opts: number) => number>(loadWithOptsPtr);
-
-    // Use raw path for WASM virtual filesystem
     this.log('Loading document with options:', path, options);
     const pathPtr = this.allocString(path);
     const optsPtr = this.allocString(options);
 
     try {
-      const docPtr = loadWithOpts(this.lokPtr, pathPtr, optsPtr);
+      let docPtr: number;
+
+      if (this.useShims && this.module._lok_documentLoadWithOptions) {
+        // Use direct shim export
+        docPtr = this.module._lok_documentLoadWithOptions(this.lokPtr, pathPtr, optsPtr);
+      } else {
+        // Fallback: vtable traversal
+        const lokClassPtr = this.readPtr(this.lokPtr);
+        const loadWithOptsPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoadWithOptions);
+
+        if (loadWithOptsPtr === 0) {
+          this.module._free(optsPtr);
+          return this.documentLoad(path);
+        }
+
+        const loadWithOpts = this.getFunc<(lok: number, path: number, opts: number) => number>(loadWithOptsPtr);
+        docPtr = loadWithOpts(this.lokPtr, pathPtr, optsPtr);
+      }
 
       if (docPtr === 0) {
         const error = this.getError();
@@ -224,22 +245,28 @@ export class LOKBindings {
       throw new Error('Invalid document pointer');
     }
 
-    const docClassPtr = this.readPtr(docPtr);
-    const saveAsPtr = this.readPtr(docClassPtr + DOC_CLASS.saveAs);
-
-    const saveAs = this.getFunc<(doc: number, url: number, format: number, opts: number) => number>(saveAsPtr);
-
-    // Use raw path for WASM virtual filesystem
-    this.log('Saving document to:', outputPath, 'format:', format, 'options:', filterOptions);
+    this.log('Saving document to:', outputPath, 'format:', format);
 
     const urlPtr = this.allocString(outputPath);
     const formatPtr = this.allocString(format);
     const optsPtr = this.allocString(filterOptions);
 
     try {
-      const result = saveAs(docPtr, urlPtr, formatPtr, optsPtr);
+      let result: number;
+
+      if (this.useShims && this.module._lok_documentSaveAs) {
+        // Use direct shim export
+        result = this.module._lok_documentSaveAs(docPtr, urlPtr, formatPtr, optsPtr);
+      } else {
+        // Fallback: vtable traversal
+        const docClassPtr = this.readPtr(docPtr);
+        const saveAsPtr = this.readPtr(docClassPtr + DOC_CLASS.saveAs);
+        const saveAs = this.getFunc<(doc: number, url: number, format: number, opts: number) => number>(saveAsPtr);
+        result = saveAs(docPtr, urlPtr, formatPtr, optsPtr);
+      }
+
       this.log('Save result:', result);
-      
+
       if (result === 0) {
         throw new Error('Failed to save document');
       }
@@ -256,13 +283,21 @@ export class LOKBindings {
   documentDestroy(docPtr: number): void {
     if (docPtr === 0) return;
 
+    if (this.useShims && this.module._lok_documentDestroy) {
+      // Use direct shim export
+      this.module._lok_documentDestroy(docPtr);
+      this.log('Document destroyed (via shim)');
+      return;
+    }
+
+    // Fallback: vtable traversal
     const docClassPtr = this.readPtr(docPtr);
     const destroyPtr = this.readPtr(docClassPtr + DOC_CLASS.destroy);
 
     if (destroyPtr !== 0) {
       const destroy = this.getFunc<(doc: number) => void>(destroyPtr);
       destroy(docPtr);
-      this.log('Document destroyed');
+      this.log('Document destroyed (via vtable)');
     }
   }
 
@@ -273,6 +308,7 @@ export class LOKBindings {
     if (this.lokPtr === 0) return;
 
     try {
+      // LOK destroy is always via vtable (no shim for this)
       const lokClassPtr = this.readPtr(this.lokPtr);
       const destroyPtr = this.readPtr(lokClassPtr + LOK_CLASS.destroy);
 
@@ -282,7 +318,6 @@ export class LOKBindings {
         this.log('LOK destroyed');
       }
     } catch (error) {
-      // Ignore cleanup errors - WASM may have already been unloaded
       this.log('LOK destroy error (ignored):', error);
     }
 
@@ -294,5 +329,12 @@ export class LOKBindings {
    */
   isInitialized(): boolean {
     return this.lokPtr !== 0;
+  }
+
+  /**
+   * Check if using direct shim exports
+   */
+  isUsingShims(): boolean {
+    return this.useShims;
   }
 }
