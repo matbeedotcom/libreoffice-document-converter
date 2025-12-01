@@ -27,6 +27,17 @@ const FILE_SIZES = {
 };
 
 let currentProgressCallback = null;
+let lastProgress = 0;
+
+// Helper to ensure monotonic progress
+function emitProgress(phase, percent, message) {
+  if (currentProgressCallback) {
+    // Ensure progress only goes up
+    const adjustedPercent = Math.max(lastProgress, percent);
+    lastProgress = adjustedPercent;
+    currentProgressCallback(phase, adjustedPercent, message);
+  }
+}
 
 // Make fs.readFile synchronous (required because WASM init blocks event loop)
 const origReadFile = fs.readFile.bind(fs);
@@ -37,15 +48,15 @@ fs.readFile = function(filePath, optionsOrCallback, maybeCallback) {
   const filename = path.basename(filePath);
   
   // Emit progress for large files
-  if (currentProgressCallback && filename === 'soffice.data') {
-    currentProgressCallback('loading_data', 15, 'Loading LibreOffice data files...');
+  if (filename === 'soffice.data') {
+    emitProgress('loading_data', 20, 'Loading LibreOffice data files...');
   }
   
   try {
     const data = fs.readFileSync(filePath, options);
     
-    if (currentProgressCallback && filename === 'soffice.data') {
-      currentProgressCallback('loading_data', 35, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB data file`);
+    if (filename === 'soffice.data') {
+      emitProgress('loading_data', 35, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB filesystem image`);
     }
     
     callback(null, data);
@@ -83,8 +94,10 @@ class NodeXMLHttpRequest {
     
     try {
       // Emit progress before loading large files
-      if (currentProgressCallback && filename === 'soffice.data') {
-        currentProgressCallback('loading_data', 20, 'Loading LibreOffice filesystem image...');
+      if (filename === 'soffice.data') {
+        emitProgress('loading_data', 20, 'Loading LibreOffice filesystem image...');
+      } else if (filename.endsWith('.metadata')) {
+        emitProgress('loading_metadata', 15, 'Loading filesystem metadata...');
       }
       
       const data = fs.readFileSync(this._url);
@@ -100,12 +113,8 @@ class NodeXMLHttpRequest {
       }
 
       // Emit progress after loading
-      if (currentProgressCallback) {
-        if (filename === 'soffice.data') {
-          currentProgressCallback('loading_data', 40, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB filesystem`);
-        } else if (filename.endsWith('.metadata')) {
-          currentProgressCallback('loading_metadata', 12, 'Loading metadata...');
-        }
+      if (filename === 'soffice.data') {
+        emitProgress('loading_data', 38, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB filesystem`);
       }
 
       // onreadystatechange is what Emscripten uses
@@ -132,29 +141,26 @@ global.XMLHttpRequest = NodeXMLHttpRequest;
  */
 function createModule(config = {}) {
   return new Promise((resolve, reject) => {
-    // Set up progress callback
+    // Reset progress tracking
+    lastProgress = 0;
     currentProgressCallback = config.onProgress || null;
     
     // Emit initial progress
-    if (currentProgressCallback) {
-      currentProgressCallback('starting', 0, 'Starting LibreOffice WASM...');
-    }
+    emitProgress('starting', 0, 'Starting LibreOffice WASM...');
     
     // Pre-load WASM binary with progress
     let wasmBinary = config.wasmBinary;
     if (!wasmBinary) {
-      if (currentProgressCallback) {
-        currentProgressCallback('loading_wasm', 5, 'Loading WebAssembly binary...');
-      }
+      emitProgress('loading_wasm', 2, 'Loading WebAssembly binary...');
       
       const wasmPath = path.join(wasmDir, 'soffice.wasm');
       const wasmData = fs.readFileSync(wasmPath);
       wasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
       
-      if (currentProgressCallback) {
-        currentProgressCallback('loading_wasm', 10, `Loaded ${(wasmData.length / 1024 / 1024).toFixed(0)}MB WASM binary`);
-      }
+      emitProgress('loading_wasm', 12, `Loaded ${(wasmData.length / 1024 / 1024).toFixed(0)}MB WebAssembly binary`);
     }
+    
+    emitProgress('compiling', 14, 'Compiling WebAssembly module...');
     
     // Set up the Module configuration
     global.Module = {
@@ -171,9 +177,7 @@ function createModule(config = {}) {
       
       // Runtime initialized callback
       onRuntimeInitialized: () => {
-        if (currentProgressCallback) {
-          currentProgressCallback('runtime_ready', 45, 'WebAssembly runtime initialized');
-        }
+        emitProgress('runtime_ready', 45, 'WebAssembly runtime initialized');
         
         if (config.verbose) {
           console.log('[WASM] Runtime initialized');
@@ -204,10 +208,6 @@ function createModule(config = {}) {
         )
       ),
     };
-
-    if (currentProgressCallback) {
-      currentProgressCallback('loading_module', 42, 'Initializing Emscripten module...');
-    }
 
     try {
       // Load the soffice module
