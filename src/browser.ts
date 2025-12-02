@@ -459,6 +459,8 @@ export class WorkerBrowserConverter {
       pending.resolve(msg.pageCount);
     } else if (msg.type === 'previews') {
       pending.resolve(msg.previews);
+    } else if (msg.type === 'documentInfo') {
+      pending.resolve(msg.documentInfo);
     }
   }
 
@@ -642,6 +644,42 @@ export class WorkerBrowserConverter {
     });
 
     return result as Array<{ page: number; data: Uint8Array; width: number; height: number }>;
+  }
+
+  /**
+   * Get document info including type and valid output formats
+   * This dynamically queries LibreOffice to determine what conversions are supported
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @returns Document info with type, name, valid outputs, and page count
+   */
+  async getDocumentInfo(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>
+  ): Promise<{
+    documentType: number;
+    documentTypeName: string;
+    validOutputFormats: string[];
+    pageCount: number;
+  }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('getDocumentInfo', {
+      inputData,
+      inputExt: ext,
+    });
+
+    return result as {
+      documentType: number;
+      documentTypeName: string;
+      validOutputFormats: string[];
+      pageCount: number;
+    };
   }
 
   /**

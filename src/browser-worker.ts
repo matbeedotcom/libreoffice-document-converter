@@ -10,7 +10,7 @@ import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews';
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'getDocumentInfo';
   id: number;
   wasmPath?: string;
   verbose?: boolean;
@@ -29,14 +29,22 @@ interface PagePreview {
   height: number;
 }
 
+interface DocumentInfo {
+  documentType: number;
+  documentTypeName: string;
+  validOutputFormats: string[];
+  pageCount: number;
+}
+
 interface WorkerResponse {
-  type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews';
+  type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'documentInfo';
   id: number;
   data?: Uint8Array;
   error?: string;
   progress?: { percent: number; message: string };
   pageCount?: number;
   previews?: PagePreview[];
+  documentInfo?: DocumentInfo;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -366,6 +374,74 @@ async function handleRenderPreviews(msg: WorkerMessage) {
   }
 }
 
+async function handleGetDocumentInfo(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  const inPath = `/tmp/input/docinfo.${inputExt || 'docx'}`;
+  let docPtr = 0;
+
+  try {
+    module.FS.writeFile(inPath, inputData);
+    docPtr = lokBindings.documentLoad(inPath);
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    const docType = lokBindings.documentGetDocumentType(docPtr);
+    const pageCount = lokBindings.documentGetParts(docPtr);
+
+    // Map document type to valid output formats (based on LibreOffice capabilities)
+    const docTypeOutputFormats: Record<number, string[]> = {
+      0: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'], // TEXT
+      1: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],        // SPREADSHEET
+      2: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],              // PRESENTATION
+      3: ['pdf', 'png', 'jpg', 'svg', 'html'],                                     // DRAWING
+      4: ['pdf'],                                                                   // OTHER
+    };
+
+    const docTypeNames: Record<number, string> = {
+      0: 'Text Document',
+      1: 'Spreadsheet',
+      2: 'Presentation',
+      3: 'Drawing',
+      4: 'Other',
+    };
+
+    const documentInfo: DocumentInfo = {
+      documentType: docType,
+      documentTypeName: docTypeNames[docType] || 'Unknown',
+      validOutputFormats: docTypeOutputFormats[docType] || ['pdf'],
+      pageCount,
+    };
+
+    postResponse({ type: 'documentInfo', id: msg.id, documentInfo });
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+  }
+}
+
 function handleDestroy(msg: WorkerMessage) {
   if (lokBindings) {
     try { lokBindings.destroy(); } catch { /* ignore */ }
@@ -403,6 +479,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       break;
     case 'renderPreviews':
       await handleRenderPreviews(msg);
+      break;
+    case 'getDocumentInfo':
+      await handleGetDocumentInfo(msg);
       break;
     case 'destroy':
       handleDestroy(msg);

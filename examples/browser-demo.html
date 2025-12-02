@@ -302,6 +302,21 @@
     .loading {
       animation: pulse 1.5s ease-in-out infinite;
     }
+
+    .format-hint {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: rgba(0, 229, 255, 0.08);
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+      display: none;
+    }
+
+    .format-hint.show {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -376,6 +391,8 @@
       </div>
 
       <div class="status" id="status"></div>
+      
+      <div class="format-hint" id="formatHint"></div>
     </div>
 
     <div class="formats-section">
@@ -452,7 +469,28 @@
       }
     });
 
-    function handleFile(file) {
+    // Cached converter instance for reuse
+    let cachedConverter = null;
+    let currentDocInfo = null;
+
+    async function getConverter() {
+      if (cachedConverter) return cachedConverter;
+      
+      const { WorkerBrowserConverter } = await import('../dist/browser.js');
+      const baseUrl = new URL('..', window.location.href).href;
+      
+      cachedConverter = new WorkerBrowserConverter({
+        wasmPath: baseUrl + 'wasm',
+        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        verbose: true,
+        onProgress: (p) => updateProgress(p.percent, p.message),
+      });
+      
+      await cachedConverter.initialize();
+      return cachedConverter;
+    }
+
+    async function handleFile(file) {
       selectedFile = file;
       dropZone.classList.add('has-file');
       
@@ -460,7 +498,97 @@
       fileSize.textContent = ` (${formatBytes(file.size)})`;
       fileInfo.classList.add('show');
       
+      // Get file extension
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'docx';
+      
+      // First, use static validation for immediate feedback
+      updateOutputFormatsStatic(ext);
+      
+      // Then, dynamically query LibreOffice for accurate info (async)
+      queryDocumentInfo(file, ext);
+      
       convertBtn.disabled = false;
+    }
+
+    // Static validation for immediate UI feedback
+    function updateOutputFormatsStatic(inputFormat) {
+      const formatCategories = {
+        doc: 'text', docx: 'text', odt: 'text', rtf: 'text', txt: 'text', 
+        html: 'text', htm: 'text', epub: 'text', xml: 'text',
+        xls: 'spreadsheet', xlsx: 'spreadsheet', ods: 'spreadsheet', csv: 'spreadsheet',
+        ppt: 'presentation', pptx: 'presentation', odp: 'presentation',
+        odg: 'drawing', odf: 'drawing', pdf: 'drawing'
+      };
+      
+      const categoryOutputs = {
+        text: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'],
+        spreadsheet: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],
+        presentation: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],
+        drawing: ['pdf', 'png', 'jpg', 'svg', 'html'],
+        other: ['pdf']
+      };
+      
+      const category = formatCategories[inputFormat] || 'other';
+      const validFormats = categoryOutputs[category] || ['pdf'];
+      
+      applyFormatRestrictions(validFormats, inputFormat, category);
+    }
+
+    // Dynamic query to LibreOffice for accurate document info
+    async function queryDocumentInfo(file, ext) {
+      try {
+        const hint = document.getElementById('formatHint');
+        hint.textContent = '🔄 Analyzing document...';
+        hint.classList.add('show');
+        
+        const converter = await getConverter();
+        const buffer = await file.arrayBuffer();
+        const inputData = new Uint8Array(buffer);
+        
+        // Query LibreOffice for actual document type
+        currentDocInfo = await converter.getDocumentInfo(inputData, { inputFormat: ext });
+        
+        console.log('Document info:', currentDocInfo);
+        
+        // Update UI with accurate info from LibreOffice
+        applyFormatRestrictions(
+          currentDocInfo.validOutputFormats, 
+          ext, 
+          currentDocInfo.documentTypeName.toLowerCase()
+        );
+        
+        // Show document info
+        hint.textContent = `📄 ${currentDocInfo.documentTypeName} • ${currentDocInfo.pageCount} page${currentDocInfo.pageCount !== 1 ? 's' : ''} • Valid outputs: ${currentDocInfo.validOutputFormats.join(', ').toUpperCase()}`;
+        hint.classList.add('show');
+        
+      } catch (error) {
+        console.error('Failed to query document info:', error);
+        // Keep static validation in place
+      }
+    }
+
+    function applyFormatRestrictions(validFormats, inputFormat, category) {
+      const select = document.getElementById('outputFormat');
+      const currentValue = select.value;
+      
+      // Disable invalid options
+      Array.from(select.options).forEach(option => {
+        const isValid = validFormats.includes(option.value);
+        option.disabled = !isValid;
+        option.style.color = isValid ? '' : '#666';
+      });
+      
+      // If current selection is invalid, switch to PDF
+      if (!validFormats.includes(currentValue)) {
+        select.value = 'pdf';
+      }
+      
+      // Show hint for limited formats
+      const hint = document.getElementById('formatHint');
+      if (category === 'drawing' || validFormats.length <= 5) {
+        hint.textContent = `📋 ${inputFormat.toUpperCase()} can convert to: ${validFormats.join(', ').toUpperCase()}`;
+        hint.classList.add('show');
+      }
     }
 
     function formatBytes(bytes) {
@@ -503,40 +631,28 @@
     }
 
     async function performConversion() {
-      // Import the browser module
-      // Note: For local testing, serve files with a web server
-      // For production: import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+      updateProgress(10, 'Getting converter...');
 
-      updateProgress(10, 'Loading LibreOffice WASM...');
+      // Use cached converter (already initialized when file was selected)
+      const converter = await getConverter();
 
-      // Dynamically import the browser module
-      const { BrowserConverter } = await import('../dist/browser.js');
+      // Get file extension for input format
+      const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
+      console.log('Converting file:', selectedFile.name, 'extension:', ext, 'to:', outputFormat.value);
 
-      const converter = new BrowserConverter({
-        wasmPath: '../wasm',
-        verbose: true,
-        onProgress: (p) => updateProgress(p.percent, p.message),
+      updateProgress(30, 'Converting document...');
+      const result = await converter.convertFile(selectedFile, {
+        inputFormat: ext,
+        outputFormat: outputFormat.value,
+        pdf: outputFormat.value === 'pdf' ? { quality: parseInt(pdfQuality.value) } : undefined,
       });
 
-      try {
-        updateProgress(20, 'Initializing...');
-        await converter.initialize();
+      updateProgress(100, 'Complete!');
 
-        updateProgress(30, 'Converting document...');
-        const result = await converter.convertFile(selectedFile, {
-          outputFormat: outputFormat.value,
-          pdf: outputFormat.value === 'pdf' ? { quality: parseInt(pdfQuality.value) } : undefined,
-        });
+      // Download the result
+      converter.download(result);
 
-        updateProgress(100, 'Complete!');
-
-        // Download the result
-        converter.download(result);
-
-        return result;
-      } finally {
-        await converter.destroy();
-      }
+      return result;
     }
   </script>
 </body>

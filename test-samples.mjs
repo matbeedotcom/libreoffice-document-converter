@@ -5,9 +5,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Test files: Writer (DOCX/ODT) and Calc (ODS)
+// Test files: Writer (DOCX/ODT), Calc (ODS), and Impress (PPTX)
 // Note: XLSX loading is extremely slow in WASM - use ODS instead
-// Note: PPTX requires Impress module which isn't in the current build
 const testFiles = [
   // Writer conversions - fast and reliable
   { path: 'tests/sample_test_2.docx', format: 'pdf', type: 'Writer' },
@@ -17,8 +16,8 @@ const testFiles = [
   // Calc conversions - ODS is fast, XLSX is slow
   { path: 'tests/sample_test_4.ods', format: 'pdf', type: 'Calc' },
   { path: 'tests/sample_test_4.ods', format: 'xlsx', type: 'Calc' },
-  // Note: Loading XLSX files is very slow in WASM (~minutes)
-  // { path: 'tests/sample_test_5.xlsx', format: 'pdf', type: 'Calc' },
+  // Impress conversions - PPTX to PDF
+  { path: 'tests/sample_test_1.pptx', format: 'pdf', type: 'Impress' },
 ];
 
 console.log('╔══════════════════════════════════════════════════════════════╗');
@@ -128,6 +127,7 @@ console.log('');
 // Group by type
 const writerResults = successful.filter(r => r.type === 'Writer');
 const calcResults = successful.filter(r => r.type === 'Calc');
+const impressResults = successful.filter(r => r.type === 'Impress');
 
 if (writerResults.length > 0) {
   const avgTime = writerResults.reduce((a, b) => a + b.time, 0) / writerResults.length;
@@ -137,6 +137,11 @@ if (writerResults.length > 0) {
 if (calcResults.length > 0) {
   const avgTime = calcResults.reduce((a, b) => a + b.time, 0) / calcResults.length;
   console.log(`Calc avg conversion: ${(avgTime/1000).toFixed(2)}s (${calcResults.length} files)`);
+}
+
+if (impressResults.length > 0) {
+  const avgTime = impressResults.reduce((a, b) => a + b.time, 0) / impressResults.length;
+  console.log(`Impress avg conversion: ${(avgTime/1000).toFixed(2)}s (${impressResults.length} files)`);
 }
 
 if (successful.length > 0) {

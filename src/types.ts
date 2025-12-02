@@ -367,6 +367,28 @@ export enum LOKDocumentType {
 }
 
 /**
+ * Map LOK document type to valid output formats
+ * This is the authoritative source - based on LibreOffice's actual filter capabilities
+ */
+export const LOK_DOCTYPE_OUTPUT_FORMATS: Record<LOKDocumentType, OutputFormat[]> = {
+  [LOKDocumentType.TEXT]: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'],
+  [LOKDocumentType.SPREADSHEET]: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],
+  [LOKDocumentType.PRESENTATION]: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],
+  [LOKDocumentType.DRAWING]: ['pdf', 'png', 'jpg', 'svg', 'html'],
+  [LOKDocumentType.OTHER]: ['pdf'],
+};
+
+/**
+ * Get valid output formats for a LOK document type
+ * Use this after loading a document to get accurate conversion options
+ * @param docType The LOK document type (from documentGetDocumentType)
+ * @returns Array of valid output formats
+ */
+export function getOutputFormatsForDocType(docType: LOKDocumentType | number): OutputFormat[] {
+  return LOK_DOCTYPE_OUTPUT_FORMATS[docType as LOKDocumentType] || ['pdf'];
+}
+
+/**
  * Map output format to LOK format string
  * These are the format names used by LibreOfficeKit's saveAs
  */

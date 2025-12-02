@@ -35,6 +35,10 @@ export {
   getConversionErrorMessage,
   INPUT_FORMAT_CATEGORY,
   CATEGORY_OUTPUT_FORMATS,
+  // Dynamic document type helpers (use after loading document)
+  LOKDocumentType,
+  LOK_DOCTYPE_OUTPUT_FORMATS,
+  getOutputFormatsForDocType,
 } from './types.js';
 
 export type { DocumentCategory } from './types.js';

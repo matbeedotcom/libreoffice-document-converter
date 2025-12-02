@@ -21,6 +21,8 @@ import {
   getConversionErrorMessage,
   getValidOutputFormats,
   InputFormat,
+  LOKDocumentType,
+  getOutputFormatsForDocType,
 } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 
@@ -774,6 +776,95 @@ export class LibreOfficeConverter {
       }
       try {
         fs.rmdir('/tmp/pagecount');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get valid output formats for a document by loading it and checking its type
+   * This is more accurate than static validation as it uses LibreOffice's actual document type detection
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @returns Object with document type and valid output formats
+   */
+  async getDocumentInfo(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions
+  ): Promise<{
+    documentType: LOKDocumentType;
+    documentTypeName: string;
+    validOutputFormats: OutputFormat[];
+    pageCount: number;
+  }> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/docinfo/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/docinfo');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        const docType = this.lokBindings.documentGetDocumentType(docPtr) as LOKDocumentType;
+        const pageCount = this.lokBindings.documentGetParts(docPtr);
+        const validOutputFormats = getOutputFormatsForDocType(docType);
+        
+        const docTypeNames: Record<LOKDocumentType, string> = {
+          [LOKDocumentType.TEXT]: 'Text Document',
+          [LOKDocumentType.SPREADSHEET]: 'Spreadsheet',
+          [LOKDocumentType.PRESENTATION]: 'Presentation',
+          [LOKDocumentType.DRAWING]: 'Drawing',
+          [LOKDocumentType.OTHER]: 'Other',
+        };
+
+        return {
+          documentType: docType,
+          documentTypeName: docTypeNames[docType] || 'Unknown',
+          validOutputFormats,
+          pageCount,
+        };
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/docinfo');
       } catch {
         // Ignore
       }
