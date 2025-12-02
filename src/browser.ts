@@ -36,10 +36,14 @@ import {
   EmscriptenModule,
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
+  FORMAT_FILTER_OPTIONS,
+  OUTPUT_FORMAT_TO_LOK,
   LibreOfficeWasmOptions,
   OutputFormat,
   ProgressInfo,
 } from './types.js';
+
+import { LOKBindings } from './lok-bindings.js';
 
 type ModuleFactory = (config: Partial<EmscriptenModule>) => Promise<EmscriptenModule>;
 
@@ -49,6 +53,7 @@ type ModuleFactory = (config: Partial<EmscriptenModule>) => Promise<EmscriptenMo
 export class BrowserConverter {
   private module: EmscriptenModule | null = null;
   private _lokInstance: number = 0;
+  private lokBindings: LOKBindings | null = null;
   private initialized = false;
   private initializing = false;
   private options: LibreOfficeWasmOptions;
@@ -148,25 +153,12 @@ export class BrowserConverter {
   private async initLOK(): Promise<void> {
     if (!this.module) throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'No module');
 
-    if (this.module._lok_preinit) {
-      const ptr = this.allocString('/instdir/program');
-      this.module._lok_preinit(ptr, 0);
-      this.module._free(ptr);
-    }
+    // Create LOKBindings and initialize
+    this.lokBindings = new LOKBindings(this.module, this.options.verbose);
+    this.lokBindings.initialize('/instdir/program');
 
-    if (this.module._libreofficekit_hook) {
-      const ptr = this.allocString('/instdir/program');
-      this._lokInstance = this.module._libreofficekit_hook(ptr) as number;
-      this.module._free(ptr);
-    }
-  }
-
-  private allocString(str: string): number {
-    if (!this.module) throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'No module');
-    const bytes = new TextEncoder().encode(str + '\0');
-    const ptr = this.module._malloc(bytes.length);
-    this.module.HEAPU8.set(bytes, ptr);
-    return ptr;
+    // Store the LOK instance pointer for backwards compatibility
+    this._lokInstance = (this.lokBindings as any).lokPtr || 1;
   }
 
   /**
@@ -177,7 +169,7 @@ export class BrowserConverter {
     options: ConversionOptions,
     filename = 'document'
   ): Promise<ConversionResult> {
-    if (!this.initialized || !this.module) {
+    if (!this.initialized || !this.module || !this.lokBindings) {
       throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
     }
 
@@ -198,19 +190,67 @@ export class BrowserConverter {
     const inPath = `/tmp/input/doc.${ext}`;
     const outPath = `/tmp/output/doc.${outputExt}`;
 
+    let docPtr = 0;
+
     try {
+      // Write input file to virtual filesystem
       this.module.FS.writeFile(inPath, inputData);
+      this.emitProgress('converting', 30, 'Loading document...');
+
+      // Load document with LOK
+      if (options.password) {
+        docPtr = this.lokBindings.documentLoadWithOptions(inPath, `,Password=${options.password}`);
+      } else {
+        docPtr = this.lokBindings.documentLoad(inPath);
+      }
+
+      if (docPtr === 0) {
+        const error = this.lokBindings.getError();
+        throw new ConversionError(ConversionErrorCode.LOAD_FAILED, error || 'Failed to load document');
+      }
+
       this.emitProgress('converting', 50, 'Converting...');
 
-      // Read back (placeholder - full LOK integration pending)
-      let result: Uint8Array;
-      try {
-        result = this.module.FS.readFile(outPath) as Uint8Array;
-      } catch {
-        result = inputData; // Placeholder
+      // Get LOK format string and filter options
+      const lokFormat = OUTPUT_FORMAT_TO_LOK[outputExt];
+      let filterOptions = FORMAT_FILTER_OPTIONS[outputExt] || '';
+
+      // Add PDF-specific options
+      if (outputExt === 'pdf' && options.pdf) {
+        const pdfOpts: string[] = [];
+        if (options.pdf.pdfaLevel) {
+          const levelMap: Record<string, number> = {
+            'PDF/A-1b': 1,
+            'PDF/A-2b': 2,
+            'PDF/A-3b': 3,
+          };
+          pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
+        }
+        if (options.pdf.quality !== undefined) {
+          pdfOpts.push(`Quality=${options.pdf.quality}`);
+        }
+        if (pdfOpts.length > 0) {
+          filterOptions = pdfOpts.join(',');
+        }
+      }
+
+      this.emitProgress('converting', 70, 'Saving...');
+
+      // Save document in target format
+      this.lokBindings.documentSaveAs(docPtr, outPath, lokFormat, filterOptions);
+
+      this.emitProgress('converting', 90, 'Reading output...');
+
+      // Read the converted output
+      const result = this.module.FS.readFile(outPath) as Uint8Array;
+
+      if (result.length === 0) {
+        throw new ConversionError(ConversionErrorCode.CONVERSION_FAILED, 'Empty output');
       }
 
       const baseName = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename;
+
+      this.emitProgress('complete', 100, 'Done');
 
       return {
         data: result,
@@ -219,6 +259,13 @@ export class BrowserConverter {
         duration: Date.now() - startTime,
       };
     } finally {
+      // Cleanup document
+      if (docPtr !== 0) {
+        try {
+          this.lokBindings.documentDestroy(docPtr);
+        } catch { /* ignore */ }
+      }
+      // Cleanup temp files
       try { this.module.FS.unlink(inPath); } catch { /* ignore */ }
       try { this.module.FS.unlink(outPath); } catch { /* ignore */ }
     }
@@ -278,6 +325,12 @@ export class BrowserConverter {
    * Cleanup
    */
   async destroy(): Promise<void> {
+    if (this.lokBindings) {
+      try {
+        this.lokBindings.destroy();
+      } catch { /* ignore */ }
+      this.lokBindings = null;
+    }
     this.module = null;
     this._lokInstance = 0;
     this.initialized = false;
