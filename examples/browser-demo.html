@@ -782,6 +782,8 @@
     let pageSkeletons = [];
     let loadedPages = new Set();
     let intersectionObserver = null;
+    let renderQueue = []; // Queue of pages to render
+    let isRendering = false; // Flag to prevent concurrent renders
 
     // DOM Elements
     const dropZone = document.getElementById('dropZone');
@@ -860,6 +862,8 @@
       
       // Reset preview state
       loadedPages.clear();
+      renderQueue = [];
+      isRendering = false;
       updateLoadedCount();
       
       // Query document info and create skeletons
@@ -919,7 +923,7 @@
           if (entry.isIntersecting) {
             const pageIndex = parseInt(entry.target.dataset.page);
             if (!loadedPages.has(pageIndex)) {
-              loadPage(pageIndex, entry.target);
+              queuePageRender(pageIndex, entry.target);
             }
           }
         });
@@ -952,9 +956,40 @@
       }
     }
 
-    // Render a single page - true lazy loading, one page at a time
-    async function loadPage(pageIndex, cardElement) {
+    // Queue a page for rendering - serializes requests to avoid overwhelming the worker
+    function queuePageRender(pageIndex, cardElement) {
       if (loadedPages.has(pageIndex)) return;
+      
+      // Check if already in queue
+      if (renderQueue.some(item => item.pageIndex === pageIndex)) return;
+      
+      const badgeEl = cardElement.querySelector(`[data-badge="${pageIndex}"]`);
+      badgeEl.textContent = 'queued...';
+      
+      renderQueue.push({ pageIndex, cardElement });
+      processRenderQueue();
+    }
+
+    // Process the render queue one page at a time
+    async function processRenderQueue() {
+      if (isRendering || renderQueue.length === 0) return;
+      
+      isRendering = true;
+      
+      while (renderQueue.length > 0) {
+        const { pageIndex, cardElement } = renderQueue.shift();
+        
+        // Skip if already loaded (might have been loaded while in queue)
+        if (loadedPages.has(pageIndex)) continue;
+        
+        await renderSinglePage(pageIndex, cardElement);
+      }
+      
+      isRendering = false;
+    }
+
+    // Render a single page - called from the queue processor
+    async function renderSinglePage(pageIndex, cardElement) {
       loadedPages.add(pageIndex);
       
       const previewEl = cardElement.querySelector(`[data-preview="${pageIndex}"]`);

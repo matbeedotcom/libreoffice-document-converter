@@ -57,6 +57,63 @@ let module: EmscriptenModule | null = null;
 let lokBindings: LOKBindings | null = null;
 let initialized = false;
 
+// Document cache for efficient multi-page rendering
+let cachedDoc: {
+  docPtr: number;
+  inputHash: string;
+  filePath: string;
+} | null = null;
+
+// Simple hash function for input data
+function hashInput(data: Uint8Array): string {
+  let hash = 0;
+  const step = Math.max(1, Math.floor(data.length / 1000)); // Sample ~1000 bytes
+  for (let i = 0; i < data.length; i += step) {
+    hash = ((hash << 5) - hash + data[i]) | 0;
+  }
+  return `${hash}_${data.length}`;
+}
+
+// Get or load a document (reuses cached document if same input)
+function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: number; pageCount: number } {
+  const inputHash = hashInput(inputData);
+  
+  // Check if we already have this document loaded
+  if (cachedDoc && cachedDoc.inputHash === inputHash && lokBindings) {
+    const pageCount = lokBindings.documentGetParts(cachedDoc.docPtr);
+    return { docPtr: cachedDoc.docPtr, pageCount };
+  }
+  
+  // Close previous document if any
+  closeCachedDocument();
+  
+  // Load new document
+  const filePath = `/tmp/input/cached_doc.${inputExt || 'docx'}`;
+  module!.FS.writeFile(filePath, inputData);
+  const docPtr = lokBindings!.documentLoad(filePath);
+  
+  if (docPtr === 0) {
+    const error = lokBindings!.getError();
+    throw new Error(error || 'Failed to load document');
+  }
+  
+  const pageCount = lokBindings!.documentGetParts(docPtr);
+  
+  // Cache the document
+  cachedDoc = { docPtr, inputHash, filePath };
+  
+  return { docPtr, pageCount };
+}
+
+// Close cached document
+function closeCachedDocument() {
+  if (cachedDoc && lokBindings && module) {
+    try { lokBindings.documentDestroy(cachedDoc.docPtr); } catch { /* ignore */ }
+    try { module.FS.unlink(cachedDoc.filePath); } catch { /* ignore */ }
+    cachedDoc = null;
+  }
+}
+
 function postResponse(response: WorkerResponse) {
   if (response.data) {
     // Transfer the ArrayBuffer for efficiency
@@ -377,7 +434,7 @@ async function handleRenderPreviews(msg: WorkerMessage) {
 }
 
 /**
- * Render a single page preview - allows trickling in pages one at a time
+ * Render a single page preview - reuses cached document for efficiency
  */
 async function handleRenderSinglePage(msg: WorkerMessage) {
   if (!initialized || !module || !lokBindings) {
@@ -392,19 +449,9 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
     return;
   }
 
-  const inPath = `/tmp/input/page_${pageIndex}.${inputExt || 'docx'}`;
-  let docPtr = 0;
-
   try {
-    module.FS.writeFile(inPath, inputData);
-    docPtr = lokBindings.documentLoad(inPath);
-
-    if (docPtr === 0) {
-      const error = lokBindings.getError();
-      throw new Error(error || 'Failed to load document');
-    }
-
-    const pageCount = lokBindings.documentGetParts(docPtr);
+    // Get or reuse cached document
+    const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
     
     if (pageIndex < 0 || pageIndex >= pageCount) {
       throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
@@ -446,12 +493,10 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
       id: msg.id,
       error: error instanceof Error ? error.message : String(error)
     });
-  } finally {
-    if (docPtr !== 0) {
-      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
-    }
-    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    // On error, close the cached document to allow retry
+    closeCachedDocument();
   }
+  // Note: We don't close the document here - it stays cached for subsequent page renders
 }
 
 async function handleGetDocumentInfo(msg: WorkerMessage) {
@@ -523,6 +568,9 @@ async function handleGetDocumentInfo(msg: WorkerMessage) {
 }
 
 function handleDestroy(msg: WorkerMessage) {
+  // Close any cached document first
+  closeCachedDocument();
+  
   if (lokBindings) {
     try { lokBindings.destroy(); } catch { /* ignore */ }
     lokBindings = null;
