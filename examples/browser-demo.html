@@ -481,9 +481,8 @@
         // Show loading state
         updateProgress(10, 'Loading converter...');
 
-        // In production, use the actual converter
-        // For demo, we'll simulate the conversion
-        await simulateConversion();
+        // Use the real converter
+        await performConversion();
 
         status.textContent = '✓ Conversion complete! Download started.';
         status.classList.add('show', 'success');
@@ -503,38 +502,41 @@
       progressText.textContent = message;
     }
 
-    async function simulateConversion() {
-      // Simulate the conversion process
-      // In production, replace this with actual BrowserConverter usage
-      
-      updateProgress(20, 'Initializing LibreOffice WASM...');
-      await sleep(500);
-      
-      updateProgress(40, 'Loading document...');
-      await sleep(300);
-      
-      updateProgress(60, 'Converting...');
-      await sleep(800);
-      
-      updateProgress(80, 'Generating output...');
-      await sleep(400);
-      
-      updateProgress(100, 'Complete!');
-      
-      // Simulate download
-      const blob = new Blob(['Demo output - actual conversion requires WASM build'], {
-        type: 'application/octet-stream'
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = selectedFile.name.replace(/\.[^.]+$/, '.' + outputFormat.value);
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    async function performConversion() {
+      // Import the browser module
+      // Note: For local testing, serve files with a web server
+      // For production: import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
 
-    function sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
+      updateProgress(10, 'Loading LibreOffice WASM...');
+
+      // Dynamically import the browser module
+      const { BrowserConverter } = await import('../dist/browser.js');
+
+      const converter = new BrowserConverter({
+        wasmPath: '../wasm',
+        verbose: true,
+        onProgress: (p) => updateProgress(p.percent, p.message),
+      });
+
+      try {
+        updateProgress(20, 'Initializing...');
+        await converter.initialize();
+
+        updateProgress(30, 'Converting document...');
+        const result = await converter.convertFile(selectedFile, {
+          outputFormat: outputFormat.value,
+          pdf: outputFormat.value === 'pdf' ? { quality: parseInt(pdfQuality.value) } : undefined,
+        });
+
+        updateProgress(100, 'Complete!');
+
+        // Download the result
+        converter.download(result);
+
+        return result;
+      } finally {
+        await converter.destroy();
+      }
     }
   </script>
 </body>
