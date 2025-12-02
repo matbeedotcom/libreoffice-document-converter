@@ -29,7 +29,15 @@ export {
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
   EXTENSION_TO_FORMAT,
+  // Conversion validation helpers
+  getValidOutputFormats,
+  isConversionValid,
+  getConversionErrorMessage,
+  INPUT_FORMAT_CATEGORY,
+  CATEGORY_OUTPUT_FORMATS,
 } from './types.js';
+
+export type { DocumentCategory } from './types.js';
 
 // Export LOK constants for advanced usage
 export {
@@ -117,6 +125,43 @@ export function isInputFormatSupported(format: string): boolean {
  */
 export function isOutputFormatSupported(format: string): boolean {
   return LibreOfficeConverter.getSupportedOutputFormats().includes(format.toLowerCase() as OutputFormat);
+}
+
+/**
+ * Check if a specific conversion path is supported
+ * @param inputFormat The input document format (e.g., 'pdf', 'docx')
+ * @param outputFormat The desired output format (e.g., 'pdf', 'docx')
+ * @returns true if the conversion is supported
+ * 
+ * @example
+ * ```typescript
+ * import { isConversionSupported } from '@libreoffice-wasm/converter';
+ * 
+ * isConversionSupported('docx', 'pdf');  // true
+ * isConversionSupported('pdf', 'docx');  // false - PDFs can't be converted to DOCX
+ * isConversionSupported('xlsx', 'csv');  // true
+ * ```
+ */
+export function isConversionSupported(inputFormat: string, outputFormat: string): boolean {
+  return LibreOfficeConverter.isConversionSupported(inputFormat, outputFormat);
+}
+
+/**
+ * Get valid output formats for a given input format
+ * @param inputFormat The input document format
+ * @returns Array of valid output formats
+ * 
+ * @example
+ * ```typescript
+ * import { getValidOutputFormatsFor } from '@libreoffice-wasm/converter';
+ * 
+ * getValidOutputFormatsFor('docx');  // ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg']
+ * getValidOutputFormatsFor('pdf');   // ['pdf', 'png', 'jpg', 'svg', 'html']
+ * getValidOutputFormatsFor('xlsx');  // ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg']
+ * ```
+ */
+export function getValidOutputFormatsFor(inputFormat: string): OutputFormat[] {
+  return LibreOfficeConverter.getValidOutputFormats(inputFormat);
 }
 
 // Re-export OutputFormat type for the isOutputFormatSupported function

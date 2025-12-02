@@ -405,3 +405,116 @@ export const FORMAT_FILTER_OPTIONS: Partial<Record<OutputFormat, string>> = {
   // Text encoding
   txt: 'UTF8',
 };
+
+/**
+ * Document type categories for determining valid conversions
+ */
+export type DocumentCategory = 'text' | 'spreadsheet' | 'presentation' | 'drawing' | 'other';
+
+/**
+ * Map input formats to their document category
+ * This determines which output formats are valid
+ */
+export const INPUT_FORMAT_CATEGORY: Record<InputFormat, DocumentCategory> = {
+  // Text/Writer documents
+  doc: 'text',
+  docx: 'text',
+  odt: 'text',
+  rtf: 'text',
+  txt: 'text',
+  html: 'text',
+  htm: 'text',
+  epub: 'text',
+  xml: 'text',
+  // Spreadsheet/Calc documents
+  xls: 'spreadsheet',
+  xlsx: 'spreadsheet',
+  ods: 'spreadsheet',
+  csv: 'spreadsheet',
+  // Presentation/Impress documents
+  ppt: 'presentation',
+  pptx: 'presentation',
+  odp: 'presentation',
+  // Drawing/Draw documents (PDF imports as Draw)
+  odg: 'drawing',
+  odf: 'drawing',
+  pdf: 'drawing', // PDFs are imported as Draw documents
+};
+
+/**
+ * Valid output formats for each document category
+ * Based on LibreOffice's actual filter capabilities
+ */
+export const CATEGORY_OUTPUT_FORMATS: Record<DocumentCategory, OutputFormat[]> = {
+  // Writer documents can export to:
+  text: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'],
+  // Calc documents can export to:
+  spreadsheet: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],
+  // Impress documents can export to:
+  presentation: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],
+  // Draw documents (including imported PDFs) can export to:
+  drawing: ['pdf', 'png', 'jpg', 'svg', 'html'],
+  // Other/unknown - try PDF only
+  other: ['pdf'],
+};
+
+/**
+ * Get valid output formats for a given input format
+ * @param inputFormat The input document format
+ * @returns Array of valid output formats
+ */
+export function getValidOutputFormats(inputFormat: InputFormat | string): OutputFormat[] {
+  const format = inputFormat.toLowerCase() as InputFormat;
+  const category = INPUT_FORMAT_CATEGORY[format];
+  
+  if (!category) {
+    // Unknown format - allow PDF as a safe default
+    return ['pdf'];
+  }
+  
+  return CATEGORY_OUTPUT_FORMATS[category];
+}
+
+/**
+ * Check if a conversion from input format to output format is valid
+ * @param inputFormat The input document format
+ * @param outputFormat The desired output format
+ * @returns true if the conversion is supported
+ */
+export function isConversionValid(
+  inputFormat: InputFormat | string,
+  outputFormat: OutputFormat | string
+): boolean {
+  const validOutputs = getValidOutputFormats(inputFormat);
+  return validOutputs.includes(outputFormat.toLowerCase() as OutputFormat);
+}
+
+/**
+ * Get a human-readable error message for invalid conversions
+ * @param inputFormat The input document format
+ * @param outputFormat The desired output format
+ * @returns Error message explaining why the conversion is not supported
+ */
+export function getConversionErrorMessage(
+  inputFormat: InputFormat | string,
+  outputFormat: OutputFormat | string
+): string {
+  const input = inputFormat.toLowerCase();
+  const output = outputFormat.toLowerCase();
+  const validOutputs = getValidOutputFormats(input as InputFormat);
+  
+  const category = INPUT_FORMAT_CATEGORY[input as InputFormat] || 'unknown';
+  
+  let reason = '';
+  if (category === 'drawing' && ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(output)) {
+    reason = `PDF files are imported as Draw documents and cannot be exported to Office formats. `;
+  } else if (category === 'spreadsheet' && ['docx', 'doc', 'pptx', 'ppt'].includes(output)) {
+    reason = `Spreadsheet documents cannot be converted to word processing or presentation formats. `;
+  } else if (category === 'presentation' && ['docx', 'doc', 'xlsx', 'xls'].includes(output)) {
+    reason = `Presentation documents cannot be converted to word processing or spreadsheet formats. `;
+  } else if (category === 'text' && ['xlsx', 'xls', 'pptx', 'ppt'].includes(output)) {
+    reason = `Text documents cannot be converted to spreadsheet or presentation formats. `;
+  }
+  
+  return `Cannot convert ${input.toUpperCase()} to ${output.toUpperCase()}. ${reason}Valid output formats for ${input.toUpperCase()}: ${validOutputs.join(', ')}`;
+}

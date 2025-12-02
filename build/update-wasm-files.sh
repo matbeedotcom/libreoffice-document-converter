@@ -59,7 +59,7 @@ fi
 
 # Apply patches
 echo ""
-echo "=== Applying patches ===
+echo "=== Applying patches ==="
 
 cd "$WASM_DIR"
 

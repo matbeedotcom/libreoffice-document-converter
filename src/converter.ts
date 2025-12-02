@@ -17,6 +17,10 @@ import {
   OUTPUT_FORMAT_TO_LOK,
   OutputFormat,
   ProgressInfo,
+  isConversionValid,
+  getConversionErrorMessage,
+  getValidOutputFormats,
+  InputFormat,
 } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 
@@ -420,6 +424,14 @@ export class LibreOfficeConverter {
       throw new ConversionError(
         ConversionErrorCode.UNSUPPORTED_FORMAT,
         `Unsupported output format: ${outputExt}`
+      );
+    }
+
+    // Validate that this conversion path is supported
+    if (!isConversionValid(inputExt, outputExt)) {
+      throw new ConversionError(
+        ConversionErrorCode.UNSUPPORTED_FORMAT,
+        getConversionErrorMessage(inputExt, outputExt)
       );
     }
 
@@ -1161,6 +1173,25 @@ export class LibreOfficeConverter {
    */
   static getSupportedOutputFormats(): OutputFormat[] {
     return Object.keys(FORMAT_FILTERS) as OutputFormat[];
+  }
+
+  /**
+   * Get valid output formats for a given input format
+   * @param inputFormat The input document format (e.g., 'pdf', 'docx', 'xlsx')
+   * @returns Array of valid output formats for this input
+   */
+  static getValidOutputFormats(inputFormat: string): OutputFormat[] {
+    return getValidOutputFormats(inputFormat as InputFormat);
+  }
+
+  /**
+   * Check if a conversion from input format to output format is supported
+   * @param inputFormat The input document format
+   * @param outputFormat The desired output format
+   * @returns true if the conversion is supported
+   */
+  static isConversionSupported(inputFormat: string, outputFormat: string): boolean {
+    return isConversionValid(inputFormat, outputFormat);
   }
 
   // ============================================================
