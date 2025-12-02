@@ -594,6 +594,181 @@ export class LibreOfficeConverter {
   }
 
   /**
+   * Render page previews (thumbnails) for a document
+   * @param input Document data
+   * @param options Conversion options (inputFormat required)
+   * @param width Preview width in pixels (default: 256)
+   * @param height Preview height in pixels (0 = auto based on aspect ratio)
+   * @param pageIndices Specific page indices to render (empty = all pages)
+   * @returns Array of page preview data with RGBA pixels
+   */
+  async renderPagePreviews(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions,
+    width: number = 256,
+    height: number = 0,
+    pageIndices: number[] = []
+  ): Promise<Array<{ page: number; data: Uint8Array; width: number; height: number }>> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required for page preview'
+      );
+    }
+
+    // Write input file to virtual FS
+    const inputPath = `/tmp/preview/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      // Create directory
+      try {
+        fs.mkdir('/tmp/preview');
+      } catch {
+        // Directory might exist
+      }
+
+      // Write file
+      fs.writeFile(inputPath, data);
+
+      // Load document
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document for preview'
+        );
+      }
+
+      try {
+        // Get number of pages/parts
+        const numParts = this.lokBindings.documentGetParts(docPtr);
+        if (this.options.verbose) {
+          console.log(`[Preview] Document has ${numParts} pages/parts`);
+        }
+
+        // Determine which pages to render
+        const pagesToRender =
+          pageIndices.length > 0
+            ? pageIndices.filter((i) => i >= 0 && i < numParts)
+            : Array.from({ length: numParts }, (_, i) => i);
+
+        const results: Array<{
+          page: number;
+          data: Uint8Array;
+          width: number;
+          height: number;
+        }> = [];
+
+        // Render each page
+        for (const pageIndex of pagesToRender) {
+          if (this.options.verbose) {
+            console.log(`[Preview] Rendering page ${pageIndex + 1}/${numParts}`);
+          }
+
+          const preview = this.lokBindings.renderPage(docPtr, pageIndex, width, height);
+          results.push({
+            page: pageIndex,
+            data: preview.data,
+            width: preview.width,
+            height: preview.height,
+          });
+        }
+
+        return results;
+      } finally {
+        // Clean up document
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      // Clean up input file
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/preview');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get the number of pages/parts in a document
+   */
+  async getPageCount(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions
+  ): Promise<number> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/pagecount/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/pagecount');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        return this.lokBindings.documentGetParts(docPtr);
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/pagecount');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
    * Destroy the LibreOffice instance and free resources
    */
   async destroy(): Promise<void> {

@@ -23,6 +23,24 @@ interface LOKModule extends EmscriptenModule {
   _lok_documentDestroy?: (doc: number) => void;
   _lok_getError?: (lok: number) => number;
   _lok_destroy?: (lok: number) => void;
+  // Page rendering shims
+  _lok_documentGetParts?: (doc: number) => number;
+  _lok_documentGetPart?: (doc: number) => number;
+  _lok_documentSetPart?: (doc: number, part: number) => void;
+  _lok_documentGetDocumentType?: (doc: number) => number;
+  _lok_documentGetDocumentSize?: (doc: number, widthPtr: number, heightPtr: number) => void;
+  _lok_documentInitializeForRendering?: (doc: number, args: number) => void;
+  _lok_documentPaintTile?: (
+    doc: number,
+    buffer: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    tilePosX: number,
+    tilePosY: number,
+    tileWidth: number,
+    tileHeight: number
+  ) => void;
+  _lok_documentGetTileMode?: (doc: number) => number;
 }
 
 // Fallback offsets for WASM32 (4-byte pointers) if shims not available
@@ -391,5 +409,239 @@ export class LOKBindings {
    */
   isUsingShims(): boolean {
     return this.useShims;
+  }
+
+  // ==========================================
+  // Page Rendering Methods
+  // ==========================================
+
+  /**
+   * Get the number of parts (pages/slides) in a document
+   */
+  documentGetParts(docPtr: number): number {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentGetParts) {
+      return this.module._lok_documentGetParts(docPtr);
+    }
+
+    // Fallback not implemented - would need vtable offsets
+    this.log('documentGetParts: shim not available');
+    return 0;
+  }
+
+  /**
+   * Get the current part (page/slide) index
+   */
+  documentGetPart(docPtr: number): number {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentGetPart) {
+      return this.module._lok_documentGetPart(docPtr);
+    }
+
+    this.log('documentGetPart: shim not available');
+    return 0;
+  }
+
+  /**
+   * Set the current part (page/slide) index
+   */
+  documentSetPart(docPtr: number, part: number): void {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentSetPart) {
+      this.module._lok_documentSetPart(docPtr, part);
+      return;
+    }
+
+    this.log('documentSetPart: shim not available');
+  }
+
+  /**
+   * Get document type (0=text, 1=spreadsheet, 2=presentation, 3=drawing)
+   */
+  documentGetDocumentType(docPtr: number): number {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentGetDocumentType) {
+      return this.module._lok_documentGetDocumentType(docPtr);
+    }
+
+    this.log('documentGetDocumentType: shim not available');
+    return 0;
+  }
+
+  /**
+   * Get document size in twips (1/1440 inch)
+   */
+  documentGetDocumentSize(docPtr: number): { width: number; height: number } {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentGetDocumentSize) {
+      // Allocate space for two longs (32-bit on WASM)
+      const sizePtr = this.module._malloc(8);
+      try {
+        this.module._lok_documentGetDocumentSize(docPtr, sizePtr, sizePtr + 4);
+        const width = this.HEAP32[sizePtr >> 2] ?? 0;
+        const height = this.HEAP32[(sizePtr + 4) >> 2] ?? 0;
+        return { width, height };
+      } finally {
+        this.module._free(sizePtr);
+      }
+    }
+
+    this.log('documentGetDocumentSize: shim not available');
+    return { width: 0, height: 0 };
+  }
+
+  /**
+   * Initialize document for rendering
+   */
+  documentInitializeForRendering(docPtr: number, options: string = ''): void {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentInitializeForRendering) {
+      const optsPtr = this.allocString(options);
+      try {
+        this.module._lok_documentInitializeForRendering(docPtr, optsPtr);
+      } finally {
+        this.module._free(optsPtr);
+      }
+      return;
+    }
+
+    this.log('documentInitializeForRendering: shim not available');
+  }
+
+  /**
+   * Paint a tile of the document to a buffer
+   * @param docPtr Document pointer
+   * @param canvasWidth Output width in pixels
+   * @param canvasHeight Output height in pixels
+   * @param tilePosX X position in twips
+   * @param tilePosY Y position in twips
+   * @param tileWidth Width in twips
+   * @param tileHeight Height in twips
+   * @returns RGBA pixel data
+   */
+  documentPaintTile(
+    docPtr: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    tilePosX: number,
+    tilePosY: number,
+    tileWidth: number,
+    tileHeight: number
+  ): Uint8Array {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentPaintTile) {
+      // Allocate RGBA buffer (4 bytes per pixel)
+      const bufferSize = canvasWidth * canvasHeight * 4;
+      const bufferPtr = this.module._malloc(bufferSize);
+
+      try {
+        this.module._lok_documentPaintTile(
+          docPtr,
+          bufferPtr,
+          canvasWidth,
+          canvasHeight,
+          tilePosX,
+          tilePosY,
+          tileWidth,
+          tileHeight
+        );
+
+        // Copy data out of WASM memory
+        const result = new Uint8Array(bufferSize);
+        result.set(this.HEAPU8.subarray(bufferPtr, bufferPtr + bufferSize));
+        return result;
+      } finally {
+        this.module._free(bufferPtr);
+      }
+    }
+
+    this.log('documentPaintTile: shim not available');
+    return new Uint8Array(0);
+  }
+
+  /**
+   * Get tile mode (0=RGBA, 1=BGRA)
+   */
+  documentGetTileMode(docPtr: number): number {
+    if (docPtr === 0) {
+      throw new Error('Invalid document pointer');
+    }
+
+    if (this.useShims && this.module._lok_documentGetTileMode) {
+      return this.module._lok_documentGetTileMode(docPtr);
+    }
+
+    this.log('documentGetTileMode: shim not available');
+    return 0; // Default to RGBA
+  }
+
+  /**
+   * Render a page/slide to an image
+   * @param docPtr Document pointer
+   * @param pageIndex Page/slide index (0-based)
+   * @param width Output width in pixels
+   * @param height Output height in pixels (0 = auto based on aspect ratio)
+   * @returns RGBA pixel data and dimensions
+   */
+  renderPage(
+    docPtr: number,
+    pageIndex: number,
+    width: number,
+    height: number = 0
+  ): { data: Uint8Array; width: number; height: number } {
+    // Initialize for rendering if not already done
+    this.documentInitializeForRendering(docPtr);
+
+    // Set the page/part
+    this.documentSetPart(docPtr, pageIndex);
+
+    // Get document size in twips
+    const docSize = this.documentGetDocumentSize(docPtr);
+    this.log('Document size (twips):', docSize);
+
+    if (docSize.width === 0 || docSize.height === 0) {
+      throw new Error('Failed to get document size');
+    }
+
+    // Calculate output height if not specified (maintain aspect ratio)
+    const aspectRatio = docSize.height / docSize.width;
+    const outputWidth = width;
+    const outputHeight = height > 0 ? height : Math.round(width * aspectRatio);
+
+    this.log(`Rendering page ${pageIndex} at ${outputWidth}x${outputHeight}`);
+
+    // Paint the tile
+    const data = this.documentPaintTile(
+      docPtr,
+      outputWidth,
+      outputHeight,
+      0,
+      0,
+      docSize.width,
+      docSize.height
+    );
+
+    return { data, width: outputWidth, height: outputHeight };
   }
 }

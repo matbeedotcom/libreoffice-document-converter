@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibreOffice WASM Browser Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    pre { background: #0f0f1a; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 300px; }
+    button { background: #00e5ff; color: #000; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.preview { background: #ff6b9d; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+    .success { background: #00ff8833; border: 1px solid #00ff88; }
+    .error { background: #ff475733; border: 1px solid #ff4757; }
+    .progress { background: #00e5ff33; border: 1px solid #00e5ff; }
+    .preview-container { 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 15px; 
+      margin: 20px 0; 
+      padding: 15px;
+      background: #0f0f1a;
+      border-radius: 8px;
+    }
+    .preview-item {
+      text-align: center;
+      background: #1a1a2e;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    .preview-item canvas {
+      border: 1px solid #444;
+      border-radius: 4px;
+      max-width: 300px;
+    }
+    .preview-item p {
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: #888;
+    }
+    h3 { color: #00e5ff; margin-top: 25px; }
+    .section { margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <h1>LibreOffice WASM Browser Test</h1>
+  
+  <div class="section">
+    <h3>📄 Document Conversion</h3>
+    <div id="controls">
+      <button id="testDocx">DOCX → PDF</button>
+      <button id="testPptx">PPTX → PDF (small)</button>
+      <button id="testPptxLarge">PPTX → PDF (9MB)</button>
+      <button id="testOds">ODS → PDF</button>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h3>🖼️ Page Previews</h3>
+    <div id="preview-controls">
+      <button class="preview" id="previewDocx">Preview DOCX</button>
+      <button class="preview" id="previewPptx">Preview PPTX</button>
+      <button class="preview" id="previewOds">Preview ODS</button>
+    </div>
+    <div id="preview-container" class="preview-container" style="display: none;"></div>
+  </div>
+  
+  <div id="status" class="status progress">⏳ Checking browser capabilities...</div>
+  
+  <h3>📋 Console Output:</h3>
+  <pre id="log"></pre>
+  
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const previewContainer = document.getElementById('preview-container');
+    
+    // Override console.log to capture output
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    
+    function appendLog(type, ...args) {
+      const line = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
+      logEl.textContent += `[${type}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    
+    console.log = (...args) => { originalLog(...args); appendLog('LOG', ...args); };
+    console.error = (...args) => { originalError(...args); appendLog('ERR', ...args); };
+    console.warn = (...args) => { originalWarn(...args); appendLog('WRN', ...args); };
+    
+    function setStatus(text, type = 'progress') {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + type;
+    }
+    
+    // Check browser capabilities on page load
+    console.log('=== Browser Capability Check ===');
+    console.log('SharedArrayBuffer available:', typeof SharedArrayBuffer !== 'undefined');
+    console.log('crossOriginIsolated:', window.crossOriginIsolated);
+    console.log('User Agent:', navigator.userAgent);
+    if (!window.crossOriginIsolated) {
+      console.error('⚠️ WARNING: crossOriginIsolated is false! WASM threads will not work.');
+      console.error('Make sure COOP/COEP headers are set correctly.');
+    }
+    
+    // Shared converter instance
+    let converter = null;
+    let converterReady = false;
+    
+    // Pre-load LibreOffice on page load
+    async function preloadConverter() {
+      if (!window.crossOriginIsolated) {
+        setStatus('❌ Cannot preload: crossOriginIsolated is false', 'error');
+        return;
+      }
+      
+      setStatus('🔄 Pre-loading LibreOffice...', 'progress');
+      console.log('Pre-loading LibreOffice WASM...');
+      
+      try {
+        await getConverter();
+        converterReady = true;
+        setStatus('✅ LibreOffice ready! Click any button to convert or preview.', 'success');
+        console.log('✅ LibreOffice pre-loaded and ready!');
+      } catch (error) {
+        setStatus(`❌ Pre-load failed: ${error.message}`, 'error');
+        console.error('Pre-load failed:', error);
+      }
+    }
+    
+    // Start pre-loading immediately
+    preloadConverter();
+    
+    async function getConverter() {
+      if (converter) return converter;
+      
+      console.log('Importing WorkerBrowserConverter...');
+      const { WorkerBrowserConverter } = await import('../dist/browser.js');
+      
+      const baseUrl = new URL('..', window.location.href).href;
+      console.log('Base URL:', baseUrl);
+      
+      converter = new WorkerBrowserConverter({
+        wasmPath: baseUrl + 'wasm',
+        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        verbose: true,
+        onProgress: (p) => {
+          console.log(`Progress: ${p.percent}% - ${p.message}`);
+          setStatus(`${p.percent}% - ${p.message}`, 'progress');
+        },
+      });
+      
+      console.log('Initializing converter...');
+      await converter.initialize();
+      console.log('Converter initialized!');
+      
+      return converter;
+    }
+    
+    async function runTest(filename, inputFormat) {
+      setStatus(`Testing ${filename}...`, 'progress');
+      logEl.textContent = '';
+      previewContainer.style.display = 'none';
+      
+      // Re-check at test time
+      console.log('crossOriginIsolated:', window.crossOriginIsolated);
+      if (!window.crossOriginIsolated) {
+        throw new Error('crossOriginIsolated is false - SharedArrayBuffer not available');
+      }
+      
+      try {
+        console.log('Fetching test file:', filename);
+        const res = await fetch(`../tests/${filename}`);
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        console.log('File loaded:', buffer.byteLength, 'bytes');
+        
+        const conv = await getConverter();
+        
+        console.log('Starting conversion...');
+        const result = await conv.convert(new Uint8Array(buffer), {
+          inputFormat,
+          outputFormat: 'pdf'
+        }, filename);
+        
+        console.log('Conversion complete!', result.data.length, 'bytes');
+        setStatus(`✅ Success! Output: ${result.data.length} bytes`, 'success');
+        
+        // Trigger download
+        conv.download(result);
+        
+      } catch (error) {
+        console.error('Test failed:', error);
+        setStatus(`❌ Failed: ${error.message}`, 'error');
+      }
+    }
+    
+    // Render RGBA data to canvas
+    function renderRgbaToCanvas(rgbaData, width, height) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      
+      // Create ImageData from RGBA buffer
+      const imageData = new ImageData(new Uint8ClampedArray(rgbaData), width, height);
+      ctx.putImageData(imageData, 0, 0);
+      
+      return canvas;
+    }
+    
+    async function runPreview(filename, inputFormat) {
+      setStatus(`Generating previews for ${filename}...`, 'progress');
+      logEl.textContent = '';
+      previewContainer.innerHTML = '';
+      previewContainer.style.display = 'flex';
+      
+      console.log('crossOriginIsolated:', window.crossOriginIsolated);
+      if (!window.crossOriginIsolated) {
+        throw new Error('crossOriginIsolated is false - SharedArrayBuffer not available');
+      }
+      
+      try {
+        console.log('Fetching test file:', filename);
+        const res = await fetch(`../tests/${filename}`);
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        console.log('File loaded:', buffer.byteLength, 'bytes');
+        
+        const conv = await getConverter();
+        
+        // Make copies of the buffer since postMessage transfers detach the original
+        const inputData = new Uint8Array(buffer);
+        
+        // Get page count first
+        console.log('Getting page count...');
+        const pageCount = await conv.getPageCount(inputData.slice(), { inputFormat });
+        console.log('Document has', pageCount, 'pages');
+        
+        // Render previews (use another copy since getPageCount transferred the previous one)
+        console.log('Rendering page previews...');
+        const previews = await conv.renderPreviews(inputData.slice(), { inputFormat }, 300);
+        
+        console.log(`Rendered ${previews.length} previews`);
+        
+        // Display previews
+        for (const preview of previews) {
+          const item = document.createElement('div');
+          item.className = 'preview-item';
+          
+          const canvas = renderRgbaToCanvas(preview.data, preview.width, preview.height);
+          item.appendChild(canvas);
+          
+          const info = document.createElement('p');
+          info.textContent = `Page ${preview.page} • ${preview.width}×${preview.height}`;
+          item.appendChild(info);
+          
+          previewContainer.appendChild(item);
+        }
+        
+        setStatus(`✅ Generated ${previews.length} page previews`, 'success');
+        
+      } catch (error) {
+        console.error('Preview failed:', error);
+        setStatus(`❌ Failed: ${error.message}`, 'error');
+      }
+    }
+    
+    // Conversion buttons
+    document.getElementById('testDocx').onclick = () => runTest('sample_test_3.docx', 'docx');
+    document.getElementById('testPptx').onclick = () => runTest('sample_test_1.pptx', 'pptx');
+    document.getElementById('testPptxLarge').onclick = () => runTest('sample_ppt.pptx', 'pptx');
+    document.getElementById('testOds').onclick = () => runTest('sample_test_4.ods', 'ods');
+    
+    // Preview buttons
+    document.getElementById('previewDocx').onclick = () => runPreview('sample_test_3.docx', 'docx');
+    document.getElementById('previewPptx').onclick = () => runPreview('sample_test_1.pptx', 'pptx');
+    document.getElementById('previewOds').onclick = () => runPreview('sample_test_4.ods', 'ods');
+  </script>
+</body>
+</html>

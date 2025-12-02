@@ -1,0 +1,414 @@
+/**
+ * Browser Web Worker for LibreOffice WASM conversions
+ *
+ * This worker runs the WASM module off the main thread to avoid blocking the UI.
+ * Communication is via postMessage.
+ */
+
+import type { EmscriptenModule } from './types.js';
+import { LOKBindings } from './lok-bindings.js';
+import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
+
+interface WorkerMessage {
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews';
+  id: number;
+  wasmPath?: string;
+  verbose?: boolean;
+  inputData?: Uint8Array;
+  inputExt?: string;
+  outputFormat?: string;
+  filterOptions?: string;
+  password?: string;
+  maxWidth?: number;
+}
+
+interface PagePreview {
+  page: number;
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
+interface WorkerResponse {
+  type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews';
+  id: number;
+  data?: Uint8Array;
+  error?: string;
+  progress?: { percent: number; message: string };
+  pageCount?: number;
+  previews?: PagePreview[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const self: any;
+declare function importScripts(...urls: string[]): void;
+
+let module: EmscriptenModule | null = null;
+let lokBindings: LOKBindings | null = null;
+let initialized = false;
+
+function postResponse(response: WorkerResponse) {
+  if (response.data) {
+    // Transfer the ArrayBuffer for efficiency
+    self.postMessage(response, [response.data.buffer]);
+  } else {
+    self.postMessage(response);
+  }
+}
+
+function postProgress(id: number, percent: number, message: string) {
+  postResponse({ type: 'progress', id, progress: { percent, message } });
+}
+
+async function handleInit(msg: WorkerMessage) {
+  if (initialized) {
+    postResponse({ type: 'ready', id: msg.id });
+    return;
+  }
+
+  const wasmPath = msg.wasmPath || './wasm';
+  const verbose = msg.verbose || false;
+
+  postProgress(msg.id, 10, 'Loading WASM module...');
+
+  try {
+    // Configure global Module for Emscripten
+    console.log('[Worker] Setting up Module with wasmPath:', wasmPath);
+    const sofficeJsUrl = `${wasmPath}/soffice.js`;
+    self.Module = {
+      // Tell pthread workers where to load the main module from
+      mainScriptUrlOrBlob: sofficeJsUrl,
+      locateFile: (path: string, scriptDir: string) => {
+        let result: string;
+        if (path.endsWith('.wasm')) result = `${wasmPath}/soffice.wasm`;
+        else if (path.endsWith('.data')) result = `${wasmPath}/soffice.data`;
+        else if (path.endsWith('.metadata')) result = `${wasmPath}/soffice.data.js.metadata`;
+        // Handle both .worker.js and .worker.cjs requests
+        else if (path.includes('.worker.')) result = `${wasmPath}/soffice.worker.js`;
+        else result = `${wasmPath}/${path}`;
+        console.log('[Worker] locateFile called:', path, 'scriptDir:', scriptDir, '-> result:', result);
+        return result;
+      },
+      print: verbose ? console.log : () => {},
+      printErr: verbose ? console.error : () => {},
+    };
+
+    // Load the soffice.js script using importScripts
+    postProgress(msg.id, 20, 'Loading LibreOffice...');
+    importScripts(`${wasmPath}/soffice.js`);
+
+    // Wait for runtime to be ready
+    await new Promise<void>((resolve, reject) => {
+      const checkReady = () => {
+        if (self.Module && self.Module.calledRun) {
+          resolve();
+        } else if (self.Module && self.Module.onRuntimeInitialized) {
+          // Already has a callback, chain it
+          const orig = self.Module.onRuntimeInitialized;
+          self.Module.onRuntimeInitialized = () => {
+            orig();
+            resolve();
+          };
+        } else {
+          self.Module.onRuntimeInitialized = resolve;
+        }
+
+        // Timeout
+        setTimeout(() => reject(new Error('WASM initialization timeout')), 120000);
+      };
+
+      // Check if already ready
+      if (self.Module && self.Module.calledRun) {
+        resolve();
+      } else {
+        checkReady();
+      }
+    });
+
+    module = self.Module as EmscriptenModule;
+    postProgress(msg.id, 60, 'Setting up filesystem...');
+
+    // Setup filesystem
+    const fs = module.FS;
+
+    // Add FS tracking for debugging (sends logs to main thread)
+    if (verbose) {
+      const originalOpen = fs.open.bind(fs);
+      fs.open = (path: string, flags: unknown, mode?: unknown) => {
+        console.log('[FS OPEN CALL]', path);
+        try {
+          return originalOpen(path, flags, mode);
+        } catch (err: unknown) {
+          const error = err as { code?: string };
+          if (error?.code === 'ENOENT') {
+            console.log('[FS ENOENT]', path);
+          }
+          throw err;
+        }
+      };
+    }
+    try { fs.mkdir('/tmp'); } catch { /* exists */ }
+    try { fs.mkdir('/tmp/input'); } catch { /* exists */ }
+    try { fs.mkdir('/tmp/output'); } catch { /* exists */ }
+
+    postProgress(msg.id, 80, 'Initializing LibreOfficeKit...');
+
+    // Initialize LOK
+    lokBindings = new LOKBindings(module, verbose);
+    lokBindings.initialize('/instdir/program');
+
+    initialized = true;
+    postProgress(msg.id, 100, 'Ready');
+    postResponse({ type: 'ready', id: msg.id });
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function handleConvert(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt, outputFormat, filterOptions, password } = msg;
+
+  if (!inputData || !outputFormat) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data or output format' });
+    return;
+  }
+
+  const inPath = `/tmp/input/doc.${inputExt || 'docx'}`;
+  const outPath = `/tmp/output/doc.${outputFormat}`;
+  let docPtr = 0;
+
+  try {
+    postProgress(msg.id, 10, 'Writing input file...');
+    module.FS.writeFile(inPath, inputData);
+
+    postProgress(msg.id, 30, 'Loading document...');
+    if (password) {
+      docPtr = lokBindings.documentLoadWithOptions(inPath, `,Password=${password}`);
+    } else {
+      docPtr = lokBindings.documentLoad(inPath);
+    }
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    postProgress(msg.id, 50, 'Converting...');
+
+    const lokFormat = OUTPUT_FORMAT_TO_LOK[outputFormat as keyof typeof OUTPUT_FORMAT_TO_LOK];
+    const opts = filterOptions || FORMAT_FILTER_OPTIONS[outputFormat as keyof typeof FORMAT_FILTER_OPTIONS] || '';
+
+    postProgress(msg.id, 70, 'Saving...');
+    lokBindings.documentSaveAs(docPtr, outPath, lokFormat, opts);
+
+    postProgress(msg.id, 90, 'Reading output...');
+    const sharedResult = module.FS.readFile(outPath) as Uint8Array;
+
+    if (sharedResult.length === 0) {
+      throw new Error('Conversion produced empty output');
+    }
+
+    // Copy from SharedArrayBuffer to regular ArrayBuffer for transfer
+    // (SharedArrayBuffer views can't be used with postMessage transfer)
+    const result = new Uint8Array(sharedResult.length);
+    result.set(sharedResult);
+
+    postProgress(msg.id, 100, 'Complete');
+    postResponse({ type: 'result', id: msg.id, data: result });
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    // Cleanup
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    try { module.FS.unlink(outPath); } catch { /* ignore */ }
+  }
+}
+
+async function handleGetPageCount(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  const inPath = `/tmp/input/pagecount.${inputExt || 'docx'}`;
+  let docPtr = 0;
+
+  try {
+    module.FS.writeFile(inPath, inputData);
+    docPtr = lokBindings.documentLoad(inPath);
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    const pageCount = lokBindings.documentGetParts(docPtr);
+    postResponse({ type: 'pageCount', id: msg.id, pageCount });
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+  }
+}
+
+async function handleRenderPreviews(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt, maxWidth = 256 } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  const inPath = `/tmp/input/preview.${inputExt || 'docx'}`;
+  let docPtr = 0;
+
+  try {
+    postProgress(msg.id, 10, 'Loading document for preview...');
+    module.FS.writeFile(inPath, inputData);
+    docPtr = lokBindings.documentLoad(inPath);
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    const pageCount = lokBindings.documentGetParts(docPtr);
+    postProgress(msg.id, 20, `Rendering ${pageCount} pages...`);
+
+    const previews: PagePreview[] = [];
+    
+    for (let i = 0; i < pageCount; i++) {
+      const progress = 20 + Math.round((i / pageCount) * 70);
+      postProgress(msg.id, progress, `Rendering page ${i + 1}/${pageCount}...`);
+      
+      lokBindings.documentSetPart(docPtr, i);
+      const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
+      
+      // Scale to maxWidth while maintaining aspect ratio
+      let renderWidth = docWidth;
+      let renderHeight = docHeight;
+      
+      if (docWidth > maxWidth) {
+        renderWidth = maxWidth;
+        renderHeight = Math.round((docHeight / docWidth) * maxWidth);
+      }
+      
+      // Render the page
+      const rendered = lokBindings.renderPage(docPtr, i, renderWidth, renderHeight);
+      
+      // Copy from SharedArrayBuffer to regular ArrayBuffer
+      const dataCopy = new Uint8Array(rendered.data.length);
+      dataCopy.set(rendered.data);
+      
+      previews.push({
+        page: i + 1,
+        data: dataCopy,
+        width: rendered.width,
+        height: rendered.height
+      });
+    }
+
+    postProgress(msg.id, 100, 'Preview complete');
+    
+    // Transfer all preview buffers
+    const transfers = previews.map(p => p.data.buffer);
+    self.postMessage({ type: 'previews', id: msg.id, previews }, transfers);
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+  }
+}
+
+function handleDestroy(msg: WorkerMessage) {
+  if (lokBindings) {
+    try { lokBindings.destroy(); } catch { /* ignore */ }
+    lokBindings = null;
+  }
+  
+  // Terminate any Emscripten pthread workers
+  if (module && (module as unknown as { PThread?: { terminateAllThreads?: () => void } }).PThread?.terminateAllThreads) {
+    try {
+      (module as unknown as { PThread: { terminateAllThreads: () => void } }).PThread.terminateAllThreads();
+    } catch { /* ignore */ }
+  }
+  
+  module = null;
+  initialized = false;
+  postResponse({ type: 'ready', id: msg.id });
+  
+  // Close this worker after a short delay to ensure response is sent
+  setTimeout(() => self.close(), 100);
+}
+
+// Message handler
+self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
+  const msg = event.data;
+
+  switch (msg.type) {
+    case 'init':
+      await handleInit(msg);
+      break;
+    case 'convert':
+      await handleConvert(msg);
+      break;
+    case 'getPageCount':
+      await handleGetPageCount(msg);
+      break;
+    case 'renderPreviews':
+      await handleRenderPreviews(msg);
+      break;
+    case 'destroy':
+      handleDestroy(msg);
+      break;
+  }
+};
+
+// Signal worker is loaded
+self.postMessage({ type: 'loaded' });

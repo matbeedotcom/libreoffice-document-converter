@@ -45,8 +45,6 @@ import {
 
 import { LOKBindings } from './lok-bindings.js';
 
-type ModuleFactory = (config: Partial<EmscriptenModule>) => Promise<EmscriptenModule>;
-
 /**
  * Browser-only LibreOffice WASM Converter
  */
@@ -104,41 +102,42 @@ export class BrowserConverter {
     const wasmPath = this.options.wasmPath || './wasm';
     const moduleUrl = `${wasmPath}/soffice.js`;
 
-    const config: Partial<EmscriptenModule> = {
-      locateFile: (path: string) => {
-        if (path.endsWith('.wasm')) return `${wasmPath}/soffice.wasm`;
-        if (path.endsWith('.data')) return `${wasmPath}/soffice.data`;
-        return `${wasmPath}/${path}`;
-      },
-      print: this.options.verbose ? console.log : () => {},
-      printErr: this.options.verbose ? console.error : () => {},
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = window as any;
 
-    // Load the script
-    const script = document.createElement('script');
-    script.src = moduleUrl;
+    // Create a promise that resolves when the module is ready
+    return new Promise((resolve, reject) => {
+      // Pre-configure the global Module object before loading the script
+      // soffice.js checks for existing Module and merges with it
+      win.Module = {
+        locateFile: (path: string) => {
+          if (path.endsWith('.wasm')) return `${wasmPath}/soffice.wasm`;
+          if (path.endsWith('.data')) return `${wasmPath}/soffice.data`;
+          if (path.endsWith('.metadata')) return `${wasmPath}/soffice.data.js.metadata`;
+          if (path.endsWith('.worker.js')) return `${wasmPath}/soffice.worker.js`;
+          return `${wasmPath}/${path}`;
+        },
+        print: this.options.verbose ? console.log : () => {},
+        printErr: this.options.verbose ? console.error : () => {},
+        onRuntimeInitialized: () => {
+          if (this.options.verbose) console.log('[Browser] WASM runtime initialized');
+          resolve(win.Module as EmscriptenModule);
+        },
+        onAbort: (what: string) => {
+          reject(new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, `WASM abort: ${what}`));
+        },
+      };
 
-    await new Promise<void>((resolve, reject) => {
-      script.onload = () => resolve();
+      // Load the script
+      const script = document.createElement('script');
+      script.src = moduleUrl;
       script.onerror = () => reject(new Error(`Failed to load ${moduleUrl}`));
       document.head.appendChild(script);
-    });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createModule = (window as any).createSofficeModule as ModuleFactory | undefined;
-    if (!createModule) {
-      throw new ConversionError(
-        ConversionErrorCode.WASM_NOT_INITIALIZED,
-        'WASM module factory not found'
-      );
-    }
-
-    return new Promise((resolve, reject) => {
-      const mod: Partial<EmscriptenModule> = {
-        ...config,
-        onRuntimeInitialized: () => resolve(mod as EmscriptenModule),
-      };
-      createModule(mod).catch(reject);
+      // Timeout after 60 seconds
+      setTimeout(() => {
+        reject(new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'WASM load timeout'));
+      }, 60000);
     });
   }
 
@@ -338,6 +337,330 @@ export class BrowserConverter {
 
   isReady(): boolean {
     return this.initialized && this._lokInstance >= 0;
+  }
+
+  static getSupportedOutputFormats(): OutputFormat[] {
+    return Object.keys(FORMAT_FILTERS) as OutputFormat[];
+  }
+
+  private getExt(filename: string): string | null {
+    const parts = filename.split('.');
+    return parts.length > 1 ? parts.pop()?.toLowerCase() || null : null;
+  }
+
+  private emitProgress(phase: ProgressInfo['phase'], percent: number, message: string): void {
+    this.options.onProgress?.({ phase, percent, message });
+  }
+}
+
+/**
+ * Worker-based LibreOffice WASM Converter
+ *
+ * Runs WASM module in a Web Worker to avoid blocking the main thread.
+ * Provides the same API as BrowserConverter.
+ */
+export class WorkerBrowserConverter {
+  private worker: Worker | null = null;
+  private initialized = false;
+  private initializing = false;
+  private messageId = 0;
+  private pendingRequests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  private options: LibreOfficeWasmOptions;
+
+  constructor(options: LibreOfficeWasmOptions = {}) {
+    this.options = {
+      wasmPath: './wasm',
+      workerPath: './dist/browser-worker.global.js',
+      verbose: false,
+      ...options,
+    };
+  }
+
+  /**
+   * Initialize the worker and LibreOffice WASM module
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    if (this.initializing) {
+      while (this.initializing) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return;
+    }
+
+    this.initializing = true;
+    this.emitProgress('loading', 0, 'Starting worker...');
+
+    try {
+      // Create the worker (classic worker, not module)
+      const workerPath = this.options.workerPath || './dist/browser-worker.js';
+      this.worker = new Worker(workerPath);
+
+      // Set up message handling
+      this.worker.onmessage = (event) => this.handleWorkerMessage(event);
+      this.worker.onerror = (error) => {
+        console.error('[WorkerConverter] Worker error:', error);
+        this.options.onError?.(new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, error.message));
+      };
+
+      // Wait for worker to load
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Worker load timeout')), 10000);
+        const handler = (event: MessageEvent) => {
+          if (event.data.type === 'loaded') {
+            clearTimeout(timeout);
+            this.worker?.removeEventListener('message', handler);
+            resolve();
+          }
+        };
+        this.worker!.addEventListener('message', handler);
+      });
+
+      // Initialize WASM in worker
+      await this.sendMessage('init', {
+        wasmPath: this.options.wasmPath,
+        verbose: this.options.verbose,
+      });
+
+      this.initialized = true;
+      this.emitProgress('complete', 100, 'Ready');
+      this.options.onReady?.();
+    } catch (error) {
+      const err = error instanceof ConversionError ? error :
+        new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, String(error));
+      this.options.onError?.(err);
+      throw err;
+    } finally {
+      this.initializing = false;
+    }
+  }
+
+  private handleWorkerMessage(event: MessageEvent) {
+    const msg = event.data;
+
+    if (msg.type === 'progress') {
+      this.emitProgress('converting', msg.progress.percent, msg.progress.message);
+      return;
+    }
+
+    const pending = this.pendingRequests.get(msg.id);
+    if (!pending) return;
+
+    this.pendingRequests.delete(msg.id);
+
+    if (msg.type === 'error') {
+      pending.reject(new ConversionError(ConversionErrorCode.CONVERSION_FAILED, msg.error));
+    } else if (msg.type === 'result') {
+      pending.resolve(msg.data);
+    } else if (msg.type === 'ready') {
+      pending.resolve(undefined);
+    } else if (msg.type === 'pageCount') {
+      pending.resolve(msg.pageCount);
+    } else if (msg.type === 'previews') {
+      pending.resolve(msg.previews);
+    }
+  }
+
+  private sendMessage(type: string, data: Record<string, unknown> = {}): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        reject(new Error('Worker not initialized'));
+        return;
+      }
+
+      const id = ++this.messageId;
+      this.pendingRequests.set(id, { resolve, reject });
+
+      const message = { type, id, ...data };
+
+      // If sending input data, transfer it
+      if (data.inputData instanceof Uint8Array) {
+        this.worker.postMessage(message, [(data.inputData as Uint8Array).buffer]);
+      } else {
+        this.worker.postMessage(message);
+      }
+    });
+  }
+
+  /**
+   * Convert a document
+   */
+  async convert(
+    input: Uint8Array | ArrayBuffer,
+    options: ConversionOptions,
+    filename = 'document'
+  ): Promise<ConversionResult> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const startTime = Date.now();
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+
+    if (inputData.length === 0) {
+      throw new ConversionError(ConversionErrorCode.INVALID_INPUT, 'Empty document');
+    }
+
+    const ext = this.getExt(filename) || options.inputFormat || 'docx';
+    const outputExt = options.outputFormat;
+
+    if (!FORMAT_FILTERS[outputExt]) {
+      throw new ConversionError(ConversionErrorCode.UNSUPPORTED_FORMAT, `Unsupported: ${outputExt}`);
+    }
+
+    // Build filter options
+    let filterOptions = '';
+    if (outputExt === 'pdf' && options.pdf) {
+      const pdfOpts: string[] = [];
+      if (options.pdf.pdfaLevel) {
+        const levelMap: Record<string, number> = {
+          'PDF/A-1b': 1,
+          'PDF/A-2b': 2,
+          'PDF/A-3b': 3,
+        };
+        pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
+      }
+      if (options.pdf.quality !== undefined) {
+        pdfOpts.push(`Quality=${options.pdf.quality}`);
+      }
+      filterOptions = pdfOpts.join(',');
+    }
+
+    const result = await this.sendMessage('convert', {
+      inputData,
+      inputExt: ext,
+      outputFormat: outputExt,
+      filterOptions,
+      password: options.password,
+    }) as Uint8Array;
+
+    const baseName = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename;
+
+    return {
+      data: result,
+      mimeType: FORMAT_MIME_TYPES[outputExt],
+      filename: `${baseName}.${outputExt}`,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  /**
+   * Convert a File object
+   */
+  async convertFile(file: File, options: ConversionOptions): Promise<ConversionResult> {
+    const buffer = await file.arrayBuffer();
+    return this.convert(new Uint8Array(buffer), options, file.name);
+  }
+
+  /**
+   * Convert from a URL
+   */
+  async convertFromUrl(url: string, options: ConversionOptions): Promise<ConversionResult> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Fetch failed: ${res.statusText}`);
+    const buffer = await res.arrayBuffer();
+    const filename = url.split('/').pop() || 'document';
+    return this.convert(new Uint8Array(buffer), options, filename);
+  }
+
+  /**
+   * Download converted document
+   */
+  download(result: ConversionResult, filename?: string): void {
+    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const blob = new Blob([buffer], { type: result.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || result.filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /**
+   * Create Blob URL
+   */
+  createBlobUrl(result: ConversionResult): string {
+    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const blob = new Blob([buffer], { type: result.mimeType });
+    return URL.createObjectURL(blob);
+  }
+
+  /**
+   * Preview in new tab
+   */
+  preview(result: ConversionResult): Window | null {
+    return window.open(this.createBlobUrl(result), '_blank');
+  }
+
+  /**
+   * Get the number of pages/slides in a document
+   */
+  async getPageCount(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>
+  ): Promise<number> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('getPageCount', {
+      inputData,
+      inputExt: ext,
+    });
+
+    return result as number;
+  }
+
+  /**
+   * Render page previews as RGBA image data
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param maxWidth Maximum width for rendered pages (height scales proportionally)
+   * @returns Array of page previews with RGBA data
+   */
+  async renderPreviews(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>,
+    maxWidth = 256
+  ): Promise<Array<{ page: number; data: Uint8Array; width: number; height: number }>> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('renderPreviews', {
+      inputData,
+      inputExt: ext,
+      maxWidth,
+    });
+
+    return result as Array<{ page: number; data: Uint8Array; width: number; height: number }>;
+  }
+
+  /**
+   * Cleanup
+   */
+  async destroy(): Promise<void> {
+    if (this.worker) {
+      try {
+        await this.sendMessage('destroy');
+      } catch { /* ignore */ }
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.initialized = false;
+    this.pendingRequests.clear();
+  }
+
+  isReady(): boolean {
+    return this.initialized && this.worker !== null;
   }
 
   static getSupportedOutputFormats(): OutputFormat[] {
