@@ -161,6 +161,70 @@ test.describe('Browser Document Conversion', () => {
   });
 });
 
+test.describe('PDF Image Export', () => {
+  test('should convert PDF to PNG', async ({ page }) => {
+    await page.goto('/examples/browser-demo.html');
+
+    const testFilePath = path.join(__dirname, '..', 'sample.pdf');
+
+    // Upload file
+    const fileInput = page.locator('#fileInput');
+    await fileInput.setInputFiles(testFilePath);
+
+    // Verify file is selected
+    await expect(page.locator('#fileName')).toContainText('sample.pdf');
+
+    // Select PNG output
+    await page.selectOption('#outputFormat', 'png');
+
+    // Set up download listener (120s for WASM init + conversion)
+    const downloadPromise = page.waitForEvent('download', { timeout: 120 * 1000 });
+
+    // Click convert
+    await page.locator('#convertBtn').click();
+
+    // Wait for download
+    const download = await downloadPromise;
+
+    expect(download.suggestedFilename()).toMatch(/\.png$/);
+
+    // Save the file
+    const downloadPath = path.join(__dirname, '..', 'output', download.suggestedFilename());
+    await download.saveAs(downloadPath);
+  });
+
+  test('should convert PDF to SVG', async ({ page }) => {
+    await page.goto('/examples/browser-demo.html');
+
+    const testFilePath = path.join(__dirname, '..', 'sample.pdf');
+
+    // Upload file
+    const fileInput = page.locator('#fileInput');
+    await fileInput.setInputFiles(testFilePath);
+
+    // Verify file is selected
+    await expect(page.locator('#fileName')).toContainText('sample.pdf');
+
+    // Select SVG output
+    await page.selectOption('#outputFormat', 'svg');
+
+    // Set up download listener (120s for WASM init + conversion)
+    const downloadPromise = page.waitForEvent('download', { timeout: 120 * 1000 });
+
+    // Click convert
+    await page.locator('#convertBtn').click();
+
+    // Wait for download
+    const download = await downloadPromise;
+
+    expect(download.suggestedFilename()).toMatch(/\.svg$/);
+
+    // Save the file
+    const downloadPath = path.join(__dirname, '..', 'output', download.suggestedFilename());
+    await download.saveAs(downloadPath);
+  });
+});
+
 test.describe('WorkerBrowserConverter Initialization', () => {
   test('should initialize WASM in worker without blocking main thread', async ({ page }) => {
     await page.goto('/examples/browser-demo.html');
