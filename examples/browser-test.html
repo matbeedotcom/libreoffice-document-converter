@@ -63,6 +63,7 @@
       <button class="preview" id="previewDocx">Preview DOCX</button>
       <button class="preview" id="previewPptx">Preview PPTX</button>
       <button class="preview" id="previewOds">Preview ODS</button>
+      <button class="preview" id="previewPdf">Preview PDF</button>
     </div>
     <div id="preview-container" class="preview-container" style="display: none;"></div>
   </div>
@@ -280,6 +281,7 @@
     document.getElementById('previewDocx').onclick = () => runPreview('sample_test_3.docx', 'docx');
     document.getElementById('previewPptx').onclick = () => runPreview('sample_test_1.pptx', 'pptx');
     document.getElementById('previewOds').onclick = () => runPreview('sample_test_4.ods', 'ods');
+    document.getElementById('previewPdf').onclick = () => runPreview('sample.pdf', 'pdf');
   </script>
 </body>
 </html>

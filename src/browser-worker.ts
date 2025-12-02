@@ -10,7 +10,7 @@ import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'getDocumentInfo';
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'getDocumentInfo';
   id: number;
   wasmPath?: string;
   verbose?: boolean;
@@ -20,7 +20,7 @@ interface WorkerMessage {
   filterOptions?: string;
   password?: string;
   maxWidth?: number;
-  pageIndex?: number; // For renderSinglePage
+  pageIndex?: number; // For renderSinglePage / renderPageViaConvert
 }
 
 interface PagePreview {
@@ -499,6 +499,93 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
   // Note: We don't close the document here - it stays cached for subsequent page renders
 }
 
+/**
+ * Render a page preview by converting to PNG - fallback for Chrome/Edge with PDFs
+ * This uses the saveAs conversion path instead of paintTile which hangs in Chromium
+ */
+async function handleRenderPageViaConvert(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt, maxWidth = 256, pageIndex = 0 } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  const inPath = `/tmp/input/page_convert_${pageIndex}.${inputExt || 'pdf'}`;
+  const outPath = `/tmp/output/page_${pageIndex}.png`;
+  let docPtr = 0;
+
+  try {
+    module.FS.writeFile(inPath, inputData);
+    docPtr = lokBindings.documentLoad(inPath);
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    const pageCount = lokBindings.documentGetParts(docPtr);
+    
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
+    }
+
+    // Set the page to export
+    lokBindings.documentSetPart(docPtr, pageIndex);
+
+    // Get document size to calculate aspect ratio
+    const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
+    const aspectRatio = docHeight / docWidth;
+    const outputWidth = Math.min(maxWidth, docWidth);
+    const outputHeight = Math.round(outputWidth * aspectRatio);
+
+    // Export as PNG using saveAs with filter options for size
+    // The png export filter uses PixelWidth/PixelHeight for output size
+    const filterOpts = `PixelWidth=${outputWidth};PixelHeight=${outputHeight}`;
+    lokBindings.documentSaveAs(docPtr, outPath, 'png', filterOpts);
+
+    // Read the PNG file
+    const pngData = module.FS.readFile(outPath) as Uint8Array;
+    
+    if (pngData.length === 0) {
+      throw new Error('PNG export produced empty output');
+    }
+
+    // Copy from SharedArrayBuffer
+    const pngCopy = new Uint8Array(pngData.length);
+    pngCopy.set(pngData);
+
+    // Send as a special PNG preview (not RGBA like paintTile)
+    const preview = {
+      page: pageIndex + 1,
+      data: pngCopy,
+      width: outputWidth,
+      height: outputHeight,
+      format: 'png' as const
+    };
+
+    self.postMessage({ type: 'singlePagePreview', id: msg.id, preview, isPng: true }, [pngCopy.buffer]);
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    try { module.FS.unlink(outPath); } catch { /* ignore */ }
+  }
+}
+
 async function handleGetDocumentInfo(msg: WorkerMessage) {
   if (!initialized || !module || !lokBindings) {
     postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
@@ -610,6 +697,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       break;
     case 'renderSinglePage':
       await handleRenderSinglePage(msg);
+      break;
+    case 'renderPageViaConvert':
+      await handleRenderPageViaConvert(msg);
       break;
     case 'getDocumentInfo':
       await handleGetDocumentInfo(msg);

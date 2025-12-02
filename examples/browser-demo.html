@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LibreOffice WASM Browser Demo</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap');imim
 
     * {
       margin: 0;
@@ -864,6 +864,7 @@
       loadedPages.clear();
       renderQueue = [];
       isRendering = false;
+      usePngFallback = false;
       updateLoadedCount();
       
       // Query document info and create skeletons
@@ -872,6 +873,12 @@
       convertBtn.disabled = false;
     }
 
+    // Detect Chrome/Edge (Chromium-based browsers)
+    const isChromium = /Chrome|Chromium|Edg/.test(navigator.userAgent) && !/Firefox/.test(navigator.userAgent);
+    
+    // Track if we need to use PNG conversion fallback for this document
+    let usePngFallback = false;
+    
     async function queryDocumentInfo(ext) {
       try {
         docInfo.innerHTML = '🔄 Analyzing document...';
@@ -882,12 +889,21 @@
         
         currentDocInfo = await converter.getDocumentInfo(inputData.slice(), { inputFormat: ext });
         
+        // Check if we need PNG fallback (Drawing documents in Chromium)
+        usePngFallback = isChromium && currentDocInfo.documentTypeName === 'Drawing';
+        
         // Update UI
-        docInfo.innerHTML = `📄 ${currentDocInfo.documentTypeName} • ${currentDocInfo.pageCount} page${currentDocInfo.pageCount !== 1 ? 's' : ''}`;
+        let infoText = `📄 ${currentDocInfo.documentTypeName} • ${currentDocInfo.pageCount} page${currentDocInfo.pageCount !== 1 ? 's' : ''}`;
+        
+        if (usePngFallback) {
+          infoText += ' (using PNG export)';
+        }
+        
+        docInfo.innerHTML = infoText;
         
         applyFormatRestrictions(currentDocInfo.validOutputFormats, ext);
         
-        // Create page skeletons
+        // Create page skeletons - now works for all document types
         createPageSkeletons(currentDocInfo.pageCount);
         
       } catch (error) {
@@ -1002,32 +1018,58 @@
         const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
         const inputData = new Uint8Array(fileBuffer);
         
-        // Render just this single page
-        console.log(`Rendering page ${pageIndex + 1}...`);
-        const preview = await converter.renderSinglePage(
-          inputData.slice(), 
-          { inputFormat: ext }, 
-          pageIndex, 
-          400
-        );
-        console.log(`Page ${pageIndex + 1} rendered: ${preview.width}×${preview.height}`);
+        console.log(`Rendering page ${pageIndex + 1}...${usePngFallback ? ' (PNG fallback)' : ''}`);
         
-        // Create canvas and render
-        const canvas = document.createElement('canvas');
-        canvas.width = preview.width;
-        canvas.height = preview.height;
-        const ctx = canvas.getContext('2d');
-        const imageData = new ImageData(
-          new Uint8ClampedArray(preview.data),
-          preview.width,
-          preview.height
-        );
-        ctx.putImageData(imageData, 0, 0);
-        
-        // Replace skeleton with canvas
-        previewEl.classList.remove('skeleton');
-        previewEl.innerHTML = '';
-        previewEl.appendChild(canvas);
+        let preview;
+        if (usePngFallback) {
+          // Use PNG conversion fallback for Drawing documents in Chrome/Edge
+          preview = await converter.renderPageViaConvert(
+            inputData.slice(), 
+            { inputFormat: ext }, 
+            pageIndex, 
+            400
+          );
+          console.log(`Page ${pageIndex + 1} exported as PNG: ${preview.width}×${preview.height}`);
+          
+          // PNG data - create an image element
+          const blob = new Blob([preview.data], { type: 'image/png' });
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            previewEl.classList.remove('skeleton');
+            previewEl.innerHTML = '';
+            previewEl.appendChild(img);
+            URL.revokeObjectURL(url);
+          };
+          img.src = url;
+          
+        } else {
+          // Use paintTile for RGBA data (normal path)
+          preview = await converter.renderSinglePage(
+            inputData.slice(), 
+            { inputFormat: ext }, 
+            pageIndex, 
+            400
+          );
+          console.log(`Page ${pageIndex + 1} rendered: ${preview.width}×${preview.height}`);
+          
+          // Create canvas and render RGBA data
+          const canvas = document.createElement('canvas');
+          canvas.width = preview.width;
+          canvas.height = preview.height;
+          const ctx = canvas.getContext('2d');
+          const imageData = new ImageData(
+            new Uint8ClampedArray(preview.data),
+            preview.width,
+            preview.height
+          );
+          ctx.putImageData(imageData, 0, 0);
+          
+          // Replace skeleton with canvas
+          previewEl.classList.remove('skeleton');
+          previewEl.innerHTML = '';
+          previewEl.appendChild(canvas);
+        }
         
         badgeEl.textContent = `${preview.width}×${preview.height}`;
         badgeEl.classList.add('loaded');

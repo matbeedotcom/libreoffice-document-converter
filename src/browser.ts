@@ -680,6 +680,38 @@ export class WorkerBrowserConverter {
   }
 
   /**
+   * Render a single page preview using conversion (PDF->PNG)
+   * This is a fallback for Chrome/Edge where paintTile hangs for Drawing documents
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param maxWidth Maximum width for rendered page
+   * @returns Single page preview with PNG data (not RGBA)
+   */
+  async renderPageViaConvert(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>,
+    pageIndex: number,
+    maxWidth = 256
+  ): Promise<{ page: number; data: Uint8Array; width: number; height: number; isPng: boolean }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'pdf';
+
+    const result = await this.sendMessage('renderPageViaConvert', {
+      inputData,
+      inputExt: ext,
+      pageIndex,
+      maxWidth,
+    });
+
+    return result as { page: number; data: Uint8Array; width: number; height: number; isPng: boolean };
+  }
+
+  /**
    * Get document info including type and valid output formats
    * This dynamically queries LibreOffice to determine what conversions are supported
    * @param input Document data
