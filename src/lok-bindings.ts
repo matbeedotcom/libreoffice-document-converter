@@ -41,7 +41,61 @@ interface LOKModule extends EmscriptenModule {
     tileHeight: number
   ) => void;
   _lok_documentGetTileMode?: (doc: number) => number;
+  // Text selection and content shims
+  _lok_documentGetTextSelection?: (doc: number, mimeType: number, usedMimeType: number) => number;
+  _lok_documentSetTextSelection?: (doc: number, type: number, x: number, y: number) => void;
+  _lok_documentGetSelectionType?: (doc: number) => number;
+  _lok_documentResetSelection?: (doc: number) => void;
+  // Mouse and keyboard event shims
+  _lok_documentPostMouseEvent?: (doc: number, type: number, x: number, y: number, count: number, buttons: number, modifier: number) => void;
+  _lok_documentPostKeyEvent?: (doc: number, type: number, charCode: number, keyCode: number) => void;
+  // UNO command shims
+  _lok_documentPostUnoCommand?: (doc: number, command: number, args: number, notifyWhenFinished: number) => void;
+  _lok_documentGetCommandValues?: (doc: number, command: number) => number;
+  // Page/Part information shims
+  _lok_documentGetPartPageRectangles?: (doc: number) => number;
+  _lok_documentGetPartInfo?: (doc: number, part: number) => number;
+  _lok_documentGetPartName?: (doc: number, part: number) => number;
+  // Clipboard shims
+  _lok_documentPaste?: (doc: number, mimeType: number, data: number, size: number) => number;
+  // View and zoom shims
+  _lok_documentSetClientZoom?: (doc: number, tilePixelWidth: number, tilePixelHeight: number, tileTwipWidth: number, tileTwipHeight: number) => void;
+  _lok_documentSetClientVisibleArea?: (doc: number, x: number, y: number, width: number, height: number) => void;
+  // Accessibility shims
+  _lok_documentGetA11yFocusedParagraph?: (doc: number) => number;
+  _lok_documentGetA11yCaretPosition?: (doc: number) => number;
+  _lok_documentSetAccessibilityState?: (doc: number, viewId: number, enabled: number) => void;
+  // Spreadsheet-specific shims
+  _lok_documentGetDataArea?: (doc: number, part: number, colPtr: number, rowPtr: number) => void;
+  // Edit mode shim
+  _lok_documentGetEditMode?: (doc: number) => number;
 }
+
+// LOK Mouse Event Types
+export const LOK_MOUSEEVENT_BUTTONDOWN = 0;
+export const LOK_MOUSEEVENT_BUTTONUP = 1;
+export const LOK_MOUSEEVENT_MOVE = 2;
+
+// LOK Key Event Types
+export const LOK_KEYEVENT_KEYINPUT = 0;
+export const LOK_KEYEVENT_KEYUP = 1;
+
+// LOK Selection Types
+export const LOK_SELTYPE_NONE = 0;
+export const LOK_SELTYPE_TEXT = 1;
+export const LOK_SELTYPE_CELL = 2;
+
+// LOK Text Selection Types
+export const LOK_SETTEXTSELECTION_START = 0;
+export const LOK_SETTEXTSELECTION_END = 1;
+export const LOK_SETTEXTSELECTION_RESET = 2;
+
+// LOK Document Types
+export const LOK_DOCTYPE_TEXT = 0;
+export const LOK_DOCTYPE_SPREADSHEET = 1;
+export const LOK_DOCTYPE_PRESENTATION = 2;
+export const LOK_DOCTYPE_DRAWING = 3;
+export const LOK_DOCTYPE_OTHER = 4;
 
 // Fallback offsets for WASM32 (4-byte pointers) if shims not available
 const LOK_CLASS = {
@@ -643,5 +697,536 @@ export class LOKBindings {
     );
 
     return { data, width: outputWidth, height: outputHeight };
+  }
+
+  // ==========================================
+  // Text Selection and Content Methods
+  // ==========================================
+
+  /**
+   * Get currently selected text
+   * @param docPtr Document pointer
+   * @param mimeType Desired MIME type (e.g., 'text/plain', 'text/html')
+   * @returns Selected text or null
+   */
+  getTextSelection(docPtr: number, mimeType: string = 'text/plain'): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetTextSelection) {
+      const mimePtr = this.allocString(mimeType);
+      const usedMimePtr = this.module._malloc(4); // pointer to char*
+      try {
+        const resultPtr = this.module._lok_documentGetTextSelection(docPtr, mimePtr, usedMimePtr);
+        if (resultPtr === 0) return null;
+        const result = this.readString(resultPtr);
+        this.module._free(resultPtr);
+        return result;
+      } finally {
+        this.module._free(mimePtr);
+        this.module._free(usedMimePtr);
+      }
+    }
+
+    this.log('getTextSelection: shim not available');
+    return null;
+  }
+
+  /**
+   * Set text selection at coordinates
+   * @param docPtr Document pointer
+   * @param type Selection type (LOK_SETTEXTSELECTION_START, END, or RESET)
+   * @param x X coordinate in twips
+   * @param y Y coordinate in twips
+   */
+  setTextSelection(docPtr: number, type: number, x: number, y: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetTextSelection) {
+      this.module._lok_documentSetTextSelection(docPtr, type, x, y);
+      return;
+    }
+
+    this.log('setTextSelection: shim not available');
+  }
+
+  /**
+   * Get current selection type
+   * @param docPtr Document pointer
+   * @returns Selection type (LOK_SELTYPE_NONE, TEXT, or CELL)
+   */
+  getSelectionType(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetSelectionType) {
+      return this.module._lok_documentGetSelectionType(docPtr);
+    }
+
+    this.log('getSelectionType: shim not available');
+    return 0;
+  }
+
+  /**
+   * Reset/clear current selection
+   * @param docPtr Document pointer
+   */
+  resetSelection(docPtr: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentResetSelection) {
+      this.module._lok_documentResetSelection(docPtr);
+      return;
+    }
+
+    this.log('resetSelection: shim not available');
+  }
+
+  // ==========================================
+  // Mouse and Keyboard Event Methods
+  // ==========================================
+
+  /**
+   * Post a mouse event to the document
+   * @param docPtr Document pointer
+   * @param type Event type (LOK_MOUSEEVENT_BUTTONDOWN, BUTTONUP, MOVE)
+   * @param x X coordinate in twips
+   * @param y Y coordinate in twips
+   * @param count Click count (1 for single, 2 for double click)
+   * @param buttons Button mask (1=left, 2=middle, 4=right)
+   * @param modifier Modifier keys mask
+   */
+  postMouseEvent(
+    docPtr: number,
+    type: number,
+    x: number,
+    y: number,
+    count: number = 1,
+    buttons: number = 1,
+    modifier: number = 0
+  ): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentPostMouseEvent) {
+      this.module._lok_documentPostMouseEvent(docPtr, type, x, y, count, buttons, modifier);
+      return;
+    }
+
+    this.log('postMouseEvent: shim not available');
+  }
+
+  /**
+   * Post a keyboard event to the document
+   * @param docPtr Document pointer
+   * @param type Event type (LOK_KEYEVENT_KEYINPUT, KEYUP)
+   * @param charCode Character code
+   * @param keyCode Key code
+   */
+  postKeyEvent(docPtr: number, type: number, charCode: number, keyCode: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentPostKeyEvent) {
+      this.module._lok_documentPostKeyEvent(docPtr, type, charCode, keyCode);
+      return;
+    }
+
+    this.log('postKeyEvent: shim not available');
+  }
+
+  // ==========================================
+  // UNO Command Methods
+  // ==========================================
+
+  /**
+   * Execute a UNO command
+   * @param docPtr Document pointer
+   * @param command UNO command (e.g., '.uno:SelectAll', '.uno:Copy')
+   * @param args JSON arguments string
+   * @param notifyWhenFinished Whether to notify when command completes
+   */
+  postUnoCommand(
+    docPtr: number,
+    command: string,
+    args: string = '{}',
+    notifyWhenFinished: boolean = false
+  ): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentPostUnoCommand) {
+      const cmdPtr = this.allocString(command);
+      const argsPtr = this.allocString(args);
+      try {
+        this.module._lok_documentPostUnoCommand(docPtr, cmdPtr, argsPtr, notifyWhenFinished ? 1 : 0);
+      } finally {
+        this.module._free(cmdPtr);
+        this.module._free(argsPtr);
+      }
+      return;
+    }
+
+    this.log('postUnoCommand: shim not available');
+  }
+
+  /**
+   * Get command values (query document state)
+   * @param docPtr Document pointer
+   * @param command Command to query (e.g., '.uno:CharFontName')
+   * @returns JSON string with command values
+   */
+  getCommandValues(docPtr: number, command: string): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetCommandValues) {
+      const cmdPtr = this.allocString(command);
+      try {
+        const resultPtr = this.module._lok_documentGetCommandValues(docPtr, cmdPtr);
+        if (resultPtr === 0) return null;
+        const result = this.readString(resultPtr);
+        this.module._free(resultPtr);
+        return result;
+      } finally {
+        this.module._free(cmdPtr);
+      }
+    }
+
+    this.log('getCommandValues: shim not available');
+    return null;
+  }
+
+  // ==========================================
+  // Page/Part Information Methods
+  // ==========================================
+
+  /**
+   * Get bounding rectangles for all pages
+   * @param docPtr Document pointer
+   * @returns String with rectangles "x,y,width,height;x,y,width,height;..."
+   */
+  getPartPageRectangles(docPtr: number): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetPartPageRectangles) {
+      const resultPtr = this.module._lok_documentGetPartPageRectangles(docPtr);
+      if (resultPtr === 0) return null;
+      const result = this.readString(resultPtr);
+      this.module._free(resultPtr);
+      return result;
+    }
+
+    this.log('getPartPageRectangles: shim not available');
+    return null;
+  }
+
+  /**
+   * Get information about a page/slide
+   * @param docPtr Document pointer
+   * @param part Part index
+   * @returns JSON string with part info
+   */
+  getPartInfo(docPtr: number, part: number): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetPartInfo) {
+      const resultPtr = this.module._lok_documentGetPartInfo(docPtr, part);
+      if (resultPtr === 0) return null;
+      const result = this.readString(resultPtr);
+      this.module._free(resultPtr);
+      return result;
+    }
+
+    this.log('getPartInfo: shim not available');
+    return null;
+  }
+
+  /**
+   * Get name of a page/slide
+   * @param docPtr Document pointer
+   * @param part Part index
+   * @returns Part name
+   */
+  getPartName(docPtr: number, part: number): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetPartName) {
+      const resultPtr = this.module._lok_documentGetPartName(docPtr, part);
+      if (resultPtr === 0) return null;
+      const result = this.readString(resultPtr);
+      this.module._free(resultPtr);
+      return result;
+    }
+
+    this.log('getPartName: shim not available');
+    return null;
+  }
+
+  // ==========================================
+  // Clipboard Methods
+  // ==========================================
+
+  /**
+   * Paste content at current cursor position
+   * @param docPtr Document pointer
+   * @param mimeType MIME type of data
+   * @param data Data to paste
+   * @returns true if successful
+   */
+  paste(docPtr: number, mimeType: string, data: string | Uint8Array): boolean {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentPaste) {
+      const mimePtr = this.allocString(mimeType);
+      let dataPtr: number;
+      let dataSize: number;
+
+      if (typeof data === 'string') {
+        const bytes = new TextEncoder().encode(data);
+        dataSize = bytes.length;
+        dataPtr = this.module._malloc(dataSize);
+        this.HEAPU8.set(bytes, dataPtr);
+      } else {
+        dataSize = data.length;
+        dataPtr = this.module._malloc(dataSize);
+        this.HEAPU8.set(data, dataPtr);
+      }
+
+      try {
+        return this.module._lok_documentPaste(docPtr, mimePtr, dataPtr, dataSize) !== 0;
+      } finally {
+        this.module._free(mimePtr);
+        this.module._free(dataPtr);
+      }
+    }
+
+    this.log('paste: shim not available');
+    return false;
+  }
+
+  // ==========================================
+  // View and Zoom Methods
+  // ==========================================
+
+  /**
+   * Set client zoom level
+   * @param docPtr Document pointer
+   * @param tilePixelWidth Tile width in pixels
+   * @param tilePixelHeight Tile height in pixels
+   * @param tileTwipWidth Tile width in twips
+   * @param tileTwipHeight Tile height in twips
+   */
+  setClientZoom(
+    docPtr: number,
+    tilePixelWidth: number,
+    tilePixelHeight: number,
+    tileTwipWidth: number,
+    tileTwipHeight: number
+  ): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetClientZoom) {
+      this.module._lok_documentSetClientZoom(docPtr, tilePixelWidth, tilePixelHeight, tileTwipWidth, tileTwipHeight);
+      return;
+    }
+
+    this.log('setClientZoom: shim not available');
+  }
+
+  /**
+   * Set visible area for the client
+   * @param docPtr Document pointer
+   * @param x X position in twips
+   * @param y Y position in twips
+   * @param width Width in twips
+   * @param height Height in twips
+   */
+  setClientVisibleArea(docPtr: number, x: number, y: number, width: number, height: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetClientVisibleArea) {
+      this.module._lok_documentSetClientVisibleArea(docPtr, x, y, width, height);
+      return;
+    }
+
+    this.log('setClientVisibleArea: shim not available');
+  }
+
+  // ==========================================
+  // Accessibility Methods
+  // ==========================================
+
+  /**
+   * Get the currently focused paragraph text
+   * @param docPtr Document pointer
+   * @returns Focused paragraph text
+   */
+  getA11yFocusedParagraph(docPtr: number): string | null {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetA11yFocusedParagraph) {
+      const resultPtr = this.module._lok_documentGetA11yFocusedParagraph(docPtr);
+      if (resultPtr === 0) return null;
+      const result = this.readString(resultPtr);
+      this.module._free(resultPtr);
+      return result;
+    }
+
+    this.log('getA11yFocusedParagraph: shim not available');
+    return null;
+  }
+
+  /**
+   * Get caret position in focused paragraph
+   * @param docPtr Document pointer
+   * @returns Caret position or -1
+   */
+  getA11yCaretPosition(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetA11yCaretPosition) {
+      return this.module._lok_documentGetA11yCaretPosition(docPtr);
+    }
+
+    this.log('getA11yCaretPosition: shim not available');
+    return -1;
+  }
+
+  /**
+   * Enable/disable accessibility features
+   * @param docPtr Document pointer
+   * @param viewId View ID
+   * @param enabled Whether to enable accessibility
+   */
+  setAccessibilityState(docPtr: number, viewId: number, enabled: boolean): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetAccessibilityState) {
+      this.module._lok_documentSetAccessibilityState(docPtr, viewId, enabled ? 1 : 0);
+      return;
+    }
+
+    this.log('setAccessibilityState: shim not available');
+  }
+
+  // ==========================================
+  // Spreadsheet-Specific Methods
+  // ==========================================
+
+  /**
+   * Get data area for a spreadsheet (last used row/column)
+   * @param docPtr Document pointer
+   * @param part Sheet index
+   * @returns Object with col and row counts
+   */
+  getDataArea(docPtr: number, part: number): { col: number; row: number } {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetDataArea) {
+      const colPtr = this.module._malloc(8);
+      const rowPtr = this.module._malloc(8);
+      try {
+        this.module._lok_documentGetDataArea(docPtr, part, colPtr, rowPtr);
+        const col = this.HEAP32[colPtr >> 2] ?? 0;
+        const row = this.HEAP32[rowPtr >> 2] ?? 0;
+        return { col, row };
+      } finally {
+        this.module._free(colPtr);
+        this.module._free(rowPtr);
+      }
+    }
+
+    this.log('getDataArea: shim not available');
+    return { col: 0, row: 0 };
+  }
+
+  // ==========================================
+  // Edit Mode Methods
+  // ==========================================
+
+  /**
+   * Get current edit mode
+   * @param docPtr Document pointer
+   * @returns Edit mode value
+   */
+  getEditMode(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetEditMode) {
+      return this.module._lok_documentGetEditMode(docPtr);
+    }
+
+    this.log('getEditMode: shim not available');
+    return 0;
+  }
+
+  // ==========================================
+  // High-Level Convenience Methods
+  // ==========================================
+
+  /**
+   * Click at a position and get text at that location
+   * @param docPtr Document pointer
+   * @param x X coordinate in twips
+   * @param y Y coordinate in twips
+   * @returns Text at the clicked position
+   */
+  clickAndGetText(docPtr: number, x: number, y: number): string | null {
+    // Click down and up to select
+    this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONDOWN, x, y, 1, 1, 0);
+    this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONUP, x, y, 1, 1, 0);
+    
+    // Get selected text
+    return this.getTextSelection(docPtr, 'text/plain');
+  }
+
+  /**
+   * Double-click to select a word and get it
+   * @param docPtr Document pointer
+   * @param x X coordinate in twips
+   * @param y Y coordinate in twips
+   * @returns Selected word
+   */
+  doubleClickAndGetWord(docPtr: number, x: number, y: number): string | null {
+    // Double click to select word
+    this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONDOWN, x, y, 2, 1, 0);
+    this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONUP, x, y, 2, 1, 0);
+    
+    // Get selected text
+    return this.getTextSelection(docPtr, 'text/plain');
+  }
+
+  /**
+   * Select all content in the document
+   * @param docPtr Document pointer
+   */
+  selectAll(docPtr: number): void {
+    this.postUnoCommand(docPtr, '.uno:SelectAll');
+  }
+
+  /**
+   * Get all text content from the document
+   * @param docPtr Document pointer
+   * @returns All text content
+   */
+  getAllText(docPtr: number): string | null {
+    this.selectAll(docPtr);
+    const text = this.getTextSelection(docPtr, 'text/plain');
+    this.resetSelection(docPtr);
+    return text;
+  }
+
+  /**
+   * Parse page rectangles string into array of objects
+   * @param rectanglesStr String from getPartPageRectangles
+   * @returns Array of rectangle objects
+   */
+  parsePageRectangles(rectanglesStr: string): Array<{ x: number; y: number; width: number; height: number }> {
+    if (!rectanglesStr) return [];
+    
+    return rectanglesStr.split(';').filter(s => s.trim()).map(rect => {
+      const parts = rect.split(',').map(Number);
+      return { 
+        x: parts[0] ?? 0, 
+        y: parts[1] ?? 0, 
+        width: parts[2] ?? 0, 
+        height: parts[3] ?? 0 
+      };
+    });
   }
 }

@@ -768,6 +768,364 @@ export class LibreOfficeConverter {
     }
   }
 
+  // ============================================================
+  // Document Inspection Methods
+  // ============================================================
+
+  /**
+   * Get all text content from a document
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @returns All text content from the document
+   */
+  async getDocumentText(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions
+  ): Promise<string | null> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/inspect/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/inspect');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        return this.lokBindings.getAllText(docPtr);
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/inspect');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get page/slide names from a document
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @returns Array of page/slide names
+   */
+  async getPageNames(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions
+  ): Promise<string[]> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/names/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/names');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        const numParts = this.lokBindings.documentGetParts(docPtr);
+        const names: string[] = [];
+        
+        for (let i = 0; i < numParts; i++) {
+          const name = this.lokBindings.getPartName(docPtr, i);
+          names.push(name || `Page ${i + 1}`);
+        }
+        
+        return names;
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/names');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get page bounding rectangles from a document
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @returns Array of page rectangles in twips
+   */
+  async getPageRectangles(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions
+  ): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/rects/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/rects');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        const rectsStr = this.lokBindings.getPartPageRectangles(docPtr);
+        return this.lokBindings.parsePageRectangles(rectsStr || '');
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/rects');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get spreadsheet data area (last used row/column)
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @param sheetIndex Sheet index (0-based)
+   * @returns Object with col and row counts
+   */
+  async getSpreadsheetDataArea(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions,
+    sheetIndex: number = 0
+  ): Promise<{ col: number; row: number }> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/dataarea/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/dataarea');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        return this.lokBindings.getDataArea(docPtr, sheetIndex);
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/dataarea');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Execute a UNO command on a document
+   * @param input Document data
+   * @param options Conversion options with inputFormat
+   * @param command UNO command (e.g., '.uno:SelectAll')
+   * @param args JSON arguments string
+   * @returns Command result (if any)
+   */
+  async executeUnoCommand(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: ConversionOptions,
+    command: string,
+    args: string = '{}'
+  ): Promise<void> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = options.inputFormat?.toLowerCase();
+
+    if (!inputFormat) {
+      throw new ConversionError(
+        ConversionErrorCode.INVALID_INPUT,
+        'Input format is required'
+      );
+    }
+
+    const inputPath = `/tmp/uno/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      try {
+        fs.mkdir('/tmp/uno');
+      } catch {
+        // Directory might exist
+      }
+
+      fs.writeFile(inputPath, data);
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document'
+        );
+      }
+
+      try {
+        this.lokBindings.postUnoCommand(docPtr, command, args);
+      } finally {
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/uno');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Get LOK bindings for advanced operations
+   * Use with caution - this exposes low-level API
+   * @returns LOK bindings instance or null
+   */
+  getLokBindings(): typeof this.lokBindings {
+    return this.lokBindings;
+  }
+
   /**
    * Destroy the LibreOffice instance and free resources
    */

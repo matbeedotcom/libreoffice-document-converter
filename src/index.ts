@@ -31,6 +31,26 @@ export {
   EXTENSION_TO_FORMAT,
 } from './types.js';
 
+// Export LOK constants for advanced usage
+export {
+  LOK_MOUSEEVENT_BUTTONDOWN,
+  LOK_MOUSEEVENT_BUTTONUP,
+  LOK_MOUSEEVENT_MOVE,
+  LOK_KEYEVENT_KEYINPUT,
+  LOK_KEYEVENT_KEYUP,
+  LOK_SELTYPE_NONE,
+  LOK_SELTYPE_TEXT,
+  LOK_SELTYPE_CELL,
+  LOK_SETTEXTSELECTION_START,
+  LOK_SETTEXTSELECTION_END,
+  LOK_SETTEXTSELECTION_RESET,
+  LOK_DOCTYPE_TEXT,
+  LOK_DOCTYPE_SPREADSHEET,
+  LOK_DOCTYPE_PRESENTATION,
+  LOK_DOCTYPE_DRAWING,
+  LOK_DOCTYPE_OTHER,
+} from './lok-bindings.js';
+
 import { LibreOfficeConverter } from './converter.js';
 import type { ConversionOptions, ConversionResult, LibreOfficeWasmOptions } from './types.js';
 
