@@ -69,9 +69,12 @@ if ! head -c 50 soffice.cjs | grep -q "global.Module"; then
     echo "Added global.Module patch"
 fi
 
-# 2. Fix worker filename to .cjs
+# 2. Fix worker filename to .cjs and use relative path
 sed -i 's/soffice\.worker\.js/soffice.worker.cjs/g' soffice.cjs
-echo "Fixed worker filename"
+# Node.js worker_threads requires relative path starting with ./
+sed -i 's|new Worker("soffice\.worker\.cjs"|new Worker(require("path").join(__dirname,"soffice.worker.cjs")|g' soffice.cjs
+sed -i "s|new Worker('soffice\.worker\.cjs'|new Worker(require('path').join(__dirname,'soffice.worker.cjs')|g" soffice.cjs
+echo "Fixed worker filename and path"
 
 # 3. Fix hardcoded PACKAGE_NAME path
 sed -i 's|PACKAGE_NAME="[^"]*emscripten_fs_image/soffice\.data"|PACKAGE_NAME="soffice.data"|g' soffice.cjs
@@ -80,6 +83,10 @@ echo "Fixed PACKAGE_NAME path"
 # 4. Fix datafile_ reference
 sed -i 's|datafile_[^"]*emscripten_fs_image/soffice\.data|datafile_soffice.data|g' soffice.cjs
 echo "Fixed datafile_ reference"
+
+# 5. Limit worker stack trace output (avoid dumping entire minified file)
+sed -i 's|if(ex?.stack)err(ex.stack)|if(ex?.stack){var lines=ex.stack.split("\\n").slice(0,10);err(lines.join("\\n"))}|g' soffice.worker.cjs
+echo "Limited worker stack trace output"
 
 # Verify
 echo ""

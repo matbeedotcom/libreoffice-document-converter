@@ -41,6 +41,7 @@ export class LibreOfficeConverter {
   private initialized = false;
   private initializing = false;
   private options: LibreOfficeWasmOptions;
+  private corrupted = false;
 
   constructor(options: LibreOfficeWasmOptions = {}) {
     this.options = {
@@ -48,6 +49,43 @@ export class LibreOfficeConverter {
       verbose: false,
       ...options,
     };
+  }
+
+  /**
+   * Check if an error indicates LOK corruption requiring reinitialization
+   */
+  private isCorruptionError(error: Error | string): boolean {
+    const msg = error instanceof Error ? error.message : error;
+    return msg.includes('memory access out of bounds') ||
+           msg.includes('ComponentContext is not avail') ||
+           msg.includes('unreachable') ||
+           msg.includes('table index is out of bounds') ||
+           msg.includes('null function');
+  }
+
+  /**
+   * Force reinitialization of the converter (for recovery from errors)
+   */
+  async reinitialize(): Promise<void> {
+    if (this.options.verbose) {
+      console.log('[LibreOfficeConverter] Reinitializing due to corruption...');
+    }
+    
+    // Clean up existing state
+    if (this.lokBindings) {
+      try {
+        this.lokBindings.destroy();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      this.lokBindings = null;
+    }
+    this.module = null;
+    this.initialized = false;
+    this.corrupted = false;
+    
+    // Reinitialize
+    await this.initialize();
   }
 
   /**
@@ -296,6 +334,11 @@ export class LibreOfficeConverter {
     options: ConversionOptions,
     filename = 'document'
   ): Promise<ConversionResult> {
+    // Check if we need to reinitialize due to previous corruption
+    if (this.corrupted) {
+      await this.reinitialize();
+    }
+
     if (!this.initialized || !this.module) {
       throw new ConversionError(
         ConversionErrorCode.WASM_NOT_INITIALIZED,
@@ -348,15 +391,24 @@ export class LibreOfficeConverter {
         filename: outputFilename,
         duration: Date.now() - startTime,
       };
+    } catch (error) {
+      // Check if this error indicates corruption
+      if (error instanceof Error && this.isCorruptionError(error)) {
+        this.corrupted = true;
+        if (this.options.verbose) {
+          console.log('[LibreOfficeConverter] Corruption detected, will reinitialize on next convert');
+        }
+      }
+      throw error;
     } finally {
       // Cleanup temporary files
       try {
-        this.module.FS.unlink(inputPath);
+        this.module?.FS.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        this.module.FS.unlink(outputPath);
+        this.module?.FS.unlink(outputPath);
       } catch {
         // Ignore
       }

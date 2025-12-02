@@ -34,6 +34,7 @@ const initStart = Date.now();
 
 const converter = await createConverter({
   wasmPath: path.join(__dirname, 'wasm'),
+  verbose: true,
   onProgress: (info) => {
     process.stdout.write(`\r  [${info.phase}] ${info.percent}% - ${info.message}`.padEnd(70));
   },

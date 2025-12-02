@@ -1,18 +1,26 @@
+diff --git a/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk b/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
+index a9ed52756..95c0d29c6 100644
 --- a/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
 +++ b/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
-@@ -15,12 +15,12 @@
+@@ -15,7 +15,10 @@ gb_EMSCRIPTEN_CPPFLAGS := -pthread -s USE_PTHREADS=1 -D_LARGEFILE64_SOURCE -D_LA
  gb_EMSCRIPTEN_LDFLAGS := $(gb_EMSCRIPTEN_CPPFLAGS)
- 
+
  # Initial memory size and worker thread pool
--gb_EMSCRIPTEN_LDFLAGS += -s TOTAL_MEMORY=1GB -s PTHREAD_POOL_SIZE=4
-+gb_EMSCRIPTEN_LDFLAGS += -s TOTAL_MEMORY=1GB -s PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1
- 
+-gb_EMSCRIPTEN_LDFLAGS += -s TOTAL_MEMORY=1GB -s PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1
++# ALLOW_MEMORY_GROWTH enables heap expansion beyond INITIAL_MEMORY
++# STACK_SIZE increased from default 64KB to 5MB for complex call stacks
++# DEFAULT_PTHREAD_STACK_SIZE sets worker thread stack size
++gb_EMSCRIPTEN_LDFLAGS += -s INITIAL_MEMORY=1GB -s ALLOW_MEMORY_GROWTH=1 -s MAXIMUM_MEMORY=4GB -s STACK_SIZE=5MB -s DEFAULT_PTHREAD_STACK_SIZE=2MB -s PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1 -s ASSERTIONS=2 -s SAFE_HEAP=1 -s STACK_OVERFLOW_CHECK=2 -s ABORTING_MALLOC=1 -s DEMANGLE_SUPPORT=1
+
  # To keep the link time (and memory) down, prevent all rewriting options from wasm-emscripten-finalize
  # See emscripten.py, finalize_wasm, modify_wasm = True
- # So we need WASM_BIGINT=1 and ASSERTIONS=1 (2 implies STACK_OVERFLOW_CHECK)
--gb_EMSCRIPTEN_LDFLAGS += --bind -s FORCE_FILESYSTEM=1 -s WASM_BIGINT=1 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s FETCH=1 -s ASSERTIONS=1 -s EXIT_RUNTIME=0 -s EXPORTED_RUNTIME_METHODS=["UTF16ToString","stringToUTF16","UTF8ToString","ccall","cwrap","addOnPreMain","addOnPostRun","registerType","throwBindingError"$(if $(ENABLE_QT6),$(COMMA)"callMain"$(COMMA)"specialHTMLTargets")]
-+gb_EMSCRIPTEN_LDFLAGS += --bind -s FORCE_FILESYSTEM=1 -s WASM_BIGINT=1 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s FETCH=1 -s ASSERTIONS=1 -s EXIT_RUNTIME=0 -s EXPORTED_RUNTIME_METHODS=["FS","wasmTable","UTF16ToString","stringToUTF16","UTF8ToString","ccall","cwrap","addOnPreMain","addOnPostRun","registerType","throwBindingError"$(if $(ENABLE_QT6),$(COMMA)"callMain"$(COMMA)"specialHTMLTargets")]
- gb_EMSCRIPTEN_QTDEFS := -DQT_NO_LINKED_LIST -DQT_NO_JAVA_STYLE_ITERATORS -DQT_NO_EXCEPTIONS -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB
- 
+@@ -26,6 +29,9 @@ gb_EMSCRIPTEN_QTDEFS := -DQT_NO_LINKED_LIST -DQT_NO_JAVA_STYLE_ITERATORS -DQT_NO
  gb_Executable_EXT := .html
+ gb_EMSCRIPTEN_EXCEPT = -fwasm-exceptions -s SUPPORT_LONGJMP=wasm
 
++# Exported functions for the LibreOfficeKit API
++gb_EMSCRIPTEN_LDFLAGS += -s EXPORTED_FUNCTIONS=["_lok_documentLoad","_lok_documentLoadWithOptions","_lok_documentSaveAs","_lok_documentDestroy","_lok_destroy","_lok_getError","_libreofficekit_hook","_libreofficekit_hook_2","_lok_preinit","_lok_preinit_2","_main","_malloc","_free"]
++
+ gb_CXXFLAGS += $(gb_EMSCRIPTEN_CPPFLAGS)
+
+ # Here we don't use += because gb_LinkTarget_EXCEPTIONFLAGS from com_GCC_defs.mk contains -fexceptions and

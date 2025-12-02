@@ -4,12 +4,13 @@
  * This module provides direct access to the LibreOfficeKit C API
  * through the WASM module using the stable lok_* shim exports.
  *
- * The shim functions are defined in desktop/source/lib/init.cxx:
+ * Shim functions (C side) should be defined as:
  *   - lok_documentLoad(pKit, pPath)
  *   - lok_documentLoadWithOptions(pKit, pPath, pOptions)
  *   - lok_documentSaveAs(pDoc, pUrl, pFormat, pFilterOptions)
  *   - lok_documentDestroy(pDoc)
  *   - lok_getError(pKit)
+ *   - lok_destroy(pKit)          <-- RECOMMENDED to add
  */
 
 import type { EmscriptenModule } from './types.js';
@@ -21,6 +22,7 @@ interface LOKModule extends EmscriptenModule {
   _lok_documentSaveAs?: (doc: number, url: number, format: number, opts: number) => number;
   _lok_documentDestroy?: (doc: number) => void;
   _lok_getError?: (lok: number) => number;
+  _lok_destroy?: (lok: number) => void;
 }
 
 // Fallback offsets for WASM32 (4-byte pointers) if shims not available
@@ -39,17 +41,20 @@ const DOC_CLASS = {
   saveAs: 8,
 };
 
+// Reuse encoder/decoder
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
 export class LOKBindings {
   private module: LOKModule;
-  private lokPtr: number = 0;
+  private lokPtr = 0;
   private verbose: boolean;
-  private useShims: boolean = false;
+  private useShims: boolean;
 
   constructor(module: EmscriptenModule, verbose = false) {
     this.module = module as LOKModule;
     this.verbose = verbose;
-    
-    // Check if the new shim exports are available
+
     this.useShims = typeof this.module._lok_documentLoad === 'function';
     if (this.useShims) {
       this.log('Using direct LOK shim exports');
@@ -65,13 +70,28 @@ export class LOKBindings {
   }
 
   /**
+   * Get fresh heap views (important after memory growth!)
+   */
+  private get HEAPU8(): Uint8Array {
+    return this.module.HEAPU8;
+  }
+
+  private get HEAPU32(): Uint32Array {
+    return this.module.HEAPU32;
+  }
+
+  private get HEAP32(): Int32Array {
+    return this.module.HEAP32;
+  }
+
+  /**
    * Allocate a null-terminated string in WASM memory
    */
   allocString(str: string): number {
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(str + '\0');
+    const bytes = textEncoder.encode(str + '\0');
     const ptr = this.module._malloc(bytes.length);
-    this.module.HEAPU8.set(bytes, ptr);
+    // Always get fresh heap view after malloc (might have grown memory)
+    this.HEAPU8.set(bytes, ptr);
     return ptr;
   }
 
@@ -80,17 +100,19 @@ export class LOKBindings {
    */
   readString(ptr: number): string | null {
     if (ptr === 0) return null;
-    const heap = this.module.HEAPU8;
+    // Always get fresh heap view
+    const heap = this.HEAPU8;
     let end = ptr;
     while (heap[end] !== 0) end++;
-    return new TextDecoder().decode(heap.subarray(ptr, end));
+    return textDecoder.decode(heap.subarray(ptr, end));
   }
 
   /**
-   * Read a 32-bit pointer from memory
+   * Read a 32-bit pointer from memory (unsigned)
    */
   readPtr(addr: number): number {
-    return this.module.HEAP32[addr >> 2];
+    // Always get fresh heap view
+    return this.HEAPU32[addr >> 2] || 0;
   }
 
   /**
@@ -109,11 +131,20 @@ export class LOKBindings {
     const pathPtr = this.allocString(installPath);
 
     try {
-      this.lokPtr = this.module._libreofficekit_hook(pathPtr);
+      const hook = (this.module as any)._libreofficekit_hook as
+        | ((pathPtr: number) => number)
+        | undefined;
+
+      if (typeof hook !== 'function') {
+        throw new Error('libreofficekit_hook export not found on module');
+      }
+
+      this.lokPtr = hook(pathPtr);
 
       if (this.lokPtr === 0) {
         throw new Error('Failed to initialize LibreOfficeKit');
       }
+
       this.log('LOK initialized, ptr:', this.lokPtr);
     } finally {
       this.module._free(pathPtr);
@@ -126,6 +157,7 @@ export class LOKBindings {
   getError(): string | null {
     if (this.lokPtr === 0) return null;
 
+    // Prefer shim
     if (this.useShims && this.module._lok_getError) {
       const errPtr = this.module._lok_getError(this.lokPtr);
       return this.readString(errPtr);
@@ -211,11 +243,13 @@ export class LOKBindings {
         const loadWithOptsPtr = this.readPtr(lokClassPtr + LOK_CLASS.documentLoadWithOptions);
 
         if (loadWithOptsPtr === 0) {
-          this.module._free(optsPtr);
+          // No special method - fall back to plain load
           return this.documentLoad(path);
         }
 
-        const loadWithOpts = this.getFunc<(lok: number, path: number, opts: number) => number>(loadWithOptsPtr);
+        const loadWithOpts = this.getFunc<
+          (lok: number, path: number, opts: number) => number
+        >(loadWithOptsPtr);
         docPtr = loadWithOpts(this.lokPtr, pathPtr, optsPtr);
       }
 
@@ -261,7 +295,9 @@ export class LOKBindings {
         // Fallback: vtable traversal
         const docClassPtr = this.readPtr(docPtr);
         const saveAsPtr = this.readPtr(docClassPtr + DOC_CLASS.saveAs);
-        const saveAs = this.getFunc<(doc: number, url: number, format: number, opts: number) => number>(saveAsPtr);
+        const saveAs = this.getFunc<
+          (doc: number, url: number, format: number, opts: number) => number
+        >(saveAsPtr);
         result = saveAs(docPtr, urlPtr, formatPtr, optsPtr);
       }
 
@@ -308,14 +344,20 @@ export class LOKBindings {
     if (this.lokPtr === 0) return;
 
     try {
-      // LOK destroy is always via vtable (no shim for this)
-      const lokClassPtr = this.readPtr(this.lokPtr);
-      const destroyPtr = this.readPtr(lokClassPtr + LOK_CLASS.destroy);
+      // Prefer C shim if available
+      if (this.useShims && this.module._lok_destroy) {
+        this.module._lok_destroy(this.lokPtr);
+        this.log('LOK destroyed (via shim)');
+      } else {
+        // Fallback: vtable traversal
+        const lokClassPtr = this.readPtr(this.lokPtr);
+        const destroyPtr = this.readPtr(lokClassPtr + LOK_CLASS.destroy);
 
-      if (destroyPtr !== 0) {
-        const destroy = this.getFunc<(lok: number) => void>(destroyPtr);
-        destroy(this.lokPtr);
-        this.log('LOK destroyed');
+        if (destroyPtr !== 0) {
+          const destroy = this.getFunc<(lok: number) => void>(destroyPtr);
+          destroy(this.lokPtr);
+          this.log('LOK destroyed (via vtable)');
+        }
       }
     } catch (error) {
       this.log('LOK destroy error (ignored):', error);

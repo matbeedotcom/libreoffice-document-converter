@@ -1,39 +1,33 @@
 /**
- * Isolated Worker for LibreOffice WASM
- * 
- * This worker runs the blocking WASM module in complete isolation.
- * Communication happens via message passing - the blocking doesn't
- * affect the main thread.
+ * Isolated Worker for LibreOffice WASM (SAFE VERSION)
+ *
+ * ALL calls go through C shim exports.
+ * No vtable traversal. No wasmTable access.
+ * No direct pointer dereferencing except HEAPU8/HEAPU32 for strings.
  */
 
 import { parentPort, workerData } from 'worker_threads';
 import * as path from 'path';
 import * as fs from 'fs';
 
-// Configuration from parent
 const config = workerData as {
   wasmPath: string;
   verbose: boolean;
 };
 
 const wasmDir = path.resolve(config.wasmPath);
-
-// Change working directory for data file loading
 process.chdir(wasmDir);
 
-/**
- * XMLHttpRequest polyfill for Node.js
- */
+// ---------- XMLHttpRequest Polyfill ----------
 class NodeXMLHttpRequest {
   readyState = 0;
   status = 0;
-  statusText = '';
   responseType = '';
-  response: unknown = null;
-  responseText = '';
+  response: any = null;
+
   onload: (() => void) | null = null;
   onerror: ((err: Error) => void) | null = null;
-  onreadystatechange: (() => void) | null = null;
+
   private _url = '';
 
   open(_method: string, url: string) {
@@ -41,245 +35,209 @@ class NodeXMLHttpRequest {
     this.readyState = 1;
   }
 
-  overrideMimeType() {}
-  setRequestHeader() {}
-
   send() {
     try {
       const data = fs.readFileSync(this._url);
-      this.status = 200;
-      this.statusText = 'OK';
       this.readyState = 4;
+      this.status = 200;
 
       if (this.responseType === 'arraybuffer') {
         this.response = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       } else {
-        this.responseText = data.toString('utf8');
-        this.response = this.responseText;
+        this.response = data.toString('utf8');
       }
 
-      // Callbacks must be sync for Emscripten
-      if (this.onload) this.onload();
-      if (this.onreadystatechange) this.onreadystatechange();
+      this.onload?.();
     } catch (err) {
-      this.status = 404;
-      this.statusText = 'Not Found';
       this.readyState = 4;
-      if (this.onerror) this.onerror(err as Error);
+      this.status = 404;
+      this.onerror?.(err as Error);
     }
   }
+
+  overrideMimeType() {}
+  setRequestHeader() {}
 }
 
-// Set up global polyfills
 (global as any).XMLHttpRequest = NodeXMLHttpRequest;
 
-// Global state
+// ---------- Globals ----------
 let Module: any = null;
 let lokPtr = 0;
 let initialized = false;
 
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
 function log(...args: unknown[]) {
-  if (config.verbose) {
-    console.log('[Worker]', ...args);
-  }
+  if (config.verbose) console.log('[Worker]', ...args);
 }
 
 function allocString(str: string): number {
-  const encoder = new TextEncoder();
   const bytes = encoder.encode(str + '\0');
   const ptr = Module._malloc(bytes.length);
   Module.HEAPU8.set(bytes, ptr);
   return ptr;
 }
 
-function readPtr(addr: number): number {
-  return Module.HEAP32[addr >> 2];
-}
-
-/**
- * Initialize LibreOfficeKit
- * This WILL block until LibreOffice is ready
- */
+// ---------- Initialize LOK ----------
 function initializeLOK(): void {
   log('Initializing LOK...');
-  
-  const installPath = '/instdir/program';
-  const pathPtr = allocString(installPath);
 
+  const pathPtr = allocString('/instdir/program');
+
+  // Optional hook
   if (Module._lok_preinit) {
-    log('Calling _lok_preinit...');
     Module._lok_preinit(pathPtr, 0);
   }
 
-  log('Calling _libreofficekit_hook...');
   lokPtr = Module._libreofficekit_hook(pathPtr);
   Module._free(pathPtr);
 
-  if (lokPtr === 0) {
-    throw new Error('Failed to initialize LibreOfficeKit');
-  }
+  if (lokPtr === 0) throw new Error('Failed to initialize LibreOfficeKit');
 
-  log('LOK initialized, ptr:', lokPtr);
+  log('LOK initialized:', lokPtr);
   initialized = true;
 }
 
-/**
- * Convert a document
- */
+// ---------- Convert Document (shim-only) ----------
 function convert(
   inputData: Uint8Array,
   inputExt: string,
   outputFormat: string,
   filterOptions: string
 ): Uint8Array {
-  if (!initialized || lokPtr === 0) {
-    throw new Error('Not initialized');
-  }
+  
+  if (!initialized) throw new Error('LOK not initialized');
 
-  const inputPath = `/tmp/input/doc.${inputExt}`;
-  const outputPath = `/tmp/output/doc.${outputFormat}`;
+  // Track memory before conversion
+  const memBefore = Module.HEAPU8?.length || 0;
 
-  // Ensure directories
+  const inputPath = `/tmp/input.${inputExt}`;
+  const outputPath = `/tmp/output.${outputFormat}`;
+
   try { Module.FS.mkdir('/tmp'); } catch {}
-  try { Module.FS.mkdir('/tmp/input'); } catch {}
-  try { Module.FS.mkdir('/tmp/output'); } catch {}
-
-  // Write input
   Module.FS.writeFile(inputPath, inputData);
-  log('Input written:', inputPath);
 
-  // Load document
-  const lokClassPtr = readPtr(lokPtr);
-  const loadFnPtr = readPtr(lokClassPtr + 8);
-  
-  const wasmTable = Module.wasmTable as WebAssembly.Table;
-  const loadFn = wasmTable.get(loadFnPtr) as (lok: number, path: number) => number;
-  
+  // ---- LOAD DOCUMENT ----
   const inputPathPtr = allocString(inputPath);
-  log('Loading document...');
-  const docPtr = loadFn(lokPtr, inputPathPtr);
+  const docPtr = Module._lok_documentLoad(lokPtr, inputPathPtr);
   Module._free(inputPathPtr);
 
   if (docPtr === 0) {
-    throw new Error('Failed to load document');
+    const errPtr = Module._lok_getError?.(lokPtr) ?? 0;
+    const msg = errPtr ? decoder.decode(Module.HEAPU8.subarray(errPtr, Module.HEAPU8.indexOf(0, errPtr))) : 'unknown error';
+    throw new Error('Load failed: ' + msg);
   }
-  log('Document loaded, ptr:', docPtr);
 
-  try {
-    // Save document
-    const docClassPtr = readPtr(docPtr);
-    const saveFnPtr = readPtr(docClassPtr + 8);
-    const saveFn = wasmTable.get(saveFnPtr) as (
-      doc: number, path: number, format: number, opts: number
-    ) => number;
+  // ---- SAVE DOCUMENT ----
+  const urlPtr = allocString(outputPath);
+  const fmtPtr = allocString(outputFormat);
+  const optsPtr = allocString(filterOptions);
 
-    const outputPathPtr = allocString(outputPath);
-    const formatPtr = allocString(outputFormat);
-    const optsPtr = allocString(filterOptions);
+  const ok = Module._lok_documentSaveAs(docPtr, urlPtr, fmtPtr, optsPtr);
 
-    log('Saving document...');
-    const result = saveFn(docPtr, outputPathPtr, formatPtr, optsPtr);
+  Module._free(urlPtr);
+  Module._free(fmtPtr);
+  Module._free(optsPtr);
 
-    Module._free(outputPathPtr);
-    Module._free(formatPtr);
-    Module._free(optsPtr);
+  if (ok === 0) throw new Error('Save failed');
 
-    if (result === 0) {
-      throw new Error('Failed to save document');
-    }
-    log('Document saved');
+  // ---- READ OUTPUT ----
+  const output = Module.FS.readFile(outputPath) as Uint8Array;
 
-    // Read output
-    const outputData = Module.FS.readFile(outputPath) as Uint8Array;
-    log('Output size:', outputData.length);
+  // ---- DESTROY DOC ----
+  Module._lok_documentDestroy(docPtr);
 
-    // Cleanup
-    try { Module.FS.unlink(inputPath); } catch {}
-    try { Module.FS.unlink(outputPath); } catch {}
-
-    return outputData;
-  } finally {
-    // Destroy document
-    const docClassPtr = readPtr(docPtr);
-    const destroyFnPtr = readPtr(docClassPtr + 4);
-    if (destroyFnPtr !== 0) {
-      const destroyFn = wasmTable.get(destroyFnPtr) as (doc: number) => void;
-      destroyFn(docPtr);
-      log('Document destroyed');
-    }
+  // Track memory after conversion
+  const memAfter = Module.HEAPU8?.length || 0;
+  if (memAfter !== memBefore) {
+    log(`Memory changed during conversion: ${memBefore} -> ${memAfter}`);
+    memoryGrowthCount++;
   }
+
+  return output;
 }
 
-// Set up Module configuration
+// ---------- Memory Growth Tracking ----------
+let memoryGrowthCount = 0;
+let lastMemorySize = 0;
+
+function onMemoryGrowth() {
+  memoryGrowthCount++;
+  const newSize = Module.HEAPU8?.length || 0;
+  log(`Memory grew! Count: ${memoryGrowthCount}, Old: ${lastMemorySize}, New: ${newSize}`);
+  lastMemorySize = newSize;
+}
+
+// ---------- Module Setup ----------
 (global as any).Module = {
-  locateFile: (filename: string) => filename,
+  locateFile: (f: string) => f,
   onRuntimeInitialized: () => {
-    log('Runtime initialized');
     Module = (global as any).Module;
+    lastMemorySize = Module.HEAPU8?.length || 0;
+    log(`Initial memory size: ${lastMemorySize}`);
+    
+    // Register memory growth callback if available
+    if (Module.addOnPostRun) {
+      // Not exactly right but helps track
+    }
     
     try {
       initializeLOK();
       parentPort?.postMessage({ type: 'ready' });
-    } catch (error) {
-      parentPort?.postMessage({ 
-        type: 'error', 
-        error: (error as Error).message 
-      });
+    } catch (err) {
+      parentPort?.postMessage({ type: 'error', error: (err as Error).message });
     }
   },
   print: config.verbose ? console.log : () => {},
   printErr: config.verbose ? console.error : () => {},
 };
 
-// Load the WASM module (this will block until ready)
-log('Loading WASM module...');
+// Load WASM module
+log('Loading WASM...');
 require(path.join(wasmDir, 'soffice.cjs'));
-log('WASM module loaded');
 
-// Handle messages from parent
-parentPort?.on('message', (msg: { type: string; id: string; payload?: any }) => {
+// ---------- Message Handling ----------
+parentPort?.on('message', msg => {
   try {
-    switch (msg.type) {
-      case 'convert': {
-        const { inputData, inputExt, outputFormat, filterOptions } = msg.payload;
-        const result = convert(
-          new Uint8Array(inputData),
-          inputExt,
-          outputFormat,
-          filterOptions || ''
-        );
-        parentPort?.postMessage({
-          type: 'response',
-          id: msg.id,
-          success: true,
-          data: Array.from(result),
-        });
-        break;
+    if (msg.type === 'convert') {
+      const { inputData, inputExt, outputFormat, filterOptions } = msg.payload;
+
+      const result = convert(
+        new Uint8Array(inputData),
+        inputExt,
+        outputFormat,
+        filterOptions || ''
+      );
+
+      parentPort?.postMessage({
+        type: 'response',
+        id: msg.id,
+        success: true,
+        data: result
+      });
+
+    } else if (msg.type === 'destroy') {
+      if (lokPtr && Module._lok_destroy) {
+        Module._lok_destroy(lokPtr);
       }
-      
-      case 'destroy': {
-        if (lokPtr !== 0 && Module) {
-          const lokClassPtr = readPtr(lokPtr);
-          const destroyFnPtr = readPtr(lokClassPtr + 4);
-          if (destroyFnPtr !== 0) {
-            const wasmTable = Module.wasmTable as WebAssembly.Table;
-            const destroyFn = wasmTable.get(destroyFnPtr) as (lok: number) => void;
-            destroyFn(lokPtr);
-          }
-          lokPtr = 0;
-        }
-        initialized = false;
-        parentPort?.postMessage({ type: 'response', id: msg.id, success: true });
-        break;
-      }
+      lokPtr = 0;
+      initialized = false;
+
+      parentPort?.postMessage({
+        type: 'response',
+        id: msg.id,
+        success: true
+      });
     }
-  } catch (error) {
+
+  } catch (err) {
     parentPort?.postMessage({
       type: 'response',
       id: msg.id,
       success: false,
-      error: (error as Error).message,
+      error: (err as Error).message
     });
   }
 });
-
