@@ -459,6 +459,8 @@ export class WorkerBrowserConverter {
       pending.resolve(msg.pageCount);
     } else if (msg.type === 'previews') {
       pending.resolve(msg.previews);
+    } else if (msg.type === 'singlePagePreview') {
+      pending.resolve(msg.preview);
     } else if (msg.type === 'documentInfo') {
       pending.resolve(msg.documentInfo);
     }
@@ -644,6 +646,37 @@ export class WorkerBrowserConverter {
     });
 
     return result as Array<{ page: number; data: Uint8Array; width: number; height: number }>;
+  }
+
+  /**
+   * Render a single page preview - useful for lazy loading pages one at a time
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param maxWidth Maximum width for rendered page (height scales proportionally)
+   * @returns Single page preview with RGBA data
+   */
+  async renderSinglePage(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>,
+    pageIndex: number,
+    maxWidth = 256
+  ): Promise<{ page: number; data: Uint8Array; width: number; height: number }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('renderSinglePage', {
+      inputData,
+      inputExt: ext,
+      pageIndex,
+      maxWidth,
+    });
+
+    return result as { page: number; data: Uint8Array; width: number; height: number };
   }
 
   /**

@@ -782,7 +782,6 @@
     let pageSkeletons = [];
     let loadedPages = new Set();
     let intersectionObserver = null;
-    let cachedPreviews = null; // Cache all rendered previews
 
     // DOM Elements
     const dropZone = document.getElementById('dropZone');
@@ -861,8 +860,6 @@
       
       // Reset preview state
       loadedPages.clear();
-      cachedPreviews = null; // Clear cached previews for new file
-      renderPromise = null;
       updateLoadedCount();
       
       // Query document info and create skeletons
@@ -955,38 +952,7 @@
       }
     }
 
-    // Render all previews once (called when first page scrolls into view)
-    let renderPromise = null;
-    
-    async function renderAllPreviews() {
-      // Return cached previews if available
-      if (cachedPreviews) return cachedPreviews;
-      
-      // If already rendering, wait for that promise
-      if (renderPromise) return renderPromise;
-      
-      // Start rendering
-      renderPromise = (async () => {
-        try {
-          const converter = await getConverter();
-          const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
-          const inputData = new Uint8Array(fileBuffer);
-          
-          console.log('Rendering all page previews...');
-          cachedPreviews = await converter.renderPreviews(inputData.slice(), { inputFormat: ext }, 400);
-          console.log(`Rendered ${cachedPreviews.length} previews`);
-          
-          return cachedPreviews;
-        } catch (error) {
-          console.error('Failed to render previews:', error);
-          renderPromise = null; // Allow retry on error
-          throw error;
-        }
-      })();
-      
-      return renderPromise;
-    }
-
+    // Render a single page - true lazy loading, one page at a time
     async function loadPage(pageIndex, cardElement) {
       if (loadedPages.has(pageIndex)) return;
       loadedPages.add(pageIndex);
@@ -994,37 +960,42 @@
       const previewEl = cardElement.querySelector(`[data-preview="${pageIndex}"]`);
       const badgeEl = cardElement.querySelector(`[data-badge="${pageIndex}"]`);
       
-      badgeEl.textContent = 'loading...';
+      badgeEl.textContent = 'rendering...';
       
       try {
-        // Render all previews (cached after first call)
-        const previews = await renderAllPreviews();
+        const converter = await getConverter();
+        const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
+        const inputData = new Uint8Array(fileBuffer);
         
-        if (previews && previews[pageIndex]) {
-          const preview = previews[pageIndex];
-          
-          // Create canvas and render
-          const canvas = document.createElement('canvas');
-          canvas.width = preview.width;
-          canvas.height = preview.height;
-          const ctx = canvas.getContext('2d');
-          const imageData = new ImageData(
-            new Uint8ClampedArray(preview.data),
-            preview.width,
-            preview.height
-          );
-          ctx.putImageData(imageData, 0, 0);
-          
-          // Replace skeleton with canvas
-          previewEl.classList.remove('skeleton');
-          previewEl.innerHTML = '';
-          previewEl.appendChild(canvas);
-          
-          badgeEl.textContent = `${preview.width}×${preview.height}`;
-          badgeEl.classList.add('loaded');
-        } else {
-          throw new Error('Preview not available');
-        }
+        // Render just this single page
+        console.log(`Rendering page ${pageIndex + 1}...`);
+        const preview = await converter.renderSinglePage(
+          inputData.slice(), 
+          { inputFormat: ext }, 
+          pageIndex, 
+          400
+        );
+        console.log(`Page ${pageIndex + 1} rendered: ${preview.width}×${preview.height}`);
+        
+        // Create canvas and render
+        const canvas = document.createElement('canvas');
+        canvas.width = preview.width;
+        canvas.height = preview.height;
+        const ctx = canvas.getContext('2d');
+        const imageData = new ImageData(
+          new Uint8ClampedArray(preview.data),
+          preview.width,
+          preview.height
+        );
+        ctx.putImageData(imageData, 0, 0);
+        
+        // Replace skeleton with canvas
+        previewEl.classList.remove('skeleton');
+        previewEl.innerHTML = '';
+        previewEl.appendChild(canvas);
+        
+        badgeEl.textContent = `${preview.width}×${preview.height}`;
+        badgeEl.classList.add('loaded');
         
         updateLoadedCount();
         

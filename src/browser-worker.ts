@@ -10,7 +10,7 @@ import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'getDocumentInfo';
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'getDocumentInfo';
   id: number;
   wasmPath?: string;
   verbose?: boolean;
@@ -20,6 +20,7 @@ interface WorkerMessage {
   filterOptions?: string;
   password?: string;
   maxWidth?: number;
+  pageIndex?: number; // For renderSinglePage
 }
 
 interface PagePreview {
@@ -37,13 +38,14 @@ interface DocumentInfo {
 }
 
 interface WorkerResponse {
-  type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'documentInfo';
+  type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'singlePagePreview' | 'documentInfo';
   id: number;
   data?: Uint8Array;
   error?: string;
   progress?: { percent: number; message: string };
   pageCount?: number;
   previews?: PagePreview[];
+  preview?: PagePreview; // Single page preview
   documentInfo?: DocumentInfo;
 }
 
@@ -374,6 +376,84 @@ async function handleRenderPreviews(msg: WorkerMessage) {
   }
 }
 
+/**
+ * Render a single page preview - allows trickling in pages one at a time
+ */
+async function handleRenderSinglePage(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt, maxWidth = 256, pageIndex = 0 } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  const inPath = `/tmp/input/page_${pageIndex}.${inputExt || 'docx'}`;
+  let docPtr = 0;
+
+  try {
+    module.FS.writeFile(inPath, inputData);
+    docPtr = lokBindings.documentLoad(inPath);
+
+    if (docPtr === 0) {
+      const error = lokBindings.getError();
+      throw new Error(error || 'Failed to load document');
+    }
+
+    const pageCount = lokBindings.documentGetParts(docPtr);
+    
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
+    }
+
+    // Set the page/part to render
+    lokBindings.documentSetPart(docPtr, pageIndex);
+    const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
+    
+    // Scale to maxWidth while maintaining aspect ratio
+    let renderWidth = docWidth;
+    let renderHeight = docHeight;
+    
+    if (docWidth > maxWidth) {
+      renderWidth = maxWidth;
+      renderHeight = Math.round((docHeight / docWidth) * maxWidth);
+    }
+    
+    // Render the page
+    const rendered = lokBindings.renderPage(docPtr, pageIndex, renderWidth, renderHeight);
+    
+    // Copy from SharedArrayBuffer to regular ArrayBuffer
+    const dataCopy = new Uint8Array(rendered.data.length);
+    dataCopy.set(rendered.data);
+    
+    const preview: PagePreview = {
+      page: pageIndex + 1,
+      data: dataCopy,
+      width: rendered.width,
+      height: rendered.height
+    };
+
+    // Transfer the buffer
+    self.postMessage({ type: 'singlePagePreview', id: msg.id, preview }, [dataCopy.buffer]);
+
+  } catch (error) {
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    if (docPtr !== 0) {
+      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+    }
+    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+  }
+}
+
 async function handleGetDocumentInfo(msg: WorkerMessage) {
   if (!initialized || !module || !lokBindings) {
     postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
@@ -479,6 +559,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       break;
     case 'renderPreviews':
       await handleRenderPreviews(msg);
+      break;
+    case 'renderSinglePage':
+      await handleRenderSinglePage(msg);
       break;
     case 'getDocumentInfo':
       await handleGetDocumentInfo(msg);
