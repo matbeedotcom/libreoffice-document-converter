@@ -286,6 +286,7 @@ export interface EmscriptenFS {
 
 /**
  * Filter name mapping for LibreOffice export
+ * Note: For image exports, use getFilterForDocType() instead as filters are document-type specific
  */
 export const FORMAT_FILTERS: Record<OutputFormat, string> = {
   pdf: 'writer_pdf_Export',
@@ -306,6 +307,75 @@ export const FORMAT_FILTERS: Record<OutputFormat, string> = {
   jpg: 'writer_jpg_Export',
   svg: 'writer_svg_Export',
 };
+
+/**
+ * LibreOfficeKit document types (from LibreOfficeKitEnums.h)
+ */
+export enum LOKDocumentType {
+  TEXT = 0,
+  SPREADSHEET = 1,
+  PRESENTATION = 2,
+  DRAWING = 3,
+  OTHER = 4,
+}
+
+/**
+ * Document-type-specific filters for image and PDF exports
+ * Each document type (Writer, Calc, Impress, Draw) has its own export filters
+ */
+export const DOC_TYPE_FILTERS: Record<LOKDocumentType, Partial<Record<OutputFormat, string>>> = {
+  [LOKDocumentType.TEXT]: {
+    pdf: 'writer_pdf_Export',
+    png: 'writer_png_Export',
+    jpg: 'writer_jpg_Export',
+    svg: 'writer_svg_Export',
+    html: 'HTML (StarWriter)',
+  },
+  [LOKDocumentType.SPREADSHEET]: {
+    pdf: 'calc_pdf_Export',
+    png: 'calc_png_Export',
+    jpg: 'calc_jpg_Export',
+    svg: 'calc_svg_Export',
+    html: 'HTML (StarCalc)',
+  },
+  [LOKDocumentType.PRESENTATION]: {
+    pdf: 'impress_pdf_Export',
+    png: 'impress_png_Export',
+    jpg: 'impress_jpg_Export',
+    svg: 'impress_svg_Export',
+    html: 'impress_html_Export',
+  },
+  [LOKDocumentType.DRAWING]: {
+    pdf: 'draw_pdf_Export',
+    png: 'draw_png_Export',
+    jpg: 'draw_jpg_Export',
+    svg: 'draw_svg_Export',
+    html: 'draw_html_Export',
+  },
+  [LOKDocumentType.OTHER]: {
+    pdf: 'writer_pdf_Export',
+    png: 'writer_png_Export',
+    jpg: 'writer_jpg_Export',
+    svg: 'writer_svg_Export',
+  },
+};
+
+/**
+ * Get the correct export filter for a given output format and document type
+ * @param outputFormat The desired output format
+ * @param docType The LibreOfficeKit document type (use documentGetDocumentType())
+ * @returns The filter name to use for saveAs
+ */
+export function getFilterForDocType(outputFormat: OutputFormat, docType: LOKDocumentType | number): string {
+  // Check if there's a document-type-specific filter
+  const docTypeFilters = DOC_TYPE_FILTERS[docType as LOKDocumentType];
+  if (docTypeFilters && docTypeFilters[outputFormat]) {
+    return docTypeFilters[outputFormat]!;
+  }
+  
+  // Fall back to the default filter
+  return FORMAT_FILTERS[outputFormat];
+}
 
 /**
  * MIME types for output formats
@@ -356,25 +426,25 @@ export const EXTENSION_TO_FORMAT: Record<string, InputFormat> = {
 };
 
 /**
- * LibreOfficeKit document types (from LibreOfficeKitEnums.h)
- */
-export enum LOKDocumentType {
-  TEXT = 0,
-  SPREADSHEET = 1,
-  PRESENTATION = 2,
-  DRAWING = 3,
-  OTHER = 4,
-}
-
-/**
  * Map LOK document type to valid output formats
- * This is the authoritative source - based on LibreOffice's actual filter capabilities
+ * This is based on LibreOffice's actual extension maps in desktop/source/lib/init.cxx
+ * 
+ * IMPORTANT: These are the formats that LibreOffice's saveAs() actually supports.
+ * The extension maps in init.cxx determine what filters are available per document type.
+ * 
+ * Writer (TEXT): doc, docx, odt, pdf, rtf, txt, html, png, epub
+ * Calc (SPREADSHEET): csv, ods, pdf, xls, xlsx, html, png
+ * Impress (PRESENTATION): odp, pdf, ppt, pptx, svg, html, png
+ * Draw (DRAWING): odg, pdf, svg, html, png
+ * 
+ * NOTE: jpg is NOT in any extension map! Only png is supported for image export.
+ * NOTE: svg is only supported for Impress and Draw, not Writer or Calc.
  */
 export const LOK_DOCTYPE_OUTPUT_FORMATS: Record<LOKDocumentType, OutputFormat[]> = {
-  [LOKDocumentType.TEXT]: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'],
-  [LOKDocumentType.SPREADSHEET]: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],
-  [LOKDocumentType.PRESENTATION]: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],
-  [LOKDocumentType.DRAWING]: ['pdf', 'png', 'jpg', 'svg', 'html'],
+  [LOKDocumentType.TEXT]: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png'],
+  [LOKDocumentType.SPREADSHEET]: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png'],
+  [LOKDocumentType.PRESENTATION]: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'svg', 'html'],
+  [LOKDocumentType.DRAWING]: ['pdf', 'png', 'svg', 'html'],
   [LOKDocumentType.OTHER]: ['pdf'],
 };
 
@@ -468,14 +538,18 @@ export const INPUT_FORMAT_CATEGORY: Record<InputFormat, DocumentCategory> = {
  * Based on LibreOffice's actual filter capabilities
  */
 export const CATEGORY_OUTPUT_FORMATS: Record<DocumentCategory, OutputFormat[]> = {
-  // Writer documents can export to:
-  text: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png', 'jpg', 'svg'],
-  // Calc documents can export to:
-  spreadsheet: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png', 'jpg', 'svg'],
-  // Impress documents can export to:
-  presentation: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'jpg', 'svg', 'html'],
-  // Draw documents (including imported PDFs) can export to:
-  drawing: ['pdf', 'png', 'jpg', 'svg', 'html'],
+  // Writer documents can export to (based on aWriterExtensionMap in init.cxx):
+  // NOTE: jpg and svg are NOT supported for Writer - only png for images
+  text: ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png'],
+  // Calc documents can export to (based on aCalcExtensionMap in init.cxx):
+  // NOTE: jpg and svg are NOT supported for Calc - only png for images
+  spreadsheet: ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png'],
+  // Impress documents can export to (based on aImpressExtensionMap in init.cxx):
+  // NOTE: jpg is NOT supported - only png and svg for images
+  presentation: ['pdf', 'pptx', 'ppt', 'odp', 'png', 'svg', 'html'],
+  // Draw documents (including imported PDFs) can export to (based on aDrawExtensionMap in init.cxx):
+  // NOTE: jpg is NOT supported - only png and svg for images
+  drawing: ['pdf', 'png', 'svg', 'html'],
   // Other/unknown - try PDF only
   other: ['pdf'],
 };

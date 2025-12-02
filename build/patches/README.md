@@ -37,6 +37,15 @@ These patches are applied to the LibreOffice source tree during the WASM build p
   - Spreadsheet: `getDataArea`
   - Edit mode: `getEditMode`
 
+### Image Export Fix
+- **018-graphicexportfilter-fix.patch** - Fix GraphicExportFilter service for PNG/SVG export
+  - Problem: Image exports (PNG, SVG) failed with "component context fails to supply service"
+  - Root cause: `GraphicExportFilter` was marked `<optional/>` in `svxcore.component`
+  - Solution: Remove `<optional/>` tag and clear `svxcore.component.draw` to prevent filtering
+  - Files modified:
+    - `svx/util/svxcore.component` - Remove optional tag from GraphicExporter
+    - `svx/util/svxcore.component.draw` - Clear file to prevent uniq -u filtering
+
 ### Platform Configuration
 - **014-emscripten-unipoll-fix.patch** - Fix for Emscripten unipoll
 - **016-emscripten-platform.patch** - Emscripten platform configuration
