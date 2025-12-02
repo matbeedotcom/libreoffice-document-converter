@@ -264,6 +264,32 @@ else
     log_success "LOK_SKIP_PRELOAD already patched or not needed"
 fi
 
+# Patch 7: Apply additional missing patches
+# We need 006 for Impress/Draw/Math support, and others for stability
+for patch_file in \
+    "006-add-impress-draw-math-fs-image.patch" \
+    "009-fix-repository.patch" \
+    "010-fix-writerperfect.patch" \
+    "012-lok-shim-exports.patch" \
+    "013-lok-shim-functions.patch" \
+    "014-emscripten-unipoll-fix.patch"; do
+    
+    if [ -f "${SCRIPT_DIR}/patches/${patch_file}" ]; then
+        log_info "Checking patch: ${patch_file}..."
+        # Check if patch is already applied (loose check)
+        if patch -R -p1 -s -f --dry-run < "${SCRIPT_DIR}/patches/${patch_file}" &>/dev/null; then
+            log_success "${patch_file} already applied"
+        else
+            log_info "Applying ${patch_file}..."
+            if patch -f -p1 < "${SCRIPT_DIR}/patches/${patch_file}"; then
+                log_success "Applied ${patch_file}"
+            else
+                log_warn "Failed to apply ${patch_file}"
+            fi
+        fi
+    fi
+done
+
 # ============================================================
 # Step 5: Configure LibreOffice
 # ============================================================
@@ -278,13 +304,15 @@ cat > autogen.input << EOF
 # Core WASM settings
 # ============================================================
 --host=wasm32-local-emscripten
---enable-headless
+# --enable-headless
 --disable-gui
 --enable-wasm-strip
 --with-parallelism=${BUILD_JOBS}
 
 # Include all main modules (Writer, Calc, Impress, Draw)
-# Remove --with-main-module to include all
+# By default --enable-wasm-strip strips Impress/Draw/Math/Basic
+# We need to explicitly keep them for PPTX/ODP support
+# --disable-wasm-strip-basic-draw-math-impress
 
 # ============================================================
 # Build optimization settings
@@ -303,7 +331,7 @@ cat > autogen.input << EOF
 --without-myspell-dicts
 
 # Disable fontconfig (useless in WASM, saves init time)
---disable-fontconfig
+# --disable-fontconfig
 
 # Skip translations (reduces .data by several MB)
 --with-lang=en-US
@@ -329,7 +357,7 @@ cat > autogen.input << EOF
 --disable-kf5
 --disable-kf6
 --disable-skia
---disable-opengl
+# --disable-opengl
 
 # ============================================================
 # Disable scripting (not needed for conversion)
@@ -349,16 +377,16 @@ cat > autogen.input << EOF
 # ============================================================
 # Disable non-conversion features
 # ============================================================
---disable-xmlhelp
+# --disable-xmlhelp  # KEEP ENABLED - needed for filter registry
 --disable-report-builder
 --disable-zxing
 --disable-gpgmepp
 --disable-ldap
 --disable-libcmis
 --disable-odk
---disable-chart-tests
+# --disable-chart-tests
 --disable-cve-tests
---disable-export-validation
+# --disable-export-validation
 
 # ============================================================
 # Disable database connectivity

@@ -1,88 +1,95 @@
-# LibreOffice WASM Build Configuration
-# MINIMAL headless build for document conversion ONLY
-# No UI, no desktop, no extras - pure conversion engine
+# ==========================================
+# LibreOffice WASM: Full Document IO Build
+# ==========================================
+# GOALS:
+#   - 100% import/export format support (DOCX, XLSX, PPTX, etc.)
+#   - NO UI, NO desktop toolkits, NO Java
+#   - Fully compatible with LOK + WASM threading
+#   - Smallest possible footprint for a full-format runtime
 #
-# Based on static/README.wasm.md documentation for headless builds.
+# IMPORTANT:
+#   --with-main-module=all is REQUIRED for PPTX support.
+#   Anything else causes missing Impress filters.
+# ==========================================
 
-# Core WASM target
 --host=wasm32-local-emscripten
+--with-main-module=all
 --disable-gui
+--with-parallelism=32
 
-# Main module (writer for document processing)
---with-main-module=writer
-
-# Enable WASM stripping for smaller binary
---enable-wasm-strip
-
-# Disable ALL desktop/UI capabilities
---disable-avmedia
---disable-dbus
---disable-sdremote
---disable-sdremote-bluetooth
---disable-gio
---disable-cups
---disable-randr
---disable-gstreamer-1-0
---disable-cairo-canvas
---disable-skia
+# ==========================================
+# Disable GUI toolkits, OS deps
+# Note: Do NOT disable cairo-canvas or skia - needed for PDF/SVG rendering
+# ==========================================
+--disable-kf5
+--disable-kf6
 --disable-gtk3
 --disable-gtk4
 --disable-qt5
 --disable-qt6
---disable-kf5
---disable-kf6
+--disable-gstreamer-1-0
+--disable-sdremote
+--disable-sdremote-bluetooth
+--disable-dbus
+--disable-cups
+--disable-randr
 
-# Disable database connectivity (not needed for conversion)
---disable-database-connectivity
---disable-firebird-sdbc
---disable-postgresql-sdbc
---disable-mariadb-sdbc
-
-# Disable extensions and scripting (not needed for conversion)
---disable-extensions
---disable-extension-integration
---disable-extension-update
+# ==========================================
+# Remove anything related to scripting/automation
+# ==========================================
 --disable-scripting
 --disable-librelogo
-
-# Disable unnecessary features
---disable-report-builder
---disable-lpsolve
---disable-coinmp
---disable-ldap
---disable-opencl
---disable-xmlhelp
---disable-cve-tests
---disable-lotuswordpro
 --disable-odk
+
+# ==========================================
+# Disable database connectors (not supported in WASM)
+# ==========================================
+--disable-database-connectivity
+--disable-mariadb-sdbc
+--disable-postgresql-sdbc
+--disable-firebird-sdbc
+--disable-ldap
+--without-krb5
+--without-gssapi
+
+# ==========================================
+# Ensure full filter system is built
+# (OOXML, MS binary, DrawingML, VML, SVG, PDF, etc.)
+# ==========================================
+# lpsolve/coinmp disabled in WASM builds
+
+# ==========================================
+# Disable updates / crash reporter / telemetry
+# ==========================================
 --disable-online-update
 --disable-crashdump
---disable-community-flavor
+--disable-cve-tests
 
-# PDF handling (keep for conversion capabilities)
-# Uncomment these to further reduce size if you don't need PDF input
-# --disable-pdfimport
-# --disable-pdfium
-
-# Disable crypto (not needed for basic conversion)
---disable-openssl
+# ==========================================
+# Crypto not needed for conversion
+# ==========================================
 --disable-nss
 
-# Build optimization
---disable-debug
---enable-sal-log
---enable-optimized=yes
---enable-lto
---disable-ccache
---disable-split-debug
---disable-symbols
-
-# Use internal libraries (required for WASM)
---with-system-libs=no
+# ==========================================
+# Remove unused extras (keeps binary small)
+# ==========================================
 --without-java
 --without-doxygen
 --without-helppack-integration
 --without-myspell-dicts
+--with-lang=en-US
 
-# Parallelization
---with-parallelism=4
+# ==========================================
+# WASM build optimizations
+# ==========================================
+--enable-optimized
+--enable-wasm-strip
+--disable-debug
+--enable-sal-log
+
+# ==========================================
+# PDF import/export support
+# ==========================================
+--enable-pdfimport
+--enable-pdfium
+--disable-poppler

@@ -155,6 +155,12 @@ export interface LibreOfficeWasmOptions {
   wasmPath?: string;
 
   /**
+   * Path to browser worker script (for WorkerBrowserConverter)
+   * @default './dist/browser-worker.global.js'
+   */
+  workerPath?: string;
+
+  /**
    * Enable verbose logging
    * @default false
    */

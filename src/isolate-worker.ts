@@ -183,6 +183,40 @@ function onMemoryGrowth() {
       // Not exactly right but helps track
     }
     
+    // Track FS operations to find missing files
+    if (config.verbose && Module.FS) {
+      const originalOpen = Module.FS.open;
+      Module.FS.open = function(path: string, ...args: any[]) {
+        try {
+          return originalOpen.call(Module.FS, path, ...args);
+        } catch (e: any) {
+          if (e.code === 'ENOENT') {
+            console.log('[FS ENOENT]', path);
+          }
+          throw e;
+        }
+      };
+    }
+    
+    // Debug filesystem contents
+    if (config.verbose) {
+      try {
+        console.log('[Worker] FILTER DIR:', Module.FS.readdir('/instdir/share/filter'));
+      } catch (e) { console.log('[Worker] FILTER DIR: ERROR -', (e as Error).message); }
+      
+      try {
+        console.log('[Worker] REGISTRY DIR:', Module.FS.readdir('/instdir/share/registry'));
+      } catch (e) { console.log('[Worker] REGISTRY DIR: ERROR -', (e as Error).message); }
+      
+      try {
+        console.log('[Worker] CONFIG FILTER:', Module.FS.readdir('/instdir/share/config/soffice.cfg/filter'));
+      } catch (e) { console.log('[Worker] CONFIG FILTER: ERROR -', (e as Error).message); }
+      
+      try {
+        console.log('[Worker] IMPRESS MODULES:', Module.FS.readdir('/instdir/share/config/soffice.cfg/modules/simpress'));
+      } catch (e) { console.log('[Worker] IMPRESS MODULES: ERROR -', (e as Error).message); }
+    }
+    
     try {
       initializeLOK();
       parentPort?.postMessage({ type: 'ready' });

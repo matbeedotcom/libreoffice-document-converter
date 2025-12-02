@@ -88,6 +88,12 @@ echo "Fixed datafile_ reference"
 sed -i 's|if(ex?.stack)err(ex.stack)|if(ex?.stack){var lines=ex.stack.split("\\n").slice(0,10);err(lines.join("\\n"))}|g' soffice.worker.cjs
 echo "Limited worker stack trace output"
 
+# 6. Create browser-compatible copies (.js from .cjs)
+# Using copies instead of symlinks for better server compatibility
+cp soffice.cjs soffice.js
+cp soffice.worker.cjs soffice.worker.js
+echo "Created browser copies (soffice.js, soffice.worker.js)"
+
 # Verify
 echo ""
 echo "=== Verification ==="

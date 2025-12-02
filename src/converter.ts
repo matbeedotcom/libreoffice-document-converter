@@ -42,6 +42,7 @@ export class LibreOfficeConverter {
   private initializing = false;
   private options: LibreOfficeWasmOptions;
   private corrupted = false;
+  private fsTracked = false;
 
   constructor(options: LibreOfficeWasmOptions = {}) {
     this.options = {
@@ -305,6 +306,62 @@ export class LibreOfficeConverter {
       );
     }
 
+    // Debug filesystem contents before LOK init
+    if (this.options.verbose && this.module.FS) {
+      const fs = this.module.FS as typeof this.module.FS & {
+        trackingDelegate?: Record<string, unknown>;
+        open: (...args: unknown[]) => unknown;
+      };
+
+      if (!this.fsTracked) {
+        this.fsTracked = true;
+
+        if (!fs.trackingDelegate) {
+          fs.trackingDelegate = {
+            onOpen: (path: string) => {
+              console.log('[FS OPEN]', path);
+            },
+            onOpenFile: (path: string) => {
+              console.log('[FS OPEN FILE]', path);
+            },
+          };
+        }
+
+        if (typeof fs.open === 'function') {
+          const originalOpen = fs.open.bind(fs);
+          fs.open = ((path: string, flags?: unknown, mode?: unknown) => {
+            console.log('[FS OPEN CALL]', path);
+            try {
+              return originalOpen(path, flags as never, mode as never);
+            } catch (err) {
+              const error = err as { code?: string; message?: string };
+              if (error?.code === 'ENOENT') {
+                console.log('[FS ENOENT]', path);
+              }
+              throw err;
+            }
+          }) as typeof fs.open;
+        }
+      }
+
+      const logDir = (label: string, path: string) => {
+        try {
+          console.log(`[FS] ${label}:`, fs.readdir(path));
+        } catch (e) {
+          console.log(`[FS] ${label}: ERROR -`, (e as Error).message);
+        }
+      };
+
+      logDir('ROOT', '/');
+      logDir('PROGRAM DIR', '/instdir/program');
+      logDir('SHARE DIR', '/instdir/share');
+      logDir('REGISTRY DIR', '/instdir/share/registry');
+      logDir('FILTER DIR', '/instdir/share/filter');
+      logDir('CONFIG DIR', '/instdir/share/config/soffice.cfg');
+      logDir('CONFIG FILTER', '/instdir/share/config/soffice.cfg/filter');
+      logDir('IMPRESS MODULES', '/instdir/share/config/soffice.cfg/modules/simpress');
+    }
+
     // Create LOK bindings wrapper
     this.lokBindings = new LOKBindings(this.module, this.options.verbose);
 
@@ -439,6 +496,16 @@ export class LibreOfficeConverter {
       const loadOptions = options.password 
         ? `,Password=${options.password}` 
         : '';
+
+      // Debug: verify file exists before LOK load
+      if (this.options.verbose) {
+        try {
+          const stat = this.module.FS.stat(inputPath);
+          console.log('[Convert] File exists before LOK load:', inputPath, 'size:', stat.size);
+        } catch (e) {
+          console.log('[Convert] File NOT found before LOK load:', inputPath, (e as Error).message);
+        }
+      }
 
       // Load the document using LibreOfficeKit
       if (loadOptions) {

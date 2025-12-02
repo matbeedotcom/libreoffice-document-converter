@@ -10,7 +10,8 @@ index a9ed52756..95c0d29c6 100644
 +# ALLOW_MEMORY_GROWTH enables heap expansion beyond INITIAL_MEMORY
 +# STACK_SIZE increased from default 64KB to 5MB for complex call stacks
 +# DEFAULT_PTHREAD_STACK_SIZE sets worker thread stack size
-+gb_EMSCRIPTEN_LDFLAGS += -s INITIAL_MEMORY=1GB -s ALLOW_MEMORY_GROWTH=1 -s MAXIMUM_MEMORY=4GB -s STACK_SIZE=5MB -s DEFAULT_PTHREAD_STACK_SIZE=2MB -s PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1 -s ASSERTIONS=2 -s SAFE_HEAP=1 -s STACK_OVERFLOW_CHECK=2 -s ABORTING_MALLOC=1 -s DEMANGLE_SUPPORT=1
++# Production build: debug flags (SAFE_HEAP, STACK_OVERFLOW_CHECK, DEMANGLE_SUPPORT) removed for performance
++gb_EMSCRIPTEN_LDFLAGS += -s INITIAL_MEMORY=1GB -s ALLOW_MEMORY_GROWTH=1 -s MAXIMUM_MEMORY=4GB -s STACK_SIZE=5MB -s DEFAULT_PTHREAD_STACK_SIZE=2MB -s PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1
 
  # To keep the link time (and memory) down, prevent all rewriting options from wasm-emscripten-finalize
  # See emscripten.py, finalize_wasm, modify_wasm = True

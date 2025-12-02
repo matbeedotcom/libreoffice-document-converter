@@ -181,6 +181,16 @@ export class LOKBindings {
   }
 
   /**
+   * Convert a filesystem path to a file:// URL
+   * Required by LibreOffice's getAbsoluteURL() which uses rtl::Uri::convertRelToAbs()
+   */
+  private toFileUrl(path: string): string {
+    if (path.startsWith('file://')) return path;
+    const absolutePath = path.startsWith('/') ? path : '/' + path;
+    return 'file://' + absolutePath;
+  }
+
+  /**
    * Load a document from the virtual filesystem
    */
   documentLoad(path: string): number {
@@ -188,8 +198,9 @@ export class LOKBindings {
       throw new Error('LOK not initialized');
     }
 
-    this.log('Loading document:', path);
-    const pathPtr = this.allocString(path);
+    const fileUrl = this.toFileUrl(path);
+    this.log('Loading document:', path, '->', fileUrl);
+    const pathPtr = this.allocString(fileUrl);
 
     try {
       const startTime = Date.now();
@@ -227,8 +238,9 @@ export class LOKBindings {
       throw new Error('LOK not initialized');
     }
 
-    this.log('Loading document with options:', path, options);
-    const pathPtr = this.allocString(path);
+    const fileUrl = this.toFileUrl(path);
+    this.log('Loading document with options:', path, '->', fileUrl, options);
+    const pathPtr = this.allocString(fileUrl);
     const optsPtr = this.allocString(options);
 
     try {
@@ -279,9 +291,10 @@ export class LOKBindings {
       throw new Error('Invalid document pointer');
     }
 
-    this.log('Saving document to:', outputPath, 'format:', format);
+    const fileUrl = this.toFileUrl(outputPath);
+    this.log('Saving document to:', outputPath, '->', fileUrl, 'format:', format);
 
-    const urlPtr = this.allocString(outputPath);
+    const urlPtr = this.allocString(fileUrl);
     const formatPtr = this.allocString(format);
     const optsPtr = this.allocString(filterOptions);
 
