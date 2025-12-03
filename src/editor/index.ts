@@ -38,7 +38,7 @@ export function createEditor(
   docPtr: number,
   options?: OpenDocumentOptions
 ): OfficeEditor {
-  const docType = lok.documentGetType(docPtr);
+  const docType = lok.documentGetDocumentType(docPtr);
 
   switch (docType) {
     case LOK_DOCTYPE_TEXT:

@@ -223,9 +223,9 @@ export class WriterEditor extends OfficeEditor {
     }
   }
 
-  insertText(text: string, position: TextPosition): OperationResult<void> {
+  insertText(text: string, _position: TextPosition): OperationResult<void> {
     try {
-      // Navigate to position (simplified - full impl would use cursor)
+      // TODO: Navigate to position using cursor before inserting
       const textArgs = JSON.stringify({
         Text: { type: 'string', value: text },
       });
@@ -238,8 +238,9 @@ export class WriterEditor extends OfficeEditor {
     }
   }
 
-  deleteText(start: TextPosition, end: TextPosition): OperationResult<{ deleted: string }> {
+  deleteText(_start: TextPosition, _end: TextPosition): OperationResult<{ deleted: string }> {
     try {
+      // TODO: Use start/end to select text range before deleting
       // Get current selection
       const selection = this.lok.getTextSelection(this.docPtr, 'text/plain');
 
@@ -277,8 +278,9 @@ export class WriterEditor extends OfficeEditor {
     }
   }
 
-  formatText(range: TextRange, format: TextFormat): OperationResult<void> {
+  formatText(_range: TextRange, format: TextFormat): OperationResult<void> {
     try {
+      // TODO: Use range to select text before applying format
       // Apply formatting commands
       if (format.bold !== undefined) {
         this.lok.postUnoCommand(this.docPtr, '.uno:Bold');
@@ -308,12 +310,13 @@ export class WriterEditor extends OfficeEditor {
     }
   }
 
-  getFormat(position: TextPosition): OperationResult<TextFormat> {
+  getFormat(_position: TextPosition): OperationResult<TextFormat> {
     try {
-      // Query current formatting
-      const result = this.lok.getCommandValues(this.docPtr, '.uno:CharFontName');
+      // TODO: Navigate to position before querying format
+      // Query current formatting (simplified - actual impl would parse LOK response)
+      this.lok.getCommandValues(this.docPtr, '.uno:CharFontName');
 
-      // Parse result (simplified)
+      // Return simplified result
       return this.createResult({
         bold: false,
         italic: false,

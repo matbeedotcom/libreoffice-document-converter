@@ -15,7 +15,7 @@ import type { LOKBindings } from '../../src/lok-bindings.js';
 
 // Mock LOKBindings
 const createMockLok = (docType: number): Partial<LOKBindings> => ({
-  documentGetType: vi.fn().mockReturnValue(docType),
+  documentGetDocumentType: vi.fn().mockReturnValue(docType),
   documentGetParts: vi.fn().mockReturnValue(1),
   documentGetDocumentSize: vi.fn().mockReturnValue({ width: 12240, height: 15840 }),
   getAllText: vi.fn().mockReturnValue('Test content'),

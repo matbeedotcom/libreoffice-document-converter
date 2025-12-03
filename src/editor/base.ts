@@ -148,9 +148,10 @@ export abstract class OfficeEditor {
   // Selection methods
   // ============================================
 
-  select(selection: SelectionRange): OperationResult<{ selected: string }> {
+  select(_selection: SelectionRange): OperationResult<{ selected: string }> {
     try {
       // Implementation depends on selection type - subclasses may override
+      // Base implementation just returns current selection
       const text = this.lok.getTextSelection(this.docPtr, 'text/plain');
       return this.createResult({ selected: text || '' });
     } catch (error) {

@@ -17,7 +17,7 @@ export class ImpressEditor extends OfficeEditor {
     return 'impress';
   }
 
-  getStructure(options?: { maxResponseChars?: number }): OperationResult<ImpressStructure> {
+  getStructure(_options?: { maxResponseChars?: number }): OperationResult<ImpressStructure> {
     try {
       const numSlides = this.lok.documentGetParts(this.docPtr);
       const slides: SlideInfo[] = [];

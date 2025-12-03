@@ -21,7 +21,7 @@ export class CalcEditor extends OfficeEditor {
     return 'calc';
   }
 
-  getStructure(options?: { maxResponseChars?: number }): OperationResult<CalcStructure> {
+  getStructure(_options?: { maxResponseChars?: number }): OperationResult<CalcStructure> {
     try {
       const numSheets = this.lok.documentGetParts(this.docPtr);
       const sheets: SheetInfo[] = [];

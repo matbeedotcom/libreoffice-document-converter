@@ -27,7 +27,7 @@ export class DrawEditor extends OfficeEditor {
     this.isImportedPdf = value;
   }
 
-  getStructure(options?: { maxResponseChars?: number }): OperationResult<DrawStructure> {
+  getStructure(_options?: { maxResponseChars?: number }): OperationResult<DrawStructure> {
     try {
       const numPages = this.lok.documentGetParts(this.docPtr);
       const pages: PageInfo[] = [];

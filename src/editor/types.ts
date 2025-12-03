@@ -1,5 +1,5 @@
 // src/editor/types.ts
-import type { OutputFormat } from '../types.js';
+// Note: OutputFormat import removed - not currently used but may be needed for saveAs filtering
 
 /**
  * Result of any editor operation

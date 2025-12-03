@@ -170,3 +170,66 @@ export function getValidOutputFormatsFor(inputFormat: string): OutputFormat[] {
 
 // Re-export OutputFormat type for the isOutputFormatSupported function
 import type { OutputFormat } from './types.js';
+
+// ============================================
+// Editor API (LLM-friendly document editing)
+// ============================================
+
+export {
+  // Factory and type guards
+  createEditor,
+  isWriterEditor,
+  isCalcEditor,
+  isImpressEditor,
+  isDrawEditor,
+  // Editor classes
+  OfficeEditor,
+  WriterEditor,
+  CalcEditor,
+  ImpressEditor,
+  DrawEditor,
+} from './editor/index.js';
+
+export type {
+  // Operation result types
+  OperationResult,
+  TruncationInfo,
+  OpenDocumentOptions,
+  // Writer types
+  TextPosition,
+  TextRange,
+  TextFormat,
+  Paragraph,
+  WriterStructure,
+  // Calc types
+  CellRef,
+  RangeRef,
+  ColRef,
+  SheetRef,
+  CellValue,
+  CellData,
+  CellFormat,
+  SheetInfo,
+  CalcStructure,
+  // Impress types
+  SlideLayout,
+  TextFrame,
+  SlideData,
+  SlideInfo,
+  ImpressStructure,
+  // Draw types
+  ShapeType,
+  ShapeData,
+  PageData,
+  PageInfo,
+  DrawStructure,
+  // Common types
+  Rectangle,
+  Size,
+  Position,
+  DocumentMetadata,
+  DocumentStructure,
+  DocumentType,
+  SelectionRange,
+  FindOptions,
+} from './editor/index.js';
