@@ -176,7 +176,10 @@ export class LOKBindings {
     const heap = this.HEAPU8;
     let end = ptr;
     while (heap[end] !== 0) end++;
-    return textDecoder.decode(heap.subarray(ptr, end));
+    // Copy the data to avoid SharedArrayBuffer issues in browsers
+    // TextDecoder.decode() doesn't accept SharedArrayBuffer views in some browsers
+    const slice = heap.slice(ptr, end);
+    return textDecoder.decode(slice);
   }
 
   /**
@@ -609,6 +612,10 @@ export class LOKBindings {
       const bufferSize = canvasWidth * canvasHeight * 4;
       const bufferPtr = this.module._malloc(bufferSize);
 
+      if (bufferPtr === 0) {
+        throw new Error(`Failed to allocate ${bufferSize} bytes for tile buffer`);
+      }
+
       try {
         this.module._lok_documentPaintTile(
           docPtr,
@@ -667,10 +674,19 @@ export class LOKBindings {
     // Initialize for rendering if not already done
     this.documentInitializeForRendering(docPtr);
 
-    // Set the page/part
-    this.documentSetPart(docPtr, pageIndex);
+    // Get document type to determine rendering strategy
+    const docType = this.documentGetDocumentType(docPtr);
+    
+    // For presentations and drawings, use setPart to select the slide/page
+    // For text documents, we need to use page rectangles
+    if (docType === 2 || docType === 3) { // PRESENTATION or DRAWING
+      console.log(`[LOK] Setting part to ${pageIndex} for presentation/drawing`);
+      this.documentSetPart(docPtr, pageIndex);
+      const currentPart = this.documentGetPart(docPtr);
+      console.log(`[LOK] Current part after setPart: ${currentPart}`);
+    }
 
-    // Get document size in twips
+    // Get document/page size in twips
     const docSize = this.documentGetDocumentSize(docPtr);
     this.log('Document size (twips):', docSize);
 
@@ -678,24 +694,47 @@ export class LOKBindings {
       throw new Error('Failed to get document size');
     }
 
-    // Calculate output height if not specified (maintain aspect ratio)
-    const aspectRatio = docSize.height / docSize.width;
+    // For text documents, get page rectangles to find the specific page
+    let tilePosX = 0;
+    let tilePosY = 0;
+    let tileWidth = docSize.width;
+    let tileHeight = docSize.height;
+
+    if (docType === 0 || docType === 1) { // TEXT or SPREADSHEET
+      // Get page rectangles to find the Y offset for this page
+      const pageRectsStr = this.getPartPageRectangles(docPtr);
+      if (pageRectsStr) {
+        const pageRects = this.parsePageRectangles(pageRectsStr);
+        const pageRect = pageRects[pageIndex];
+        if (pageRect) {
+          tilePosX = pageRect.x;
+          tilePosY = pageRect.y;
+          tileWidth = pageRect.width;
+          tileHeight = pageRect.height;
+          this.log(`Page ${pageIndex} rectangle:`, pageRect);
+        }
+      }
+    }
+
+    // Calculate output dimensions maintaining aspect ratio
+    const aspectRatio = tileHeight / tileWidth;
     const outputWidth = width;
     const outputHeight = height > 0 ? height : Math.round(width * aspectRatio);
 
-    this.log(`Rendering page ${pageIndex} at ${outputWidth}x${outputHeight}`);
+    console.log(`[LOK] Calling paintTile: ${outputWidth}x${outputHeight} from tile pos (${tilePosX}, ${tilePosY}) size (${tileWidth}x${tileHeight})`);
 
-    // Paint the tile
+    // Paint the tile for this specific page
     const data = this.documentPaintTile(
       docPtr,
       outputWidth,
       outputHeight,
-      0,
-      0,
-      docSize.width,
-      docSize.height
+      tilePosX,
+      tilePosY,
+      tileWidth,
+      tileHeight
     );
 
+    console.log(`[LOK] paintTile returned ${data.length} bytes`);
     return { data, width: outputWidth, height: outputHeight };
   }
 

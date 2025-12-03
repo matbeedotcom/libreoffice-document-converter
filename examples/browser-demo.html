@@ -738,9 +738,12 @@
             <div class="card-icon">🖼️</div>
             <div>
               <div class="card-title">Page Preview</div>
-              <div class="card-subtitle">Scroll to load pages lazily</div>
+              <div class="card-subtitle">Click pages to load, or use Load All</div>
             </div>
           </div>
+          <button class="btn btn-secondary" id="loadAllBtn" style="display: none; padding: 0.5rem 1rem; font-size: 0.85rem;">
+            Load All Pages
+          </button>
           <div class="preview-stats" id="previewStats" style="display: none;">
             <div class="stat">
               <div class="stat-value" id="pageCount">0</div>
@@ -803,22 +806,46 @@
     const previewStats = document.getElementById('previewStats');
     const pageCountEl = document.getElementById('pageCount');
     const loadedCountEl = document.getElementById('loadedCount');
+    const loadAllBtn = document.getElementById('loadAllBtn');
+    
+    // Load All button handler
+    loadAllBtn.addEventListener('click', () => {
+      console.log('Loading all pages...');
+      for (let i = 0; i < pageSkeletons.length; i++) {
+        if (!loadedPages.has(i)) {
+          queuePageRender(i, pageSkeletons[i]);
+        }
+      }
+    });
 
     // Initialize converter
+    let converterInitializing = null; // Promise to track initialization
     async function getConverter() {
-      if (cachedConverter) return cachedConverter;
-      
-      const { WorkerBrowserConverter } = await import('../dist/browser.js');
-      const baseUrl = new URL('..', window.location.href).href;
-      
-      cachedConverter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
-        verbose: false,
-        onProgress: (p) => updateProgress(p.percent, p.message),
-      });
-      
-      await cachedConverter.initialize();
+      // If already initialized, return immediately
+      if (cachedConverter && cachedConverter.isReady()) return cachedConverter;
+
+      // If currently initializing, wait for that to complete
+      if (converterInitializing) {
+        await converterInitializing;
+        return cachedConverter;
+      }
+
+      // Start initialization
+      converterInitializing = (async () => {
+        const { WorkerBrowserConverter } = await import('../dist/browser.js');
+        const baseUrl = new URL('..', window.location.href).href;
+
+        cachedConverter = new WorkerBrowserConverter({
+          wasmPath: baseUrl + 'wasm',
+          workerPath: baseUrl + 'dist/browser-worker.global.js',
+          verbose: false,
+          onProgress: (p) => updateProgress(p.percent, p.message),
+        });
+
+        await cachedConverter.initialize();
+      })();
+
+      await converterInitializing;
       return cachedConverter;
     }
 
@@ -889,14 +916,15 @@
         
         currentDocInfo = await converter.getDocumentInfo(inputData.slice(), { inputFormat: ext });
         
-        // Check if we need PNG fallback (Drawing documents in Chromium)
-        usePngFallback = isChromium && currentDocInfo.documentTypeName === 'Drawing';
+        // Use PNG fallback for Drawing (PDFs) in Chromium browsers
+        // paintTile hangs for Drawing documents in Chrome/Edge
+        usePngFallback = false;
         
         // Update UI
         let infoText = `📄 ${currentDocInfo.documentTypeName} • ${currentDocInfo.pageCount} page${currentDocInfo.pageCount !== 1 ? 's' : ''}`;
         
         if (usePngFallback) {
-          infoText += ' (using PNG export)';
+          infoText += ' (PNG preview)';
         }
         
         docInfo.innerHTML = infoText;
@@ -927,9 +955,12 @@
       emptyState.style.display = 'none';
       pagesGrid.style.display = 'grid';
       previewStats.style.display = 'flex';
+      loadAllBtn.style.display = 'block';
       pageCountEl.textContent = pageCount;
       
-      // Setup intersection observer for lazy loading
+      // EXPERIMENT: Disable automatic lazy loading - only load on click
+      // Setup intersection observer for lazy loading (DISABLED)
+      /*
       if (intersectionObserver) {
         intersectionObserver.disconnect();
       }
@@ -947,28 +978,39 @@
         rootMargin: '100px',
         threshold: 0.1
       });
+      */
       
       // Create skeleton cards
       for (let i = 0; i < pageCount; i++) {
         const card = document.createElement('div');
         card.className = 'page-card';
         card.dataset.page = i;
+        card.style.cursor = 'pointer'; // Show it's clickable
         
         card.innerHTML = `
           <div class="page-preview skeleton" data-preview="${i}">
             <span class="skeleton-icon">📄</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">Click to load</span>
           </div>
           <div class="page-info">
             <span class="page-number">Page ${i + 1}</span>
-            <span class="page-badge" data-badge="${i}">pending</span>
+            <span class="page-badge" data-badge="${i}">click to load</span>
           </div>
         `;
+        
+        // Click to load preview
+        card.addEventListener('click', () => {
+          if (!loadedPages.has(i)) {
+            console.log(`Clicked page ${i + 1} - loading preview...`);
+            queuePageRender(i, card);
+          }
+        });
         
         pagesGrid.appendChild(card);
         pageSkeletons.push(card);
         
-        // Observe for lazy loading
-        intersectionObserver.observe(card);
+        // DISABLED: Observe for lazy loading
+        // intersectionObserver.observe(card);
       }
     }
 
@@ -1023,11 +1065,12 @@
         let preview;
         if (usePngFallback) {
           // Use PNG conversion fallback for Drawing documents in Chrome/Edge
+          // Use smaller size (200px) to reduce memory pressure in Chrome/Edge
           preview = await converter.renderPageViaConvert(
             inputData.slice(), 
             { inputFormat: ext }, 
             pageIndex, 
-            400
+            200
           );
           console.log(`Page ${pageIndex + 1} exported as PNG: ${preview.width}×${preview.height}`);
           
@@ -1045,11 +1088,12 @@
           
         } else {
           // Use paintTile for RGBA data (normal path)
+          // Use smaller size (200px) to reduce memory pressure in Chrome/Edge
           preview = await converter.renderSinglePage(
             inputData.slice(), 
             { inputFormat: ext }, 
             pageIndex, 
-            400
+            200
           );
           console.log(`Page ${pageIndex + 1} rendered: ${preview.width}×${preview.height}`);
           

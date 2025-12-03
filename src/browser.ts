@@ -541,6 +541,22 @@ export class WorkerBrowserConverter {
 
     const baseName = filename.includes('.') ? filename.substring(0, filename.lastIndexOf('.')) : filename;
 
+    // Check if result is a ZIP file (multi-page image export)
+    // ZIP files start with PK (0x50, 0x4B)
+    const isZip = result.length >= 2 && result[0] === 0x50 && result[1] === 0x4B;
+    const IMAGE_FORMATS = ['png', 'jpg', 'jpeg', 'svg'];
+    const isImageFormat = IMAGE_FORMATS.includes(outputExt.toLowerCase());
+
+    if (isZip && isImageFormat) {
+      // Multi-page image export returns a ZIP
+      return {
+        data: result,
+        mimeType: 'application/zip',
+        filename: `${baseName}_pages.zip`,
+        duration: Date.now() - startTime,
+      };
+    }
+
     return {
       data: result,
       mimeType: FORMAT_MIME_TYPES[outputExt],

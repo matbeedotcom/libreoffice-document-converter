@@ -80,11 +80,13 @@ function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: n
   
   // Check if we already have this document loaded
   if (cachedDoc && cachedDoc.inputHash === inputHash && lokBindings) {
+    console.log(`[Worker] getOrLoadDocument: reusing cached doc ptr=${cachedDoc.docPtr}`);
     const pageCount = lokBindings.documentGetParts(cachedDoc.docPtr);
     return { docPtr: cachedDoc.docPtr, pageCount };
   }
   
   // Close previous document if any
+  console.log(`[Worker] getOrLoadDocument: loading new document (hash=${inputHash})`);
   closeCachedDocument();
   
   // Load new document
@@ -98,6 +100,7 @@ function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: n
   }
   
   const pageCount = lokBindings!.documentGetParts(docPtr);
+  console.log(`[Worker] getOrLoadDocument: loaded doc ptr=${docPtr}, pageCount=${pageCount}`);
   
   // Cache the document
   cachedDoc = { docPtr, inputHash, filePath };
@@ -108,6 +111,7 @@ function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: n
 // Close cached document
 function closeCachedDocument() {
   if (cachedDoc && lokBindings && module) {
+    console.log(`[Worker] closeCachedDocument: closing cached doc ptr=${cachedDoc.docPtr}`);
     try { lokBindings.documentDestroy(cachedDoc.docPtr); } catch { /* ignore */ }
     try { module.FS.unlink(cachedDoc.filePath); } catch { /* ignore */ }
     cachedDoc = null;
@@ -156,8 +160,9 @@ async function handleInit(msg: WorkerMessage) {
         console.log('[Worker] locateFile called:', path, 'scriptDir:', scriptDir, '-> result:', result);
         return result;
       },
-      print: verbose ? console.log : () => {},
-      printErr: verbose ? console.error : () => {},
+      // Always print LibreOffice output to console for debugging
+      print: console.log,
+      printErr: console.error,
     };
 
     // Load the soffice.js script using importScripts
@@ -194,6 +199,22 @@ async function handleInit(msg: WorkerMessage) {
 
     module = self.Module as EmscriptenModule;
     postProgress(msg.id, 60, 'Setting up filesystem...');
+
+    // Set SAL_LOG environment variable for LibreOffice logging
+    // Must be done before LOK initialization
+    // Options: +ALL (everything), +lok (LibreOfficeKit), +vcl (rendering), +lok.shim (our shims)
+    try {
+      const mod = module as unknown as { ENV?: Record<string, string> };
+      if (mod.ENV) {
+        mod.ENV['SAL_LOG'] = '+ALL';
+        mod.ENV['MAX_CONCURRENCY'] = '1';
+        console.log('[Worker] Set SAL_LOG to +ALL');
+      } else {
+        console.log('[Worker] ENV not available');
+      }
+    } catch (e) {
+      console.log('[Worker] Could not set SAL_LOG:', e);
+    }
 
     // Setup filesystem
     const fs = module.FS;
@@ -237,6 +258,9 @@ async function handleInit(msg: WorkerMessage) {
   }
 }
 
+// Image formats that need multi-page handling
+const IMAGE_FORMATS = ['png', 'jpg', 'jpeg', 'svg'];
+
 async function handleConvert(msg: WorkerMessage) {
   if (!initialized || !module || !lokBindings) {
     postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
@@ -250,9 +274,13 @@ async function handleConvert(msg: WorkerMessage) {
     return;
   }
 
+  // Check if this is an image format that might need multi-page export
+  const isImageFormat = IMAGE_FORMATS.includes(outputFormat.toLowerCase());
+
   const inPath = `/tmp/input/doc.${inputExt || 'docx'}`;
   const outPath = `/tmp/output/doc.${outputFormat}`;
   let docPtr = 0;
+  const outputFiles: string[] = []; // Track files to clean up
 
   try {
     postProgress(msg.id, 10, 'Writing input file...');
@@ -270,28 +298,107 @@ async function handleConvert(msg: WorkerMessage) {
       throw new Error(error || 'Failed to load document');
     }
 
-    postProgress(msg.id, 50, 'Converting...');
+    // Get page count for multi-page image export
+    const pageCount = lokBindings.documentGetParts(docPtr);
+    const docType = lokBindings.documentGetDocumentType(docPtr);
 
-    const lokFormat = OUTPUT_FORMAT_TO_LOK[outputFormat as keyof typeof OUTPUT_FORMAT_TO_LOK];
-    const opts = filterOptions || FORMAT_FILTER_OPTIONS[outputFormat as keyof typeof FORMAT_FILTER_OPTIONS] || '';
+    // For image formats with multiple pages, export each page separately and zip
+    if (isImageFormat && pageCount > 1) {
+      postProgress(msg.id, 40, `Exporting ${pageCount} pages as ${outputFormat.toUpperCase()}...`);
 
-    postProgress(msg.id, 70, 'Saving...');
-    lokBindings.documentSaveAs(docPtr, outPath, lokFormat, opts);
+      const lokFormat = OUTPUT_FORMAT_TO_LOK[outputFormat as keyof typeof OUTPUT_FORMAT_TO_LOK];
+      const baseOpts = filterOptions || FORMAT_FILTER_OPTIONS[outputFormat as keyof typeof FORMAT_FILTER_OPTIONS] || '';
 
-    postProgress(msg.id, 90, 'Reading output...');
-    const sharedResult = module.FS.readFile(outPath) as Uint8Array;
+      // Export each page
+      const pageFiles: Array<{ name: string; data: Uint8Array }> = [];
 
-    if (sharedResult.length === 0) {
-      throw new Error('Conversion produced empty output');
+      // Get document size for calculating export dimensions (for image formats)
+      const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
+      const aspectRatio = docHeight / docWidth;
+      const exportWidth = 1024; // High quality export
+      const exportHeight = Math.round(exportWidth * aspectRatio);
+
+      for (let i = 0; i < pageCount; i++) {
+        const progress = 40 + Math.round((i / pageCount) * 40);
+        postProgress(msg.id, progress, `Exporting page ${i + 1}/${pageCount}...`);
+
+        const pageOutPath = `/tmp/output/page_${i + 1}.${outputFormat}`;
+        outputFiles.push(pageOutPath);
+
+        // For presentations/drawings, we need to set the part AND use PixelWidth/PixelHeight
+        // for PNG/JPG export to work correctly (same approach as handleRenderPageViaConvert)
+        if (docType === 2 || docType === 3) { // PRESENTATION or DRAWING
+          lokBindings.documentSetPart(docPtr, i);
+
+          // For image formats, include pixel dimensions in filter options
+          let pageOpts = baseOpts;
+          if (outputFormat === 'png' || outputFormat === 'jpg' || outputFormat === 'jpeg') {
+            pageOpts = `PixelWidth=${exportWidth};PixelHeight=${exportHeight}`;
+            if (baseOpts) pageOpts = `${baseOpts};${pageOpts}`;
+          }
+
+          lokBindings.documentSaveAs(docPtr, pageOutPath, lokFormat, pageOpts);
+          console.log(`[Worker] Page ${i + 1} (presentation) exported with opts: ${pageOpts}`);
+        } else {
+          // For text documents, use PageRange filter option (1-indexed)
+          let pageOpts = `PageRange=${i + 1}-${i + 1}`;
+
+          // For image formats, also include pixel dimensions
+          if (outputFormat === 'png' || outputFormat === 'jpg' || outputFormat === 'jpeg') {
+            pageOpts += `;PixelWidth=${exportWidth};PixelHeight=${exportHeight}`;
+          }
+
+          if (baseOpts) pageOpts = `${baseOpts};${pageOpts}`;
+
+          lokBindings.documentSaveAs(docPtr, pageOutPath, lokFormat, pageOpts);
+          console.log(`[Worker] Page ${i + 1} (text) exported with opts: ${pageOpts}`);
+        }
+
+        const pageData = module.FS.readFile(pageOutPath) as Uint8Array;
+        console.log(`[Worker] Page ${i + 1} exported: ${pageData.length} bytes`);
+
+        if (pageData.length > 0) {
+          const pageCopy = new Uint8Array(pageData.length);
+          pageCopy.set(pageData);
+          pageFiles.push({ name: `page_${i + 1}.${outputFormat}`, data: pageCopy });
+        } else {
+          console.warn(`[Worker] Page ${i + 1} export produced empty file`);
+        }
+      }
+
+      postProgress(msg.id, 85, 'Creating ZIP archive...');
+
+      // Create a simple ZIP file (no compression for images)
+      const zipData = createSimpleZip(pageFiles);
+
+      postProgress(msg.id, 100, 'Complete');
+      postResponse({ type: 'result', id: msg.id, data: zipData });
+
+    } else {
+      // Single page or non-image format: standard export
+      postProgress(msg.id, 50, 'Converting...');
+
+      const lokFormat = OUTPUT_FORMAT_TO_LOK[outputFormat as keyof typeof OUTPUT_FORMAT_TO_LOK];
+      const opts = filterOptions || FORMAT_FILTER_OPTIONS[outputFormat as keyof typeof FORMAT_FILTER_OPTIONS] || '';
+
+      postProgress(msg.id, 70, 'Saving...');
+      lokBindings.documentSaveAs(docPtr, outPath, lokFormat, opts);
+      outputFiles.push(outPath);
+
+      postProgress(msg.id, 90, 'Reading output...');
+      const sharedResult = module.FS.readFile(outPath) as Uint8Array;
+
+      if (sharedResult.length === 0) {
+        throw new Error('Conversion produced empty output');
+      }
+
+      // Copy from SharedArrayBuffer to regular ArrayBuffer for transfer
+      const result = new Uint8Array(sharedResult.length);
+      result.set(sharedResult);
+
+      postProgress(msg.id, 100, 'Complete');
+      postResponse({ type: 'result', id: msg.id, data: result });
     }
-
-    // Copy from SharedArrayBuffer to regular ArrayBuffer for transfer
-    // (SharedArrayBuffer views can't be used with postMessage transfer)
-    const result = new Uint8Array(sharedResult.length);
-    result.set(sharedResult);
-
-    postProgress(msg.id, 100, 'Complete');
-    postResponse({ type: 'result', id: msg.id, data: result });
 
   } catch (error) {
     postResponse({
@@ -305,8 +412,117 @@ async function handleConvert(msg: WorkerMessage) {
       try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
     }
     try { module.FS.unlink(inPath); } catch { /* ignore */ }
-    try { module.FS.unlink(outPath); } catch { /* ignore */ }
+    for (const path of outputFiles) {
+      try { module.FS.unlink(path); } catch { /* ignore */ }
+    }
   }
+}
+
+/**
+ * Create a simple ZIP file from an array of files
+ * This is a minimal ZIP implementation without compression (STORE method)
+ */
+function createSimpleZip(files: Array<{ name: string; data: Uint8Array }>): Uint8Array {
+  const chunks: Uint8Array[] = [];
+  const centralDirectory: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = new TextEncoder().encode(file.name);
+
+    // Local file header
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(localHeader.buffer);
+
+    view.setUint32(0, 0x04034b50, true);  // Local file header signature
+    view.setUint16(4, 20, true);           // Version needed
+    view.setUint16(6, 0, true);            // General purpose flags
+    view.setUint16(8, 0, true);            // Compression method (STORE)
+    view.setUint16(10, 0, true);           // Mod time
+    view.setUint16(12, 0, true);           // Mod date
+    view.setUint32(14, crc32(file.data), true); // CRC-32
+    view.setUint32(18, file.data.length, true); // Compressed size
+    view.setUint32(22, file.data.length, true); // Uncompressed size
+    view.setUint16(26, nameBytes.length, true); // File name length
+    view.setUint16(28, 0, true);           // Extra field length
+    localHeader.set(nameBytes, 30);
+
+    chunks.push(localHeader);
+    chunks.push(file.data);
+
+    // Central directory entry
+    const cdEntry = new Uint8Array(46 + nameBytes.length);
+    const cdView = new DataView(cdEntry.buffer);
+
+    cdView.setUint32(0, 0x02014b50, true);  // Central directory signature
+    cdView.setUint16(4, 20, true);           // Version made by
+    cdView.setUint16(6, 20, true);           // Version needed
+    cdView.setUint16(8, 0, true);            // General purpose flags
+    cdView.setUint16(10, 0, true);           // Compression method
+    cdView.setUint16(12, 0, true);           // Mod time
+    cdView.setUint16(14, 0, true);           // Mod date
+    cdView.setUint32(16, crc32(file.data), true); // CRC-32
+    cdView.setUint32(20, file.data.length, true); // Compressed size
+    cdView.setUint32(24, file.data.length, true); // Uncompressed size
+    cdView.setUint16(28, nameBytes.length, true); // File name length
+    cdView.setUint16(30, 0, true);           // Extra field length
+    cdView.setUint16(32, 0, true);           // Comment length
+    cdView.setUint16(34, 0, true);           // Disk number start
+    cdView.setUint16(36, 0, true);           // Internal attributes
+    cdView.setUint32(38, 0, true);           // External attributes
+    cdView.setUint32(42, offset, true);      // Offset of local header
+    cdEntry.set(nameBytes, 46);
+
+    centralDirectory.push(cdEntry);
+    offset += localHeader.length + file.data.length;
+  }
+
+  const cdOffset = offset;
+  let cdSize = 0;
+  for (const entry of centralDirectory) {
+    chunks.push(entry);
+    cdSize += entry.length;
+  }
+
+  // End of central directory
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  eocdView.setUint32(0, 0x06054b50, true);  // EOCD signature
+  eocdView.setUint16(4, 0, true);            // Disk number
+  eocdView.setUint16(6, 0, true);            // Disk with CD
+  eocdView.setUint16(8, files.length, true); // Entries on this disk
+  eocdView.setUint16(10, files.length, true);// Total entries
+  eocdView.setUint32(12, cdSize, true);      // CD size
+  eocdView.setUint32(16, cdOffset, true);    // CD offset
+  eocdView.setUint16(20, 0, true);           // Comment length
+
+  chunks.push(eocd);
+
+  // Combine all chunks
+  const totalSize = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalSize);
+  let pos = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, pos);
+    pos += chunk.length;
+  }
+
+  return result;
+}
+
+/**
+ * CRC-32 calculation for ZIP files
+ */
+function crc32(data: Uint8Array): number {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) {
+    const byte = data[i]!;
+    crc ^= byte;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 async function handleGetPageCount(msg: WorkerMessage) {
@@ -322,20 +538,11 @@ async function handleGetPageCount(msg: WorkerMessage) {
     return;
   }
 
-  const inPath = `/tmp/input/pagecount.${inputExt || 'docx'}`;
-  let docPtr = 0;
-
   try {
-    module.FS.writeFile(inPath, inputData);
-    docPtr = lokBindings.documentLoad(inPath);
-
-    if (docPtr === 0) {
-      const error = lokBindings.getError();
-      throw new Error(error || 'Failed to load document');
-    }
-
-    const pageCount = lokBindings.documentGetParts(docPtr);
+    // Use cached document
+    const { pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
     postResponse({ type: 'pageCount', id: msg.id, pageCount });
+    // Document stays cached
 
   } catch (error) {
     postResponse({
@@ -343,11 +550,7 @@ async function handleGetPageCount(msg: WorkerMessage) {
       id: msg.id,
       error: error instanceof Error ? error.message : String(error)
     });
-  } finally {
-    if (docPtr !== 0) {
-      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
-    }
-    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    closeCachedDocument();
   }
 }
 
@@ -364,20 +567,11 @@ async function handleRenderPreviews(msg: WorkerMessage) {
     return;
   }
 
-  const inPath = `/tmp/input/preview.${inputExt || 'docx'}`;
-  let docPtr = 0;
-
   try {
     postProgress(msg.id, 10, 'Loading document for preview...');
-    module.FS.writeFile(inPath, inputData);
-    docPtr = lokBindings.documentLoad(inPath);
-
-    if (docPtr === 0) {
-      const error = lokBindings.getError();
-      throw new Error(error || 'Failed to load document');
-    }
-
-    const pageCount = lokBindings.documentGetParts(docPtr);
+    
+    // Use cached document
+    const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
     postProgress(msg.id, 20, `Rendering ${pageCount} pages...`);
 
     const previews: PagePreview[] = [];
@@ -386,20 +580,8 @@ async function handleRenderPreviews(msg: WorkerMessage) {
       const progress = 20 + Math.round((i / pageCount) * 70);
       postProgress(msg.id, progress, `Rendering page ${i + 1}/${pageCount}...`);
       
-      lokBindings.documentSetPart(docPtr, i);
-      const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
-      
-      // Scale to maxWidth while maintaining aspect ratio
-      let renderWidth = docWidth;
-      let renderHeight = docHeight;
-      
-      if (docWidth > maxWidth) {
-        renderWidth = maxWidth;
-        renderHeight = Math.round((docHeight / docWidth) * maxWidth);
-      }
-      
-      // Render the page
-      const rendered = lokBindings.renderPage(docPtr, i, renderWidth, renderHeight);
+      // Render the page - let renderPage handle page selection and sizing
+      const rendered = lokBindings.renderPage(docPtr, i, maxWidth);
       
       // Copy from SharedArrayBuffer to regular ArrayBuffer
       const dataCopy = new Uint8Array(rendered.data.length);
@@ -418,6 +600,7 @@ async function handleRenderPreviews(msg: WorkerMessage) {
     // Transfer all preview buffers
     const transfers = previews.map(p => p.data.buffer);
     self.postMessage({ type: 'previews', id: msg.id, previews }, transfers);
+    // Document stays cached
 
   } catch (error) {
     postResponse({
@@ -425,11 +608,7 @@ async function handleRenderPreviews(msg: WorkerMessage) {
       id: msg.id,
       error: error instanceof Error ? error.message : String(error)
     });
-  } finally {
-    if (docPtr !== 0) {
-      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
-    }
-    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    closeCachedDocument();
   }
 }
 
@@ -457,21 +636,11 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
       throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
     }
 
-    // Set the page/part to render
-    lokBindings.documentSetPart(docPtr, pageIndex);
-    const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
-    
-    // Scale to maxWidth while maintaining aspect ratio
-    let renderWidth = docWidth;
-    let renderHeight = docHeight;
-    
-    if (docWidth > maxWidth) {
-      renderWidth = maxWidth;
-      renderHeight = Math.round((docHeight / docWidth) * maxWidth);
-    }
-    
-    // Render the page
-    const rendered = lokBindings.renderPage(docPtr, pageIndex, renderWidth, renderHeight);
+    // Render the page - let renderPage handle page-specific sizing
+    // We just pass maxWidth and let it calculate the correct height based on the page's aspect ratio
+    console.log(`[Worker] handleRenderSinglePage: calling renderPage for page ${pageIndex} at maxWidth=${maxWidth}...`);
+    const rendered = lokBindings.renderPage(docPtr, pageIndex, maxWidth);
+    console.log(`[Worker] handleRenderSinglePage: renderPage returned ${rendered.data.length} bytes (${rendered.width}x${rendered.height})`);
     
     // Copy from SharedArrayBuffer to regular ArrayBuffer
     const dataCopy = new Uint8Array(rendered.data.length);
@@ -488,10 +657,12 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
     self.postMessage({ type: 'singlePagePreview', id: msg.id, preview }, [dataCopy.buffer]);
 
   } catch (error) {
+    // Convert error message to a regular string (not SharedArrayBuffer-backed)
+    const errorMsg = error instanceof Error ? String(error.message) : String(error);
     postResponse({
       type: 'error',
       id: msg.id,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMsg
     });
     // On error, close the cached document to allow retry
     closeCachedDocument();
@@ -500,7 +671,7 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
 }
 
 /**
- * Render a page preview by converting to PNG - fallback for Chrome/Edge with PDFs
+ * Render a page preview by converting to PNG - fallback for Chrome/Edge
  * This uses the saveAs conversion path instead of paintTile which hangs in Chromium
  */
 async function handleRenderPageViaConvert(msg: WorkerMessage) {
@@ -516,27 +687,24 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
     return;
   }
 
-  const inPath = `/tmp/input/page_convert_${pageIndex}.${inputExt || 'pdf'}`;
   const outPath = `/tmp/output/page_${pageIndex}.png`;
-  let docPtr = 0;
 
   try {
-    module.FS.writeFile(inPath, inputData);
-    docPtr = lokBindings.documentLoad(inPath);
+    // Use cached document
+    const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'pdf');
 
-    if (docPtr === 0) {
-      const error = lokBindings.getError();
-      throw new Error(error || 'Failed to load document');
-    }
-
-    const pageCount = lokBindings.documentGetParts(docPtr);
+    // Get document type to determine how to handle page selection
+    const docType = lokBindings.documentGetDocumentType(docPtr);
     
     if (pageIndex < 0 || pageIndex >= pageCount) {
       throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
     }
 
-    // Set the page to export
-    lokBindings.documentSetPart(docPtr, pageIndex);
+    // For presentations/drawings, setPart works for page selection
+    // For text documents, we need to use PageRange filter option
+    if (docType === 2 || docType === 3) { // PRESENTATION or DRAWING
+      lokBindings.documentSetPart(docPtr, pageIndex);
+    }
 
     // Get document size to calculate aspect ratio
     const { width: docWidth, height: docHeight } = lokBindings.documentGetDocumentSize(docPtr);
@@ -544,9 +712,14 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
     const outputWidth = Math.min(maxWidth, docWidth);
     const outputHeight = Math.round(outputWidth * aspectRatio);
 
-    // Export as PNG using saveAs with filter options for size
-    // The png export filter uses PixelWidth/PixelHeight for output size
-    const filterOpts = `PixelWidth=${outputWidth};PixelHeight=${outputHeight}`;
+    // Build filter options
+    // For Writer documents, use PageRange to export specific page (1-indexed)
+    // For presentations/drawings, the part is already set
+    let filterOpts = `PixelWidth=${outputWidth};PixelHeight=${outputHeight}`;
+    if (docType === 0) { // TEXT document
+      filterOpts += `;PageRange=${pageIndex + 1}-${pageIndex + 1}`;
+    }
+    
     lokBindings.documentSaveAs(docPtr, outPath, 'png', filterOpts);
 
     // Read the PNG file
@@ -570,6 +743,10 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
     };
 
     self.postMessage({ type: 'singlePagePreview', id: msg.id, preview, isPng: true }, [pngCopy.buffer]);
+    // Document stays cached
+
+    // Clean up output file only
+    try { module.FS.unlink(outPath); } catch { /* ignore */ }
 
   } catch (error) {
     postResponse({
@@ -577,11 +754,7 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
       id: msg.id,
       error: error instanceof Error ? error.message : String(error)
     });
-  } finally {
-    if (docPtr !== 0) {
-      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
-    }
-    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    closeCachedDocument();
     try { module.FS.unlink(outPath); } catch { /* ignore */ }
   }
 }
@@ -599,20 +772,11 @@ async function handleGetDocumentInfo(msg: WorkerMessage) {
     return;
   }
 
-  const inPath = `/tmp/input/docinfo.${inputExt || 'docx'}`;
-  let docPtr = 0;
-
   try {
-    module.FS.writeFile(inPath, inputData);
-    docPtr = lokBindings.documentLoad(inPath);
-
-    if (docPtr === 0) {
-      const error = lokBindings.getError();
-      throw new Error(error || 'Failed to load document');
-    }
+    // Use cached document - this will load it if not already loaded
+    const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
 
     const docType = lokBindings.documentGetDocumentType(docPtr);
-    const pageCount = lokBindings.documentGetParts(docPtr);
 
     // Map document type to valid output formats (based on LibreOffice capabilities)
     const docTypeOutputFormats: Record<number, string[]> = {
@@ -639,6 +803,7 @@ async function handleGetDocumentInfo(msg: WorkerMessage) {
     };
 
     postResponse({ type: 'documentInfo', id: msg.id, documentInfo });
+    // Note: Document stays cached for subsequent operations
 
   } catch (error) {
     postResponse({
@@ -646,15 +811,13 @@ async function handleGetDocumentInfo(msg: WorkerMessage) {
       id: msg.id,
       error: error instanceof Error ? error.message : String(error)
     });
-  } finally {
-    if (docPtr !== 0) {
-      try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
-    }
-    try { module.FS.unlink(inPath); } catch { /* ignore */ }
+    // On error, close the cached document to allow retry
+    closeCachedDocument();
   }
 }
 
 function handleDestroy(msg: WorkerMessage) {
+  console.log('handleDestroy');
   // Close any cached document first
   closeCachedDocument();
   
