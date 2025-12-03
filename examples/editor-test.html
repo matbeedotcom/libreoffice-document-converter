@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor API Test</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1, h2 { color: #6366f1; }
+    .test-section {
+      background: #16161f;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .pass { background: #064e3b; color: #10b981; }
+    .fail { background: #7f1d1d; color: #ef4444; }
+    .pending { background: #1e3a5f; color: #60a5fa; }
+    pre {
+      background: #0a0a0f;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    button {
+      background: #6366f1;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    button:disabled {
+      background: #4b5563;
+      cursor: not-allowed;
+    }
+    button:hover:not(:disabled) {
+      background: #4f46e5;
+    }
+    #status {
+      padding: 15px;
+      border-radius: 6px;
+      margin: 10px 0;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .file-label {
+      display: inline-block;
+      background: #374151;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .file-label:hover {
+      background: #4b5563;
+    }
+  </style>
+</head>
+<body>
+  <h1>Editor API Integration Test</h1>
+
+  <div class="test-section">
+    <h2>1. Load Test Files</h2>
+    <p>Select a document to test the editor API:</p>
+    <label class="file-label">
+      Choose File
+      <input type="file" id="fileInput" accept=".docx,.xlsx,.pptx,.odp,.odt,.ods,.pdf">
+    </label>
+    <span id="fileName">No file selected</span>
+  </div>
+
+  <div class="test-section">
+    <h2>2. Initialize & Run Tests</h2>
+    <button id="runTests" disabled>Run Editor Tests</button>
+    <button id="runAllTests">Run All Test Files</button>
+    <div id="status" class="pending">Ready to test</div>
+  </div>
+
+  <div class="test-section">
+    <h2>3. Test Results</h2>
+    <div id="results"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>4. Debug Output</h2>
+    <pre id="debugOutput"></pre>
+  </div>
+
+  <script type="module">
+    import {
+      BrowserConverter,
+      isWriterEditor,
+      isCalcEditor,
+      isImpressEditor,
+      isDrawEditor,
+    } from '../dist/browser.js';
+
+    let converter = null;
+    let selectedFile = null;
+    const results = document.getElementById('results');
+    const status = document.getElementById('status');
+    const debugOutput = document.getElementById('debugOutput');
+
+    function log(msg) {
+      debugOutput.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    function addResult(name, passed, details = '') {
+      const div = document.createElement('div');
+      div.className = `test-result ${passed ? 'pass' : 'fail'}`;
+      div.innerHTML = `<strong>${passed ? '✓' : '✗'} ${name}</strong>${details ? `<br><small>${details}</small>` : ''}`;
+      results.appendChild(div);
+      return passed;
+    }
+
+    async function initConverter() {
+      if (converter) return converter;
+
+      status.textContent = 'Initializing LibreOffice WASM (this takes ~60-90s first time)...';
+      status.className = 'pending';
+
+      converter = new BrowserConverter({
+        wasmPath: '../wasm',
+        verbose: true,
+        onProgress: (info) => {
+          status.textContent = `Loading: ${info.phase} (${info.percent}%)`;
+          log(`Progress: ${info.phase} - ${info.percent}%`);
+        },
+      });
+
+      await converter.initialize();
+      status.textContent = 'LibreOffice WASM initialized!';
+      status.className = 'pass';
+      log('Converter initialized');
+      return converter;
+    }
+
+    async function runEditorTests(fileData, fileName) {
+      results.innerHTML = '';
+      let allPassed = true;
+
+      try {
+        const conv = await initConverter();
+
+        // Determine expected document type from extension
+        const ext = fileName.split('.').pop().toLowerCase();
+        const expectedType = {
+          'docx': 'writer', 'doc': 'writer', 'odt': 'writer', 'rtf': 'writer',
+          'xlsx': 'calc', 'xls': 'calc', 'ods': 'calc', 'csv': 'calc',
+          'pptx': 'impress', 'ppt': 'impress', 'odp': 'impress',
+          'pdf': 'draw', 'odg': 'draw',
+        }[ext] || 'writer';
+
+        log(`Testing file: ${fileName} (expected type: ${expectedType})`);
+
+        // Test 1: Open document and get editor
+        status.textContent = 'Opening document...';
+        const editor = await conv.openDocument(fileData, fileName);
+        allPassed &= addResult('Open document', !!editor, `Got editor instance`);
+
+        // Test 2: Check document type
+        const docType = editor.getDocumentType();
+        allPassed &= addResult('Get document type', docType === expectedType, `Expected: ${expectedType}, Got: ${docType}`);
+
+        // Test 3: Get structure
+        status.textContent = 'Getting document structure...';
+        const structure = editor.getStructure();
+        allPassed &= addResult('Get structure', structure.success, JSON.stringify(structure.data, null, 2).slice(0, 200) + '...');
+        log('Structure: ' + JSON.stringify(structure, null, 2));
+
+        // Type-specific tests using type guards
+        if (isWriterEditor(editor)) {
+          // Test Writer-specific methods
+          status.textContent = 'Testing Writer operations...';
+
+          const para = editor.getParagraph(0);
+          allPassed &= addResult('Get paragraph', para.success, `Para 0: ${para.data?.text?.slice(0, 50) || 'empty'}...`);
+
+          // Test insert (but we won't save)
+          const insert = editor.insertParagraph('Test paragraph from editor API');
+          allPassed &= addResult('Insert paragraph', insert.success, `Inserted at index: ${insert.data?.index}`);
+
+          // Undo the insert
+          const undo = editor.undo();
+          allPassed &= addResult('Undo operation', undo.success);
+
+        } else if (isCalcEditor(editor)) {
+          // Test Calc-specific methods
+          status.textContent = 'Testing Calc operations...';
+
+          const sheets = editor.getSheetNames();
+          allPassed &= addResult('Get sheet names', sheets.success, `Sheets: ${sheets.data?.join(', ')}`);
+
+          const cell = editor.getCell('A1');
+          allPassed &= addResult('Get cell A1', cell.success, `Value: ${cell.data?.value}`);
+
+          // Test setting a cell
+          const setCell = editor.setCellValue('Z99', 'Test Value');
+          allPassed &= addResult('Set cell value', setCell.success, `Old: ${setCell.data?.oldValue}, New: ${setCell.data?.newValue}`);
+
+          // Undo
+          const undo = editor.undo();
+          allPassed &= addResult('Undo operation', undo.success);
+
+        } else if (isImpressEditor(editor)) {
+          // Test Impress-specific methods
+          status.textContent = 'Testing Impress operations...';
+
+          const slideCount = editor.getSlideCount();
+          allPassed &= addResult('Get slide count', slideCount.success, `Slides: ${slideCount.data}`);
+
+          const slide = editor.getSlide(0);
+          allPassed &= addResult('Get slide 0', slide.success, `Title: ${slide.data?.title || '(no title)'}`);
+
+          // Test adding a slide
+          const addSlide = editor.addSlide();
+          allPassed &= addResult('Add slide', addSlide.success, `New index: ${addSlide.data?.index}`);
+
+          // Undo
+          const undo = editor.undo();
+          allPassed &= addResult('Undo operation', undo.success);
+
+        } else if (isDrawEditor(editor)) {
+          // Test Draw-specific methods
+          status.textContent = 'Testing Draw operations...';
+
+          const pageCount = editor.getPageCount();
+          allPassed &= addResult('Get page count', pageCount.success, `Pages: ${pageCount.data}`);
+
+          const page = editor.getPage(0);
+          allPassed &= addResult('Get page 0', page.success, `Shapes: ${page.data?.shapes?.length || 0}`);
+        }
+
+        // Test 4: Save/Close
+        status.textContent = 'Closing document...';
+        const close = editor.close();
+        allPassed &= addResult('Close document', close.success);
+
+        status.textContent = allPassed ? 'All tests passed!' : 'Some tests failed';
+        status.className = allPassed ? 'pass' : 'fail';
+
+      } catch (error) {
+        log('Error: ' + error.message);
+        addResult('Test execution', false, error.message);
+        status.textContent = 'Test failed with error';
+        status.className = 'fail';
+        allPassed = false;
+      }
+
+      return allPassed;
+    }
+
+    // File input handler
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('runTests').disabled = false;
+      }
+    });
+
+    // Run tests button
+    document.getElementById('runTests').addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const data = new Uint8Array(e.target.result);
+        await runEditorTests(data, selectedFile.name);
+      };
+      reader.readAsArrayBuffer(selectedFile);
+    });
+
+    // Run all test files
+    document.getElementById('runAllTests').addEventListener('click', async () => {
+      const testFiles = [
+        { name: 'sample_test_2.docx', path: '../tests/sample_test_2.docx' },
+        { name: 'sample_test_5.xlsx', path: '../tests/sample_test_5.xlsx' },
+        { name: 'sample_test_4.pptx', path: '../tests/sample_test_4.pptx' },
+      ];
+
+      results.innerHTML = '<div class="test-result pending">Running tests for multiple file types...</div>';
+
+      let allPassed = true;
+      for (const testFile of testFiles) {
+        try {
+          log(`\n=== Testing ${testFile.name} ===`);
+          const response = await fetch(testFile.path);
+          if (!response.ok) {
+            log(`Could not fetch ${testFile.path}`);
+            continue;
+          }
+          const data = new Uint8Array(await response.arrayBuffer());
+          const passed = await runEditorTests(data, testFile.name);
+          allPassed &= passed;
+        } catch (err) {
+          log(`Error testing ${testFile.name}: ${err.message}`);
+          allPassed = false;
+        }
+      }
+
+      status.textContent = allPassed ? 'All file tests passed!' : 'Some tests failed';
+      status.className = allPassed ? 'pass' : 'fail';
+    });
+  </script>
+</body>
+</html>

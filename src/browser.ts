@@ -28,6 +28,30 @@ export {
   EXTENSION_TO_FORMAT,
 } from './types.js';
 
+// Export editor API
+export {
+  createEditor,
+  isWriterEditor,
+  isCalcEditor,
+  isImpressEditor,
+  isDrawEditor,
+  OfficeEditor,
+  WriterEditor,
+  CalcEditor,
+  ImpressEditor,
+  DrawEditor,
+} from './editor/index.js';
+
+export type {
+  OperationResult,
+  OpenDocumentOptions,
+  DocumentStructure,
+  WriterStructure,
+  CalcStructure,
+  ImpressStructure,
+  DrawStructure,
+} from './editor/types.js';
+
 import {
   ConversionError,
   ConversionErrorCode,
@@ -44,6 +68,8 @@ import {
 } from './types.js';
 
 import { LOKBindings } from './lok-bindings.js';
+import { createEditor, OfficeEditor } from './editor/index.js';
+import type { OpenDocumentOptions } from './editor/types.js';
 
 /**
  * Browser-only LibreOffice WASM Converter
@@ -268,6 +294,57 @@ export class BrowserConverter {
       try { this.module.FS.unlink(inPath); } catch { /* ignore */ }
       try { this.module.FS.unlink(outPath); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Open a document for editing without converting
+   * Returns an editor instance for the document type (WriterEditor, CalcEditor, etc.)
+   *
+   * @example
+   * ```typescript
+   * const editor = await converter.openDocument(fileData, 'document.docx');
+   * if (isWriterEditor(editor)) {
+   *   const structure = editor.getStructure();
+   *   editor.insertParagraph('Hello World');
+   *   await editor.saveAs('/tmp/output.docx', 'docx');
+   * }
+   * editor.close();
+   * ```
+   */
+  async openDocument(
+    input: Uint8Array | ArrayBuffer,
+    filename: string,
+    options?: OpenDocumentOptions
+  ): Promise<OfficeEditor> {
+    if (!this.initialized || !this.lokBindings || !this.module) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof ArrayBuffer ? new Uint8Array(input) : input;
+    const ext = this.getExt(filename) || 'docx';
+    const inPath = `/tmp/input/edit_${Date.now()}.${ext}`;
+
+    // Write input file to virtual filesystem
+    this.module.FS.writeFile(inPath, inputData);
+
+    // Load document with LOK
+    let docPtr: number;
+    if (options?.password) {
+      docPtr = this.lokBindings.documentLoadWithOptions(inPath, `,Password=${options.password}`);
+    } else {
+      docPtr = this.lokBindings.documentLoad(inPath);
+    }
+
+    if (docPtr === 0) {
+      const error = this.lokBindings.getError();
+      throw new ConversionError(ConversionErrorCode.LOAD_FAILED, error || 'Failed to load document');
+    }
+
+    // Create and return the appropriate editor
+    const editor = createEditor(this.lokBindings, docPtr, options);
+    editor.setInputPath(inPath);
+
+    return editor;
   }
 
   /**
