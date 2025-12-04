@@ -1,5 +1,6 @@
 #!/bin/bash
 # Script to copy and patch WASM files from the LibreOffice build
+# Updated for Emscripten 3.1.74+ which inlines pthread workers automatically
 
 set -e
 
@@ -28,15 +29,11 @@ echo "Copied soffice.wasm ($(du -h "$WASM_DIR/soffice.wasm" | cut -f1))"
 cp "$LO_DIR/instdir/program/soffice.js" "$WASM_DIR/soffice.cjs"
 echo "Copied soffice.js -> soffice.cjs"
 
-# Worker - rename to .cjs
-if [ -f "$LO_DIR/instdir/program/soffice.worker.js" ]; then
-    cp "$LO_DIR/instdir/program/soffice.worker.js" "$WASM_DIR/soffice.worker.cjs"
-    echo "Copied soffice.worker.js -> soffice.worker.cjs"
-fi
+# Note: With Emscripten 3.1.58+, pthread workers are inlined automatically
+# No separate soffice.worker.js file is generated
 
 # Data file - from the fs_image output (has the complete filesystem)
 DATA_SRC="$LO_DIR/workdir/CustomTarget/static/emscripten_fs_image/soffice.data"
-META_SRC="$LO_DIR/workdir/CustomTarget/static/emscripten_fs_image/soffice.data.js.metadata"
 
 if [ -f "$DATA_SRC" ]; then
     cp "$DATA_SRC" "$WASM_DIR/"
@@ -47,14 +44,6 @@ else
         cp "$LO_DIR/instdir/sdk/bin/soffice.data" "$WASM_DIR/"
         echo "Copied soffice.data from sdk/bin"
     fi
-fi
-
-if [ -f "$META_SRC" ]; then
-    cp "$META_SRC" "$WASM_DIR/"
-    echo "Copied soffice.data.js.metadata"
-else
-    echo "WARNING: Using instdir/program metadata"
-    cp "$LO_DIR/instdir/program/soffice.data.js.metadata" "$WASM_DIR/"
 fi
 
 # Apply patches
@@ -69,30 +58,18 @@ if ! head -c 50 soffice.cjs | grep -q "global.Module"; then
     echo "Added global.Module patch"
 fi
 
-# 2. Fix worker filename to .cjs and use relative path
-sed -i 's/soffice\.worker\.js/soffice.worker.cjs/g' soffice.cjs
-# Node.js worker_threads requires relative path starting with ./
-sed -i 's|new Worker("soffice\.worker\.cjs"|new Worker(require("path").join(__dirname,"soffice.worker.cjs")|g' soffice.cjs
-sed -i "s|new Worker('soffice\.worker\.cjs'|new Worker(require('path').join(__dirname,'soffice.worker.cjs')|g" soffice.cjs
-echo "Fixed worker filename and path"
-
-# 3. Fix hardcoded PACKAGE_NAME path
+# 2. Fix hardcoded PACKAGE_NAME path
 sed -i 's|PACKAGE_NAME="[^"]*emscripten_fs_image/soffice\.data"|PACKAGE_NAME="soffice.data"|g' soffice.cjs
 echo "Fixed PACKAGE_NAME path"
 
-# 4. Fix datafile_ reference
+# 3. Fix datafile_ reference
 sed -i 's|datafile_[^"]*emscripten_fs_image/soffice\.data|datafile_soffice.data|g' soffice.cjs
 echo "Fixed datafile_ reference"
 
-# 5. Limit worker stack trace output (avoid dumping entire minified file)
-sed -i 's|if(ex?.stack)err(ex.stack)|if(ex?.stack){var lines=ex.stack.split("\\n").slice(0,10);err(lines.join("\\n"))}|g' soffice.worker.cjs
-echo "Limited worker stack trace output"
-
-# 6. Create browser-compatible copies (.js from .cjs)
-# Using copies instead of symlinks for better server compatibility
+# 4. Create browser-compatible copy (.js from .cjs)
+# Using copy instead of symlink for better server compatibility
 cp soffice.cjs soffice.js
-cp soffice.worker.cjs soffice.worker.js
-echo "Created browser copies (soffice.js, soffice.worker.js)"
+echo "Created browser copy (soffice.js)"
 
 # Verify
 echo ""
@@ -101,7 +78,7 @@ echo "=== Verification ==="
 # Check for remaining hardcoded paths
 if grep -q "libreoffice-wasm-build" soffice.cjs; then
     echo "WARNING: Still has hardcoded paths!"
-    grep -o "[^\"]*/libreoffice-wasm-build[^\"]*" soffice.cjs | head -3
+    grep -o "[^\"]*libreoffice-wasm-build[^\"]*" soffice.cjs | head -3
 else
     echo "✓ No hardcoded paths"
 fi
@@ -110,19 +87,27 @@ fi
 PNAME=$(grep -o 'PACKAGE_NAME="[^"]*"' soffice.cjs | head -1)
 echo "✓ $PNAME"
 
-# Check sizes match
-META_SIZE=$(grep -o 'remote_package_size":[0-9]*' soffice.data.js.metadata | cut -d: -f2)
-DATA_SIZE=$(wc -c < soffice.data)
-if [ "$META_SIZE" = "$DATA_SIZE" ]; then
-    echo "✓ Data file size matches metadata ($DATA_SIZE bytes)"
+# Check worker inlining (Emscripten 3.1.58+ feature)
+if grep -q "new Worker.*new Blob" soffice.cjs || grep -q "createObjectURL(new Blob" soffice.cjs; then
+    echo "✓ Pthread worker code inlined (Emscripten 3.1.58+)"
+elif grep -q "pthreadMainJs=_scriptName" soffice.cjs; then
+    echo "✓ Worker uses self-loading pattern"
 else
-    echo "ERROR: Size mismatch! metadata=$META_SIZE, data=$DATA_SIZE"
-    exit 1
+    echo "INFO: Worker loading method unclear - check Emscripten version"
 fi
 
 echo ""
 echo "=== File sizes ==="
 ls -lh soffice.wasm soffice.data soffice.cjs
+
+echo ""
+echo "=== Distribution files ==="
+echo "Required files for distribution (3 files total):"
+echo "  - soffice.js (or soffice.cjs for Node.js)"
+echo "  - soffice.wasm"
+echo "  - soffice.data"
+echo ""
+echo "Note: With Emscripten 3.1.58+, pthread workers are inlined - no separate worker file needed."
 
 echo ""
 echo "=== Done! ==="

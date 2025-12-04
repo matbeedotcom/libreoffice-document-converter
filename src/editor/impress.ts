@@ -108,7 +108,15 @@ export class ImpressEditor extends OfficeEditor {
         ? options.afterSlide + 1
         : numSlides;
 
-      return this.createResult({ index: newIndex });
+      // Verify by checking slide count increased
+      const newNumSlides = this.lok.documentGetParts(this.docPtr);
+      const verified = newNumSlides > numSlides;
+
+      return {
+        success: true,
+        verified,
+        data: { index: newIndex },
+      };
     } catch (error) {
       return this.createErrorResult(`Failed to add slide: ${error}`);
     }

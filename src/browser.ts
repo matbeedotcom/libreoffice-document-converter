@@ -348,6 +348,17 @@ export class BrowserConverter {
   }
 
   /**
+   * Get the LOK bindings for low-level operations
+   * Useful for accessing methods not exposed through the editor API
+   */
+  getLokBindings(): LOKBindings {
+    if (!this.lokBindings) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+    return this.lokBindings;
+  }
+
+  /**
    * Convert a File object
    */
   async convertFile(file: File, options: ConversionOptions): Promise<ConversionResult> {
@@ -540,6 +551,20 @@ export class WorkerBrowserConverter {
       pending.resolve(msg.preview);
     } else if (msg.type === 'documentInfo') {
       pending.resolve(msg.documentInfo);
+    } else if (msg.type === 'lokInfo') {
+      pending.resolve(msg.lokInfo);
+    } else if (msg.type === 'editResult') {
+      pending.resolve(msg.editResult);
+    } else if (msg.type === 'pageRectangles') {
+      pending.resolve(msg.pageRectangles);
+    } else if (msg.type === 'testLokOperations') {
+      pending.resolve(msg.testLokOperationsResult);
+    } else if (msg.type === 'editorSession') {
+      pending.resolve(msg.editorSession);
+    } else if (msg.type === 'editorOperationResult') {
+      pending.resolve(msg.editorOperationResult);
+    } else if (msg.type === 'documentClosed') {
+      pending.resolve(msg.data);
     }
   }
 
@@ -553,12 +578,15 @@ export class WorkerBrowserConverter {
       const id = ++this.messageId;
       this.pendingRequests.set(id, { resolve, reject });
 
-      const message = { type, id, ...data };
-
-      // If sending input data, transfer it
+      // If sending input data, copy it first to avoid detaching the caller's buffer
+      // This allows the same buffer to be used for multiple API calls
       if (data.inputData instanceof Uint8Array) {
-        this.worker.postMessage(message, [(data.inputData as Uint8Array).buffer]);
+        const copy = new Uint8Array(data.inputData.length);
+        copy.set(data.inputData);
+        const message = { type, id, ...data, inputData: copy };
+        this.worker.postMessage(message, [copy.buffer]);
       } else {
+        const message = { type, id, ...data };
         this.worker.postMessage(message);
       }
     });
@@ -841,6 +869,272 @@ export class WorkerBrowserConverter {
   }
 
   /**
+   * Get low-level LOK information about a document
+   * Includes bounding boxes, text content, positions, and edit mode
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @returns LOK info with rectangles, sizes, text, and positions
+   */
+  async getLokInfo(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>
+  ): Promise<{
+    pageRectangles: string | null;
+    documentSize: { width: number; height: number };
+    partInfo: {
+      visible: string;
+      selected: string;
+      masterPageCount?: string;
+      mode: string;
+    } | null;
+    a11yFocusedParagraph: {
+      content: string;
+      position: string;
+      start: string;
+      end: string;
+    } | null;
+    a11yCaretPosition: number;
+    editMode: number;
+    allText: string | null;
+  }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('getLokInfo', {
+      inputData,
+      inputExt: ext,
+    });
+
+    return result as {
+      pageRectangles: string | null;
+      documentSize: { width: number; height: number };
+      partInfo: {
+        visible: string;
+        selected: string;
+        masterPageCount?: string;
+        mode: string;
+      } | null;
+      a11yFocusedParagraph: {
+        content: string;
+        position: string;
+        start: string;
+        end: string;
+      } | null;
+      a11yCaretPosition: number;
+      editMode: number;
+      allText: string | null;
+    };
+  }
+
+  /**
+   * Render all page rectangles as individual screenshots
+   * Returns each page's bounding box (in twips) with rendered RGBA image data
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param maxWidth Maximum width for rendered pages (height scales proportionally)
+   * @returns Array of page rectangles with their rendered images
+   */
+  async renderPageRectangles(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>,
+    maxWidth = 256
+  ): Promise<Array<{
+    index: number;
+    x: number;      // X position in twips
+    y: number;      // Y position in twips
+    width: number;  // Width in twips
+    height: number; // Height in twips
+    imageData: Uint8Array;  // RGBA pixel data
+    imageWidth: number;     // Rendered width in pixels
+    imageHeight: number;    // Rendered height in pixels
+  }>> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('renderPageRectangles', {
+      inputData,
+      inputExt: ext,
+      maxWidth,
+    });
+
+    return result as Array<{
+      index: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      imageData: Uint8Array;
+      imageWidth: number;
+      imageHeight: number;
+    }>;
+  }
+
+  /**
+   * Edit text in a document - find/replace or insert text
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param editOptions Either findText+replaceText or insertText
+   * @returns Edit result with success status and optionally the modified document
+   */
+  async editText(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>,
+    editOptions: {
+      findText?: string;
+      replaceText?: string;
+      insertText?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    editMode: number;
+    message: string;
+    modifiedDocument?: Uint8Array;
+  }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('editText', {
+      inputData,
+      inputExt: ext,
+      findText: editOptions.findText,
+      replaceText: editOptions.replaceText,
+      insertText: editOptions.insertText,
+    });
+
+    return result as {
+      success: boolean;
+      editMode: number;
+      message: string;
+      modifiedDocument?: Uint8Array;
+    };
+  }
+
+  /**
+   * Test various LOK operations on a document
+   * Tests: SelectAll, getTextSelection, getSelectionType, resetSelection,
+   *        Delete, Undo, Redo, Bold, Italic, setTextSelection, save
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @returns Test results for each operation
+   */
+  async testLokOperations(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>
+  ): Promise<{
+    operations: Array<{
+      operation: string;
+      success: boolean;
+      result?: unknown;
+      error?: string;
+    }>;
+    summary: string;
+  }> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('testLokOperations', {
+      inputData,
+      inputExt: ext,
+    });
+
+    return result as {
+      operations: Array<{
+        operation: string;
+        success: boolean;
+        result?: unknown;
+        error?: string;
+      }>;
+      summary: string;
+    };
+  }
+
+  /**
+   * Open a document for editing and return a proxy editor
+   *
+   * @param input Document data as Uint8Array or ArrayBuffer
+   * @param options Must include inputFormat
+   * @returns BrowserEditorProxy for interacting with the document
+   *
+   * @example
+   * ```typescript
+   * const editor = await converter.openDocument(docxData, { inputFormat: 'docx' });
+   * console.log(editor.documentType); // 'writer'
+   *
+   * // Get formatting at cursor
+   * const format = await editor.getFormat();
+   * console.log(format); // { bold: true, italic: false, ... }
+   *
+   * // Apply formatting
+   * await editor.selectAll();
+   * await editor.formatText({ bold: true });
+   *
+   * // Save and close
+   * const savedDoc = await editor.save();
+   * await editor.close();
+   * ```
+   */
+  async openDocument(
+    input: Uint8Array | ArrayBuffer,
+    options: Pick<ConversionOptions, 'inputFormat'>
+  ): Promise<BrowserEditorProxy> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('openDocument', {
+      inputData,
+      inputExt: ext,
+    }) as { sessionId: string; documentType: 'writer' | 'calc' | 'impress' | 'draw'; pageCount: number };
+
+    return new BrowserEditorProxy(this, result.sessionId, result.documentType, result.pageCount);
+  }
+
+  /**
+   * Internal method to send editor operation to worker
+   * @internal
+   */
+  async _sendEditorOperation(
+    sessionId: string,
+    method: string,
+    args: unknown[] = []
+  ): Promise<{ success: boolean; verified?: boolean; data?: unknown; error?: string; suggestion?: string }> {
+    const result = await this.sendMessage('editorOperation', {
+      sessionId,
+      editorMethod: method,
+      editorArgs: args,
+    });
+    return result as { success: boolean; verified?: boolean; data?: unknown; error?: string; suggestion?: string };
+  }
+
+  /**
+   * Internal method to close an editor session
+   * @internal
+   */
+  async _closeDocument(sessionId: string): Promise<Uint8Array | undefined> {
+    const result = await this.sendMessage('closeDocument', { sessionId });
+    return result as Uint8Array | undefined;
+  }
+
+  /**
    * Cleanup
    */
   async destroy(): Promise<void> {
@@ -870,6 +1164,195 @@ export class WorkerBrowserConverter {
 
   private emitProgress(phase: ProgressInfo['phase'], percent: number, message: string): void {
     this.options.onProgress?.({ phase, percent, message });
+  }
+}
+
+/**
+ * Result type for editor operations via the browser proxy
+ */
+export interface EditorOperationResult {
+  success: boolean;
+  verified?: boolean;
+  data?: unknown;
+  error?: string;
+  suggestion?: string;
+}
+
+/**
+ * Proxy class for editing documents in the browser via Web Worker
+ *
+ * This class provides a clean API that mirrors the server-side editor classes
+ * but communicates through the worker message protocol.
+ */
+export class BrowserEditorProxy {
+  private converter: WorkerBrowserConverter;
+  private _sessionId: string;
+  private _documentType: 'writer' | 'calc' | 'impress' | 'draw';
+  private _pageCount: number;
+  private _closed = false;
+
+  constructor(
+    converter: WorkerBrowserConverter,
+    sessionId: string,
+    documentType: 'writer' | 'calc' | 'impress' | 'draw',
+    pageCount: number
+  ) {
+    this.converter = converter;
+    this._sessionId = sessionId;
+    this._documentType = documentType;
+    this._pageCount = pageCount;
+  }
+
+  /** Get the session ID */
+  get sessionId(): string { return this._sessionId; }
+
+  /** Get the document type (writer, calc, impress, draw) */
+  get documentType(): 'writer' | 'calc' | 'impress' | 'draw' { return this._documentType; }
+
+  /** Get the page count */
+  get pageCount(): number { return this._pageCount; }
+
+  /** Check if the document is still open */
+  get isOpen(): boolean { return !this._closed; }
+
+  // ============================================
+  // Common Editor Methods
+  // ============================================
+
+  /** Get document structure */
+  async getStructure(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getStructure');
+  }
+
+  /** Undo last operation */
+  async undo(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'undo');
+  }
+
+  /** Redo last undone operation */
+  async redo(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'redo');
+  }
+
+  /** Find text in document */
+  async find(text: string, options?: { caseSensitive?: boolean; wholeWord?: boolean }): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'find', [text, options]);
+  }
+
+  /** Find and replace all occurrences */
+  async findAndReplaceAll(find: string, replace: string, options?: { caseSensitive?: boolean; wholeWord?: boolean }): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'findAndReplaceAll', [find, replace, options]);
+  }
+
+  /** Get current selection */
+  async getSelection(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getSelection');
+  }
+
+  /** Clear current selection */
+  async clearSelection(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'clearSelection');
+  }
+
+  /** Get STATE_CHANGED events as a map */
+  async getStateChanges(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getStateChanges');
+  }
+
+  /** Flush callbacks and poll state changes */
+  async flushAndPollState(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'flushAndPollState');
+  }
+
+  // ============================================
+  // Writer-specific Methods
+  // ============================================
+
+  /**
+   * Get text formatting at current cursor/selection position
+   * Uses callback mechanism to retrieve STATE_CHANGED events
+   * @returns TextFormat with bold, italic, underline, fontSize, fontName
+   */
+  async getFormat(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getFormat');
+  }
+
+  /** Get raw formatting state from callbacks */
+  async getSelectionFormat(): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getSelectionFormat');
+  }
+
+  /** Get a specific paragraph by index */
+  async getParagraph(index: number): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getParagraph', [index]);
+  }
+
+  /** Get multiple paragraphs */
+  async getParagraphs(start: number, count: number): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'getParagraphs', [start, count]);
+  }
+
+  /** Insert a new paragraph */
+  async insertParagraph(text: string, options?: { afterIndex?: number; style?: string }): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'insertParagraph', [text, options]);
+  }
+
+  /** Replace a paragraph */
+  async replaceParagraph(index: number, text: string): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'replaceParagraph', [index, text]);
+  }
+
+  /** Delete a paragraph */
+  async deleteParagraph(index: number): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'deleteParagraph', [index]);
+  }
+
+  /** Format text in a range */
+  async formatText(range: { start: { paragraph: number; character: number }; end: { paragraph: number; character: number } }, format: { bold?: boolean; italic?: boolean; underline?: boolean; fontSize?: number; fontName?: string }): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'formatText', [range, format]);
+  }
+
+  /** Replace text in document */
+  async replaceText(find: string, replace: string, options?: { paragraph?: number; all?: boolean }): Promise<EditorOperationResult> {
+    this.assertOpen();
+    return this.converter._sendEditorOperation(this._sessionId, 'replaceText', [find, replace, options]);
+  }
+
+  // ============================================
+  // Lifecycle Methods
+  // ============================================
+
+  /**
+   * Save and close the document, returning the modified data
+   * @returns The modified document as Uint8Array
+   */
+  async close(): Promise<Uint8Array | undefined> {
+    this.assertOpen();
+    this._closed = true;
+    return this.converter._closeDocument(this._sessionId);
+  }
+
+  private assertOpen(): void {
+    if (this._closed) {
+      throw new Error('Document session is closed');
+    }
   }
 }
 

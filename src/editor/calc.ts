@@ -170,12 +170,14 @@ export class CalcEditor extends OfficeEditor {
       });
       this.lok.postUnoCommand(this.docPtr, '.uno:EnterString', args);
 
-      // Verify
+      // Verify by re-reading the cell
       const newValue = this.getCellValueInternal();
+      const expectedStr = typeof value === 'number' ? value.toString() : value;
+      const verified = newValue === expectedStr || newValue === value;
 
       return {
         success: true,
-        verified: true,
+        verified,
         data: { oldValue, newValue },
       };
     } catch (error) {

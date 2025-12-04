@@ -310,20 +310,96 @@ export class WriterEditor extends OfficeEditor {
     }
   }
 
-  getFormat(_position: TextPosition): OperationResult<TextFormat> {
+  /**
+   * Get the text formatting at the current selection or cursor position.
+   *
+   * Uses LOK callback mechanism to retrieve STATE_CHANGED events which contain
+   * formatting state like `.uno:Bold=true`, `.uno:Italic=false`, etc.
+   *
+   * @param _position - Text position (currently unused, uses current selection)
+   * @returns TextFormat with bold, italic, underline, fontSize, fontName properties
+   */
+  getFormat(_position?: TextPosition): OperationResult<TextFormat> {
     try {
-      // TODO: Navigate to position before querying format
-      // Query current formatting (simplified - actual impl would parse LOK response)
-      this.lok.getCommandValues(this.docPtr, '.uno:CharFontName');
+      // Clear any existing callback events
+      this.lok.clearCallbackQueue();
 
-      // Return simplified result
-      return this.createResult({
-        bold: false,
-        italic: false,
-        underline: false,
-      });
+      // Trigger a selection change to get current formatting state
+      // Moving cursor slightly and back triggers STATE_CHANGED callbacks
+      this.lok.postUnoCommand(this.docPtr, '.uno:CharRightSel');
+      this.lok.flushCallbacks(this.docPtr);
+      this.lok.postUnoCommand(this.docPtr, '.uno:CharLeft');
+      this.lok.flushCallbacks(this.docPtr);
+
+      // Poll STATE_CHANGED events to get formatting state
+      const states = this.lok.pollStateChanges();
+
+      // Parse the state values into TextFormat
+      const format: TextFormat = {};
+
+      // Bold: .uno:Bold=true or .uno:Bold=false
+      const boldState = states.get('.uno:Bold');
+      if (boldState !== undefined) {
+        format.bold = boldState === 'true';
+      }
+
+      // Italic: .uno:Italic=true or .uno:Italic=false
+      const italicState = states.get('.uno:Italic');
+      if (italicState !== undefined) {
+        format.italic = italicState === 'true';
+      }
+
+      // Underline: .uno:Underline=true or .uno:Underline=false
+      const underlineState = states.get('.uno:Underline');
+      if (underlineState !== undefined) {
+        format.underline = underlineState === 'true';
+      }
+
+      // Font size: .uno:FontHeight=12
+      const fontSizeState = states.get('.uno:FontHeight');
+      if (fontSizeState !== undefined) {
+        const size = parseFloat(fontSizeState);
+        if (!isNaN(size)) {
+          format.fontSize = size;
+        }
+      }
+
+      // Font name: .uno:CharFontName=Arial
+      const fontNameState = states.get('.uno:CharFontName');
+      if (fontNameState !== undefined && fontNameState.length > 0) {
+        format.fontName = fontNameState;
+      }
+
+      return this.createResult(format);
     } catch (error) {
       return this.createErrorResult(`Failed to get format: ${error}`);
+    }
+  }
+
+  /**
+   * Get formatting state for the current selection using the callback mechanism.
+   * This is the preferred way to get character formatting as it uses LOK's
+   * STATE_CHANGED callback events.
+   *
+   * @returns Map of UNO command names to their state values
+   */
+  getSelectionFormat(): OperationResult<Map<string, string>> {
+    try {
+      // Poll any existing STATE_CHANGED events (from previous operations)
+      const existingStates = this.lok.pollStateChanges();
+
+      if (existingStates.size === 0) {
+        // No existing states, trigger a selection to get current format
+        this.lok.clearCallbackQueue();
+        this.lok.postUnoCommand(this.docPtr, '.uno:SelectWord');
+        this.lok.flushCallbacks(this.docPtr);
+        const states = this.lok.pollStateChanges();
+        return this.createResult(states);
+      }
+
+      return this.createResult(existingStates);
+    } catch (error) {
+      return this.createErrorResult(`Failed to get selection format: ${error}`);
     }
   }
 

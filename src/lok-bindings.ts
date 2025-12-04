@@ -69,6 +69,26 @@ interface LOKModule extends EmscriptenModule {
   _lok_documentGetDataArea?: (doc: number, part: number, colPtr: number, rowPtr: number) => void;
   // Edit mode shim
   _lok_documentGetEditMode?: (doc: number) => number;
+  _lok_documentSetEditMode?: (doc: number, mode: number) => void;
+  // View management shims
+  _lok_documentCreateView?: (doc: number) => number;
+  _lok_documentCreateViewWithOptions?: (doc: number, options: number) => number;
+  _lok_documentDestroyView?: (doc: number, viewId: number) => void;
+  _lok_documentSetView?: (doc: number, viewId: number) => void;
+  _lok_documentGetView?: (doc: number) => number;
+  _lok_documentGetViewsCount?: (doc: number) => number;
+  // Event loop and callback shims
+  _lok_enableSyncEvents?: () => void;
+  _lok_disableSyncEvents?: () => void;
+  _lok_runLoop?: (lok: number, pollCallback: number, wakeCallback: number, data: number) => void;
+  // Callback queue shims
+  _lok_documentRegisterCallback?: (doc: number) => void;
+  _lok_documentUnregisterCallback?: (doc: number) => void;
+  _lok_hasCallbackEvents?: () => number;
+  _lok_getCallbackEventCount?: () => number;
+  _lok_pollCallback?: (payloadBuffer: number, bufferSize: number, payloadLengthPtr: number) => number;
+  _lok_clearCallbackQueue?: () => void;
+  _lok_flushCallbacks?: (doc: number) => void;
 }
 
 // LOK Mouse Event Types
@@ -96,6 +116,90 @@ export const LOK_DOCTYPE_SPREADSHEET = 1;
 export const LOK_DOCTYPE_PRESENTATION = 2;
 export const LOK_DOCTYPE_DRAWING = 3;
 export const LOK_DOCTYPE_OTHER = 4;
+
+// LOK Callback Types (from LibreOfficeKitEnums.h)
+export const LOK_CALLBACK_INVALIDATE_TILES = 0;
+export const LOK_CALLBACK_INVALIDATE_VISIBLE_CURSOR = 1;
+export const LOK_CALLBACK_TEXT_SELECTION = 2;
+export const LOK_CALLBACK_TEXT_SELECTION_START = 3;
+export const LOK_CALLBACK_TEXT_SELECTION_END = 4;
+export const LOK_CALLBACK_CURSOR_VISIBLE = 5;
+export const LOK_CALLBACK_GRAPHIC_SELECTION = 6;
+export const LOK_CALLBACK_HYPERLINK_CLICKED = 7;
+export const LOK_CALLBACK_STATE_CHANGED = 8;
+export const LOK_CALLBACK_STATUS_INDICATOR_START = 9;
+export const LOK_CALLBACK_STATUS_INDICATOR_SET_VALUE = 10;
+export const LOK_CALLBACK_STATUS_INDICATOR_FINISH = 11;
+export const LOK_CALLBACK_SEARCH_NOT_FOUND = 12;
+export const LOK_CALLBACK_DOCUMENT_SIZE_CHANGED = 13;
+export const LOK_CALLBACK_SET_PART = 14;
+export const LOK_CALLBACK_SEARCH_RESULT_SELECTION = 15;
+export const LOK_CALLBACK_UNO_COMMAND_RESULT = 16;
+export const LOK_CALLBACK_CELL_CURSOR = 17;
+export const LOK_CALLBACK_MOUSE_POINTER = 18;
+export const LOK_CALLBACK_CELL_FORMULA = 19;
+export const LOK_CALLBACK_DOCUMENT_PASSWORD = 20;
+export const LOK_CALLBACK_DOCUMENT_PASSWORD_TO_MODIFY = 21;
+export const LOK_CALLBACK_CONTEXT_MENU = 22;
+export const LOK_CALLBACK_INVALIDATE_VIEW_CURSOR = 23;
+export const LOK_CALLBACK_TEXT_VIEW_SELECTION = 24;
+export const LOK_CALLBACK_CELL_VIEW_CURSOR = 25;
+export const LOK_CALLBACK_GRAPHIC_VIEW_SELECTION = 26;
+export const LOK_CALLBACK_VIEW_CURSOR_VISIBLE = 27;
+export const LOK_CALLBACK_VIEW_LOCK = 28;
+export const LOK_CALLBACK_REDLINE_TABLE_SIZE_CHANGED = 29;
+export const LOK_CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED = 30;
+export const LOK_CALLBACK_COMMENT = 31;
+export const LOK_CALLBACK_INVALIDATE_HEADER = 32;
+export const LOK_CALLBACK_CELL_ADDRESS = 33;
+
+// Callback event interface
+export interface LOKCallbackEvent {
+  type: number;
+  typeName: string;
+  payload: string;
+}
+
+// Map callback type to name
+export function getCallbackTypeName(type: number): string {
+  const names: Record<number, string> = {
+    [LOK_CALLBACK_INVALIDATE_TILES]: 'INVALIDATE_TILES',
+    [LOK_CALLBACK_INVALIDATE_VISIBLE_CURSOR]: 'INVALIDATE_VISIBLE_CURSOR',
+    [LOK_CALLBACK_TEXT_SELECTION]: 'TEXT_SELECTION',
+    [LOK_CALLBACK_TEXT_SELECTION_START]: 'TEXT_SELECTION_START',
+    [LOK_CALLBACK_TEXT_SELECTION_END]: 'TEXT_SELECTION_END',
+    [LOK_CALLBACK_CURSOR_VISIBLE]: 'CURSOR_VISIBLE',
+    [LOK_CALLBACK_GRAPHIC_SELECTION]: 'GRAPHIC_SELECTION',
+    [LOK_CALLBACK_HYPERLINK_CLICKED]: 'HYPERLINK_CLICKED',
+    [LOK_CALLBACK_STATE_CHANGED]: 'STATE_CHANGED',
+    [LOK_CALLBACK_STATUS_INDICATOR_START]: 'STATUS_INDICATOR_START',
+    [LOK_CALLBACK_STATUS_INDICATOR_SET_VALUE]: 'STATUS_INDICATOR_SET_VALUE',
+    [LOK_CALLBACK_STATUS_INDICATOR_FINISH]: 'STATUS_INDICATOR_FINISH',
+    [LOK_CALLBACK_SEARCH_NOT_FOUND]: 'SEARCH_NOT_FOUND',
+    [LOK_CALLBACK_DOCUMENT_SIZE_CHANGED]: 'DOCUMENT_SIZE_CHANGED',
+    [LOK_CALLBACK_SET_PART]: 'SET_PART',
+    [LOK_CALLBACK_SEARCH_RESULT_SELECTION]: 'SEARCH_RESULT_SELECTION',
+    [LOK_CALLBACK_UNO_COMMAND_RESULT]: 'UNO_COMMAND_RESULT',
+    [LOK_CALLBACK_CELL_CURSOR]: 'CELL_CURSOR',
+    [LOK_CALLBACK_MOUSE_POINTER]: 'MOUSE_POINTER',
+    [LOK_CALLBACK_CELL_FORMULA]: 'CELL_FORMULA',
+    [LOK_CALLBACK_DOCUMENT_PASSWORD]: 'DOCUMENT_PASSWORD',
+    [LOK_CALLBACK_DOCUMENT_PASSWORD_TO_MODIFY]: 'DOCUMENT_PASSWORD_TO_MODIFY',
+    [LOK_CALLBACK_CONTEXT_MENU]: 'CONTEXT_MENU',
+    [LOK_CALLBACK_INVALIDATE_VIEW_CURSOR]: 'INVALIDATE_VIEW_CURSOR',
+    [LOK_CALLBACK_TEXT_VIEW_SELECTION]: 'TEXT_VIEW_SELECTION',
+    [LOK_CALLBACK_CELL_VIEW_CURSOR]: 'CELL_VIEW_CURSOR',
+    [LOK_CALLBACK_GRAPHIC_VIEW_SELECTION]: 'GRAPHIC_VIEW_SELECTION',
+    [LOK_CALLBACK_VIEW_CURSOR_VISIBLE]: 'VIEW_CURSOR_VISIBLE',
+    [LOK_CALLBACK_VIEW_LOCK]: 'VIEW_LOCK',
+    [LOK_CALLBACK_REDLINE_TABLE_SIZE_CHANGED]: 'REDLINE_TABLE_SIZE_CHANGED',
+    [LOK_CALLBACK_REDLINE_TABLE_ENTRY_MODIFIED]: 'REDLINE_TABLE_ENTRY_MODIFIED',
+    [LOK_CALLBACK_COMMENT]: 'COMMENT',
+    [LOK_CALLBACK_INVALIDATE_HEADER]: 'INVALIDATE_HEADER',
+    [LOK_CALLBACK_CELL_ADDRESS]: 'CELL_ADDRESS',
+  };
+  return names[type] || `UNKNOWN(${type})`;
+}
 
 // Fallback offsets for WASM32 (4-byte pointers) if shims not available
 const LOK_CLASS = {
@@ -541,6 +645,7 @@ export class LOKBindings {
    * Get document size in twips (1/1440 inch)
    */
   documentGetDocumentSize(docPtr: number): { width: number; height: number } {
+    this.log(`documentGetDocumentSize called with docPtr: ${docPtr}`);
     if (docPtr === 0) {
       throw new Error('Invalid document pointer');
     }
@@ -552,6 +657,7 @@ export class LOKBindings {
         this.module._lok_documentGetDocumentSize(docPtr, sizePtr, sizePtr + 4);
         const width = this.HEAP32[sizePtr >> 2] ?? 0;
         const height = this.HEAP32[(sizePtr + 4) >> 2] ?? 0;
+        this.log(`documentGetDocumentSize: ${width}x${height} twips`);
         return { width, height };
       } finally {
         this.module._free(sizePtr);
@@ -745,10 +851,11 @@ export class LOKBindings {
   /**
    * Get currently selected text
    * @param docPtr Document pointer
-   * @param mimeType Desired MIME type (e.g., 'text/plain', 'text/html')
+   * @param mimeType Desired MIME type. Must include charset, e.g., 'text/plain;charset=utf-8'
+   *                 Note: 'text/plain' without charset is NOT supported by LOK
    * @returns Selected text or null
    */
-  getTextSelection(docPtr: number, mimeType: string = 'text/plain'): string | null {
+  getTextSelection(docPtr: number, mimeType: string = 'text/plain;charset=utf-8'): string | null {
     if (docPtr === 0) throw new Error('Invalid document pointer');
 
     if (this.useShims && this.module._lok_documentGetTextSelection) {
@@ -940,12 +1047,16 @@ export class LOKBindings {
    * @returns String with rectangles "x,y,width,height;x,y,width,height;..."
    */
   getPartPageRectangles(docPtr: number): string | null {
+    this.log(`getPartPageRectangles called with docPtr: ${docPtr}`);
     if (docPtr === 0) throw new Error('Invalid document pointer');
 
     if (this.useShims && this.module._lok_documentGetPartPageRectangles) {
+      this.log('getPartPageRectangles: using shim');
       const resultPtr = this.module._lok_documentGetPartPageRectangles(docPtr);
+      this.log(`getPartPageRectangles: resultPtr=${resultPtr}`);
       if (resultPtr === 0) return null;
       const result = this.readString(resultPtr);
+      this.log(`getPartPageRectangles: result="${result?.slice(0, 100)}..."`);
       this.module._free(resultPtr);
       return result;
     }
@@ -1194,6 +1305,343 @@ export class LOKBindings {
     return 0;
   }
 
+  /**
+   * Set edit mode for the document
+   * @param docPtr Document pointer
+   * @param mode 0 for view mode, 1 for edit mode
+   */
+  setEditMode(docPtr: number, mode: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetEditMode) {
+      this.log(`setEditMode: setting mode to ${mode}`);
+      this.module._lok_documentSetEditMode(docPtr, mode);
+      return;
+    }
+
+    this.log('setEditMode: shim not available');
+  }
+
+  // ==========================================
+  // View Management Methods
+  // ==========================================
+
+  /**
+   * Create a new view for the document
+   * @param docPtr Document pointer
+   * @returns View ID
+   */
+  createView(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentCreateView) {
+      const viewId = this.module._lok_documentCreateView(docPtr);
+      this.log(`createView: created view ${viewId}`);
+      return viewId;
+    }
+
+    this.log('createView: shim not available');
+    return -1;
+  }
+
+  /**
+   * Create a new view with options
+   * @param docPtr Document pointer
+   * @param options Options string (JSON)
+   * @returns View ID
+   */
+  createViewWithOptions(docPtr: number, options: string): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentCreateViewWithOptions) {
+      const optionsPtr = this.allocString(options);
+      try {
+        const viewId = this.module._lok_documentCreateViewWithOptions(docPtr, optionsPtr);
+        this.log(`createViewWithOptions: created view ${viewId}`);
+        return viewId;
+      } finally {
+        this.module._free(optionsPtr);
+      }
+    }
+
+    this.log('createViewWithOptions: shim not available');
+    return -1;
+  }
+
+  /**
+   * Destroy a view
+   * @param docPtr Document pointer
+   * @param viewId View ID to destroy
+   */
+  destroyView(docPtr: number, viewId: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentDestroyView) {
+      this.log(`destroyView: destroying view ${viewId}`);
+      this.module._lok_documentDestroyView(docPtr, viewId);
+      return;
+    }
+
+    this.log('destroyView: shim not available');
+  }
+
+  /**
+   * Set the current active view
+   * @param docPtr Document pointer
+   * @param viewId View ID to make active
+   */
+  setView(docPtr: number, viewId: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentSetView) {
+      this.log(`setView: setting active view to ${viewId}`);
+      this.module._lok_documentSetView(docPtr, viewId);
+      return;
+    }
+
+    this.log('setView: shim not available');
+  }
+
+  /**
+   * Get the current active view ID
+   * @param docPtr Document pointer
+   * @returns Current view ID
+   */
+  getView(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetView) {
+      return this.module._lok_documentGetView(docPtr);
+    }
+
+    this.log('getView: shim not available');
+    return -1;
+  }
+
+  /**
+   * Get the number of views
+   * @param docPtr Document pointer
+   * @returns Number of views
+   */
+  getViewsCount(docPtr: number): number {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentGetViewsCount) {
+      return this.module._lok_documentGetViewsCount(docPtr);
+    }
+
+    this.log('getViewsCount: shim not available');
+    return 0;
+  }
+
+  // ==========================================
+  // Event Loop and Callback Methods
+  // ==========================================
+
+  /**
+   * Enable synchronous event dispatch (Unipoll mode).
+   * This must be called before using postKeyEvent, postMouseEvent, etc.
+   * to ensure events are processed immediately instead of being queued.
+   *
+   * Without this, events posted via postKeyEvent/postMouseEvent are queued
+   * via Application::PostUserEvent() and never processed in headless mode.
+   */
+  enableSyncEvents(): void {
+    if (this.useShims && this.module._lok_enableSyncEvents) {
+      this.module._lok_enableSyncEvents();
+      this.log('enableSyncEvents: Unipoll mode enabled');
+    } else {
+      this.log('enableSyncEvents: shim not available');
+    }
+  }
+
+  /**
+   * Disable synchronous event dispatch.
+   * Call this when done with event-based operations.
+   */
+  disableSyncEvents(): void {
+    if (this.useShims && this.module._lok_disableSyncEvents) {
+      this.module._lok_disableSyncEvents();
+      this.log('disableSyncEvents: Unipoll mode disabled');
+    } else {
+      this.log('disableSyncEvents: shim not available');
+    }
+  }
+
+  // ==========================================
+  // Callback Queue Methods
+  // ==========================================
+
+  /**
+   * Register a callback handler for the document.
+   * Events are queued and can be retrieved via pollCallback().
+   * @param docPtr Document pointer
+   */
+  registerCallback(docPtr: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentRegisterCallback) {
+      this.module._lok_documentRegisterCallback(docPtr);
+      this.log('registerCallback: callback registered');
+    } else {
+      this.log('registerCallback: shim not available');
+    }
+  }
+
+  /**
+   * Unregister the callback handler for the document.
+   * @param docPtr Document pointer
+   */
+  unregisterCallback(docPtr: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    if (this.useShims && this.module._lok_documentUnregisterCallback) {
+      this.module._lok_documentUnregisterCallback(docPtr);
+      this.log('unregisterCallback: callback unregistered');
+    } else {
+      this.log('unregisterCallback: shim not available');
+    }
+  }
+
+  /**
+   * Check if there are any pending callback events.
+   * @returns true if events are pending
+   */
+  hasCallbackEvents(): boolean {
+    if (this.useShims && this.module._lok_hasCallbackEvents) {
+      return this.module._lok_hasCallbackEvents() !== 0;
+    }
+    return false;
+  }
+
+  /**
+   * Get the number of pending callback events.
+   * @returns Number of events in the queue
+   */
+  getCallbackEventCount(): number {
+    if (this.useShims && this.module._lok_getCallbackEventCount) {
+      return this.module._lok_getCallbackEventCount();
+    }
+    return 0;
+  }
+
+  /**
+   * Poll and retrieve the next callback event from the queue.
+   * @returns The next event, or null if queue is empty
+   */
+  pollCallback(): LOKCallbackEvent | null {
+    if (!this.useShims || !this.module._lok_pollCallback) {
+      return null;
+    }
+
+    const bufferSize = 4096;
+    const payloadBuffer = this.module._malloc(bufferSize);
+    const payloadLengthPtr = this.module._malloc(4);
+
+    try {
+      const eventType = this.module._lok_pollCallback(payloadBuffer, bufferSize, payloadLengthPtr);
+
+      if (eventType === -1) {
+        return null; // Queue is empty
+      }
+
+      // Read the payload length
+      const payloadLength = this.module.HEAP32[payloadLengthPtr >> 2] ?? 0;
+
+      // Read the payload string
+      let payload = '';
+      if (payloadLength > 0) {
+        // Copy bytes from HEAPU8 to avoid SharedArrayBuffer issues in browsers
+        // TextDecoder.decode() doesn't accept SharedArrayBuffer views in some browsers
+        const len = Math.min(payloadLength, bufferSize - 1);
+        const bytes = this.module.HEAPU8.slice(payloadBuffer, payloadBuffer + len);
+        payload = textDecoder.decode(bytes);
+      }
+
+      return {
+        type: eventType,
+        typeName: getCallbackTypeName(eventType),
+        payload,
+      };
+    } finally {
+      this.module._free(payloadBuffer);
+      this.module._free(payloadLengthPtr);
+    }
+  }
+
+  /**
+   * Poll all pending callback events.
+   * @returns Array of all pending events
+   */
+  pollAllCallbacks(): LOKCallbackEvent[] {
+    const events: LOKCallbackEvent[] = [];
+    let event = this.pollCallback();
+    while (event !== null) {
+      events.push(event);
+      event = this.pollCallback();
+    }
+    return events;
+  }
+
+  /**
+   * Clear all pending callback events.
+   */
+  clearCallbackQueue(): void {
+    if (this.useShims && this.module._lok_clearCallbackQueue) {
+      this.module._lok_clearCallbackQueue();
+      this.log('clearCallbackQueue: queue cleared');
+    }
+  }
+
+  /**
+   * Force flush pending LOK callbacks for a document.
+   * This is needed in WASM because callbacks are queued via PostUserEvent
+   * but the event loop doesn't run automatically.
+   * Call this after operations that trigger callbacks (e.g., postUnoCommand)
+   * to ensure the callback queue is populated.
+   * @param docPtr Document pointer
+   */
+  flushCallbacks(docPtr: number): void {
+    if (docPtr === 0) throw new Error('Invalid document pointer');
+
+    const hasShim = !!this.module._lok_flushCallbacks;
+    this.log(`flushCallbacks: useShims=${this.useShims}, _lok_flushCallbacks exists=${hasShim}`);
+
+    if (this.useShims && this.module._lok_flushCallbacks) {
+      this.module._lok_flushCallbacks(docPtr);
+      this.log('flushCallbacks: callbacks flushed');
+    } else {
+      this.log('flushCallbacks: shim not available');
+    }
+  }
+
+  /**
+   * Poll for STATE_CHANGED callbacks and parse them into a map.
+   * STATE_CHANGED payloads are in format: ".uno:CommandName=value"
+   * @returns Map of command names to values
+   */
+  pollStateChanges(): Map<string, string> {
+    const states = new Map<string, string>();
+    const events = this.pollAllCallbacks();
+
+    for (const event of events) {
+      if (event.type === LOK_CALLBACK_STATE_CHANGED) {
+        // Parse ".uno:Bold=true" format
+        const eqIndex = event.payload.indexOf('=');
+        if (eqIndex !== -1) {
+          const key = event.payload.substring(0, eqIndex);
+          const value = event.payload.substring(eqIndex + 1);
+          states.set(key, value);
+        } else {
+          // Some state changes are just the command name (enabled/disabled toggle)
+          states.set(event.payload, '');
+        }
+      }
+    }
+
+    return states;
+  }
+
   // ==========================================
   // High-Level Convenience Methods
   // ==========================================
@@ -1244,8 +1692,10 @@ export class LOKBindings {
    * @returns All text content
    */
   getAllText(docPtr: number): string | null {
+    this.log(`getAllText called with docPtr: ${docPtr}`);
     this.selectAll(docPtr);
     const text = this.getTextSelection(docPtr, 'text/plain');
+    this.log(`getAllText: text="${text?.slice(0, 100)}..."`);
     this.resetSelection(docPtr);
     return text;
   }

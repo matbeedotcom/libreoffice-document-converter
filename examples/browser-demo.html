@@ -910,30 +910,46 @@
       try {
         docInfo.innerHTML = '🔄 Analyzing document...';
         docInfo.classList.add('show');
-        
+
         const converter = await getConverter();
         const inputData = new Uint8Array(fileBuffer);
-        
+
         currentDocInfo = await converter.getDocumentInfo(inputData.slice(), { inputFormat: ext });
-        
+        console.log('Document info:', currentDocInfo);
+
+        // Get LOK info (bounding boxes, text, positions)
+        const lokInfo = await converter.getLokInfo(inputData.slice(), { inputFormat: ext });
+        console.log('LOK info:', lokInfo);
+        console.log('  - pageRectangles:', lokInfo.pageRectangles);
+        console.log('  - documentSize:', lokInfo.documentSize);
+        console.log('  - allText:', lokInfo.allText?.slice(0, 200) + '...');
+        console.log('  - editMode:', lokInfo.editMode);
+
         // Use PNG fallback for Drawing (PDFs) in Chromium browsers
         // paintTile hangs for Drawing documents in Chrome/Edge
         usePngFallback = false;
-        
-        // Update UI
+
+        // Update UI with document info and LOK data
         let infoText = `📄 ${currentDocInfo.documentTypeName} • ${currentDocInfo.pageCount} page${currentDocInfo.pageCount !== 1 ? 's' : ''}`;
-        
+
+        // Add document size from LOK info
+        if (lokInfo.documentSize.width > 0) {
+          const widthInches = (lokInfo.documentSize.width / 1440).toFixed(1);
+          const heightInches = (lokInfo.documentSize.height / 1440).toFixed(1);
+          infoText += ` • ${widthInches}" × ${heightInches}"`;
+        }
+
         if (usePngFallback) {
           infoText += ' (PNG preview)';
         }
-        
+
         docInfo.innerHTML = infoText;
-        
+
         applyFormatRestrictions(currentDocInfo.validOutputFormats, ext);
-        
+
         // Create page skeletons - now works for all document types
         createPageSkeletons(currentDocInfo.pageCount);
-        
+
       } catch (error) {
         console.error('Failed to query document info:', error);
         docInfo.innerHTML = '⚠️ Could not analyze document';

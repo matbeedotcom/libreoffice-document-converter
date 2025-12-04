@@ -38,6 +38,24 @@ export abstract class OfficeEditor {
   abstract getDocumentType(): 'writer' | 'calc' | 'impress' | 'draw';
 
   // ============================================
+  // Accessor methods
+  // ============================================
+
+  /**
+   * Get the document pointer for low-level LOK operations
+   */
+  getDocPtr(): number {
+    return this.docPtr;
+  }
+
+  /**
+   * Get the LOK bindings for low-level operations
+   */
+  getLokBindings(): LOKBindings {
+    return this.lok;
+  }
+
+  // ============================================
   // Lifecycle methods
   // ============================================
 
@@ -71,6 +89,40 @@ export abstract class OfficeEditor {
       return this.createResult(undefined);
     } catch (error) {
       return this.createErrorResult(`Close failed: ${error}`);
+    }
+  }
+
+  /**
+   * Get the current edit mode of the document
+   * @returns 0 = view mode, 1 = edit mode
+   */
+  getEditMode(): number {
+    return this.lok.getEditMode(this.docPtr);
+  }
+
+  /**
+   * Attempt to enable edit mode for the document
+   * @returns OperationResult with success and verified fields
+   */
+  enableEditMode(): OperationResult<{ editMode: number }> {
+    try {
+      const beforeMode = this.lok.getEditMode(this.docPtr);
+      if (beforeMode === 1) {
+        // Already in edit mode
+        return this.createResult({ editMode: 1 });
+      }
+
+      // Try .uno:Edit command to switch to edit mode
+      this.lok.postUnoCommand(this.docPtr, '.uno:Edit');
+
+      const afterMode = this.lok.getEditMode(this.docPtr);
+      return {
+        success: true,
+        verified: afterMode === 1,
+        data: { editMode: afterMode },
+      };
+    } catch (error) {
+      return this.createErrorResult(`Failed to enable edit mode: ${error}`);
     }
   }
 
@@ -142,6 +194,58 @@ export abstract class OfficeEditor {
     } catch (error) {
       return this.createErrorResult(`Replace failed: ${error}`);
     }
+  }
+
+  // ============================================
+  // Callback-based state retrieval
+  // ============================================
+
+  /**
+   * Poll all STATE_CHANGED callback events and return as a map.
+   *
+   * LOK sends STATE_CHANGED events when formatting state changes (e.g., when
+   * the cursor moves over bold text, `.uno:Bold=true` is emitted).
+   *
+   * Pattern for getting current format state:
+   * 1. clearCallbackQueue() - clear any stale events
+   * 2. Perform action that triggers state change (e.g., SelectWord)
+   * 3. flushCallbacks(docPtr) - force LOK to process callbacks
+   * 4. pollStateChanges() - retrieve the events
+   *
+   * @returns Map of UNO command names to their state values
+   *          e.g., Map { '.uno:Bold' => 'true', '.uno:Italic' => 'false' }
+   */
+  getStateChanges(): OperationResult<Map<string, string>> {
+    try {
+      const states = this.lok.pollStateChanges();
+      return this.createResult(states);
+    } catch (error) {
+      return this.createErrorResult(`Failed to poll state changes: ${error}`);
+    }
+  }
+
+  /**
+   * Flush pending LOK callbacks and then poll for state changes.
+   * Convenience method that combines flushCallbacks + pollStateChanges.
+   *
+   * @returns Map of UNO command names to their state values
+   */
+  flushAndPollState(): OperationResult<Map<string, string>> {
+    try {
+      this.lok.flushCallbacks(this.docPtr);
+      const states = this.lok.pollStateChanges();
+      return this.createResult(states);
+    } catch (error) {
+      return this.createErrorResult(`Failed to flush and poll state: ${error}`);
+    }
+  }
+
+  /**
+   * Clear the callback queue, useful before performing operations
+   * where you want to capture only new state changes.
+   */
+  clearCallbackQueue(): void {
+    this.lok.clearCallbackQueue();
   }
 
   // ============================================
@@ -315,10 +419,6 @@ export abstract class OfficeEditor {
 
   setInputPath(path: string): void {
     this.inputPath = path;
-  }
-
-  getDocPtr(): number {
-    return this.docPtr;
   }
 
   isOpen(): boolean {

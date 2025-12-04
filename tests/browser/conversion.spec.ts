@@ -26,7 +26,12 @@ test.describe('Browser Document Conversion', () => {
 
   test.afterEach(async ({ page }) => {
     // Clear any lingering workers by navigating away
-    await page.goto('about:blank');
+    // Use try-catch to handle Firefox navigation race conditions
+    try {
+      await page.goto('about:blank', { waitUntil: 'domcontentloaded' });
+    } catch {
+      // Ignore navigation errors during cleanup
+    }
     // Small delay to ensure cleanup
     await page.waitForTimeout(500);
   });
