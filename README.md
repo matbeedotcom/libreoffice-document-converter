@@ -69,6 +69,8 @@ const pdfData = await convertDocument(
 - [API Reference](#api-reference)
 - [Supported Formats](#supported-formats)
 - [Browser Usage](#browser-usage)
+- [WASM Loading Progress](#wasm-loading-progress)
+- [Document Preview API](#document-preview-api)
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [Troubleshooting](#troubleshooting)
@@ -476,6 +478,199 @@ fileInput.addEventListener('change', async (e) => {
   const result = await quickConvert(file, 'pdf', { download: true });
 });
 ```
+
+---
+
+## WASM Loading Progress
+
+The browser converter provides detailed progress tracking during WASM initialization, which can take ~80 seconds on first load. The progress system tracks download bytes, compilation phases, and LibreOffice initialization.
+
+### Progress Callback
+
+```typescript
+import { WorkerBrowserConverter } from '@libreoffice-wasm/converter/browser';
+
+const converter = new WorkerBrowserConverter({
+  wasmPath: '/wasm',
+  onProgress: (progress) => {
+    // progress is a WasmLoadProgress object
+    console.log(`Phase: ${progress.phase}`);
+    console.log(`Progress: ${progress.percent}%`);
+    console.log(`Message: ${progress.message}`);
+
+    // During download phases, bytes info is available
+    if (progress.bytesLoaded !== undefined) {
+      const mb = (progress.bytesLoaded / 1024 / 1024).toFixed(1);
+      const totalMb = (progress.bytesTotal! / 1024 / 1024).toFixed(1);
+      console.log(`Downloaded: ${mb} MB / ${totalMb} MB`);
+    }
+  },
+});
+```
+
+### WasmLoadProgress Interface
+
+```typescript
+interface WasmLoadProgress {
+  /** Overall progress 0-100 */
+  percent: number;
+  /** Human-readable status message */
+  message: string;
+  /** Current loading phase */
+  phase: WasmLoadPhase;
+  /** Bytes downloaded (present during download phases) */
+  bytesLoaded?: number;
+  /** Total bytes to download (present during download phases) */
+  bytesTotal?: number;
+}
+
+type WasmLoadPhase =
+  | 'download-wasm'    // Downloading soffice.wasm (~142MB)
+  | 'download-data'    // Downloading soffice.data (~96MB)
+  | 'compile'          // WebAssembly compilation
+  | 'filesystem'       // Emscripten filesystem setup
+  | 'lok-init'         // LibreOfficeKit initialization
+  | 'ready';           // Complete
+```
+
+### Progress Phases
+
+| Phase | Weight | Description |
+|-------|--------|-------------|
+| `download-wasm` | 30% | Downloading soffice.wasm (~142MB) |
+| `download-data` | 20% | Downloading soffice.data (~96MB) |
+| `compile` | 10% | WebAssembly compilation |
+| `filesystem` | 5% | Virtual filesystem setup |
+| `lok-init` | 35% | LibreOffice initialization |
+
+### Example: Progress Bar UI
+
+```html
+<div id="progress-container">
+  <div id="progress-bar" style="width: 0%"></div>
+</div>
+<div id="progress-text">Initializing...</div>
+<div id="progress-bytes"></div>
+
+<script type="module">
+import { WorkerBrowserConverter } from '/dist/browser.js';
+
+const progressBar = document.getElementById('progress-bar');
+const progressText = document.getElementById('progress-text');
+const progressBytes = document.getElementById('progress-bytes');
+
+const converter = new WorkerBrowserConverter({
+  wasmPath: '/wasm',
+  onProgress: (progress) => {
+    progressBar.style.width = `${progress.percent}%`;
+    progressText.textContent = progress.message;
+
+    if (progress.bytesLoaded !== undefined && progress.bytesTotal) {
+      const loaded = (progress.bytesLoaded / 1024 / 1024).toFixed(1);
+      const total = (progress.bytesTotal / 1024 / 1024).toFixed(1);
+      progressBytes.textContent = `${loaded} MB / ${total} MB`;
+    } else {
+      progressBytes.textContent = '';
+    }
+  },
+});
+
+await converter.initialize();
+progressText.textContent = 'Ready!';
+</script>
+```
+
+---
+
+## Document Preview API
+
+The browser converter provides APIs for rendering document page previews without full conversion. This is useful for building document viewers and editors.
+
+### Get Document Info
+
+```typescript
+const converter = new WorkerBrowserConverter({ wasmPath: '/wasm' });
+await converter.initialize();
+
+// Load a document and get its metadata
+const docInfo = await converter.getDocumentInfo(fileBuffer, 'document.docx');
+console.log(docInfo);
+// {
+//   pageCount: 5,
+//   documentType: 0,  // 0=TEXT, 1=SPREADSHEET, 2=PRESENTATION, 3=DRAWING
+//   documentTypeName: 'TEXT'
+// }
+```
+
+### Render Single Page
+
+```typescript
+// Render page 1 at 150 DPI
+const pageImage = await converter.renderSinglePage(fileBuffer, 'document.docx', {
+  pageIndex: 0,  // 0-based page index
+  dpi: 150,
+});
+
+// pageImage is a Uint8Array containing PNG data
+const blob = new Blob([pageImage], { type: 'image/png' });
+const url = URL.createObjectURL(blob);
+document.getElementById('preview').src = url;
+```
+
+### RenderPageOptions
+
+```typescript
+interface RenderPageOptions {
+  /** 0-based page index to render */
+  pageIndex: number;
+  /** DPI for rendering (default: 150) */
+  dpi?: number;
+}
+```
+
+### Get LibreOffice Info
+
+```typescript
+const lokInfo = await converter.getLokInfo();
+console.log(lokInfo);
+// {
+//   version: "24.8.0.0.alpha0...",
+//   buildInfo: "..."
+// }
+```
+
+### Example: Document Thumbnail Gallery
+
+```typescript
+const converter = new WorkerBrowserConverter({ wasmPath: '/wasm' });
+await converter.initialize();
+
+async function renderThumbnails(fileBuffer: Uint8Array, filename: string) {
+  const docInfo = await converter.getDocumentInfo(fileBuffer, filename);
+  const thumbnails: string[] = [];
+
+  for (let i = 0; i < docInfo.pageCount; i++) {
+    const pageData = await converter.renderSinglePage(fileBuffer, filename, {
+      pageIndex: i,
+      dpi: 72,  // Low DPI for thumbnails
+    });
+
+    const blob = new Blob([pageData], { type: 'image/png' });
+    thumbnails.push(URL.createObjectURL(blob));
+  }
+
+  return thumbnails;
+}
+```
+
+### Document Types
+
+| Type | Value | Description |
+|------|-------|-------------|
+| TEXT | 0 | Writer documents (doc, docx, odt, rtf, txt) |
+| SPREADSHEET | 1 | Calc documents (xls, xlsx, ods, csv) |
+| PRESENTATION | 2 | Impress documents (ppt, pptx, odp) |
+| DRAWING | 3 | Draw documents (odg, pdf) |
 
 ---
 
