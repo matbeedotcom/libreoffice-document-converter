@@ -183,7 +183,37 @@ export interface LibreOfficeWasmOptions {
 }
 
 /**
+ * Loading phases for WASM initialization
+ * Used to track detailed progress during the ~80 second browser startup
+ */
+export type WasmLoadPhase =
+  | 'download-wasm'    // Downloading soffice.wasm (~142MB)
+  | 'download-data'    // Downloading soffice.data (~96MB)
+  | 'compile'          // WebAssembly compilation
+  | 'filesystem'       // Emscripten filesystem setup
+  | 'lok-init'         // LibreOfficeKit initialization
+  | 'ready';           // Complete
+
+/**
+ * Extended progress information with download details
+ * Backward compatible - existing code using percent/message continues to work
+ */
+export interface WasmLoadProgress {
+  /** Overall progress 0-100 */
+  percent: number;
+  /** Human-readable status message */
+  message: string;
+  /** Current loading phase */
+  phase: WasmLoadPhase;
+  /** Bytes downloaded (present during download phases) */
+  bytesLoaded?: number;
+  /** Total bytes to download (present during download phases) */
+  bytesTotal?: number;
+}
+
+/**
  * Progress information
+ * @deprecated Use WasmLoadProgress for richer progress data
  */
 export interface ProgressInfo {
   phase: 'loading' | 'initializing' | 'converting' | 'complete';

@@ -359,6 +359,13 @@
       font-family: 'JetBrains Mono', monospace;
     }
 
+    .progress-bytes {
+      margin-top: 0.25rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
     /* Status messages */
     .status {
       margin-top: 1rem;
@@ -725,6 +732,7 @@
               <div class="progress-fill" id="progressFill"></div>
             </div>
             <p class="progress-text" id="progressText">Initializing...</p>
+            <p class="progress-bytes" id="progressBytes"></p>
           </div>
 
           <div class="status" id="status"></div>
@@ -800,6 +808,7 @@
     const progressContainer = document.getElementById('progressContainer');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
+    const progressBytes = document.getElementById('progressBytes');
     const status = document.getElementById('status');
     const emptyState = document.getElementById('emptyState');
     const pagesGrid = document.getElementById('pagesGrid');
@@ -839,7 +848,17 @@
           wasmPath: baseUrl + 'wasm',
           workerPath: baseUrl + 'dist/browser-worker.global.js',
           verbose: false,
-          onProgress: (p) => updateProgress(p.percent, p.message),
+          onProgress: (p) => {
+            updateProgress(p.percent, p.message);
+            // Show bytes info during download phases
+            if (p.bytesLoaded !== undefined && p.bytesTotal !== undefined) {
+              const loadedMB = (p.bytesLoaded / (1024 * 1024)).toFixed(1);
+              const totalMB = (p.bytesTotal / (1024 * 1024)).toFixed(1);
+              progressBytes.textContent = `${loadedMB} MB / ${totalMB} MB`;
+            } else {
+              progressBytes.textContent = '';
+            }
+          },
         });
 
         await cachedConverter.initialize();

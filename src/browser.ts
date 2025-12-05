@@ -16,6 +16,8 @@ export type {
   OutputFormat,
   PdfOptions,
   ProgressInfo,
+  WasmLoadPhase,
+  WasmLoadProgress,
   EmscriptenModule,
   EmscriptenFS,
 } from './types.js';

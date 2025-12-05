@@ -38,7 +38,7 @@ test.describe('Browser Document Conversion', () => {
 
   test('should load the demo page', async ({ page }) => {
     await page.goto('/examples/browser-demo.html');
-    await expect(page.locator('h1')).toContainText('LibreOffice WASM');
+    await expect(page.locator('h1')).toContainText('Free Document Conversion');
     await expect(page.locator('#dropZone')).toBeVisible();
     await expect(page.locator('#convertBtn')).toBeDisabled();
   });

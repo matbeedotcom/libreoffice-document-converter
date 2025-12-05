@@ -41,7 +41,7 @@ export {
   getOutputFormatsForDocType,
 } from './types.js';
 
-export type { DocumentCategory } from './types.js';
+export type { DocumentCategory, WasmLoadPhase, WasmLoadProgress } from './types.js';
 
 // Export LOK constants for advanced usage
 export {

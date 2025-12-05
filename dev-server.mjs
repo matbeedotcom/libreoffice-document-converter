@@ -41,9 +41,10 @@ const server = http.createServer((req, res) => {
 
     const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', data.length); // Required for download progress tracking
     res.writeHead(200);
     res.end(data);
-    console.log(`200: ${req.url} (${mimeType})`);
+    console.log(`200: ${req.url} (${mimeType}, ${data.length} bytes)`);
   });
 });
 

@@ -5,11 +5,234 @@
  * Communication is via postMessage.
  */
 
-import type { EmscriptenModule } from './types.js';
+import type { EmscriptenModule, WasmLoadPhase, WasmLoadProgress } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OperationResult } from './editor/types.js';
+
+// ============================================
+// WASM Loading Progress System
+// ============================================
+
+/**
+ * Cumulative progress tracking - each step adds to the total
+ * This ensures progress always increases even if events arrive out of order
+ *
+ * Weight distribution (sums to 100):
+ * - download-wasm: 50 points (largest file ~142MB)
+ * - download-data: 30 points (~96MB)
+ * - compile: 5 points
+ * - filesystem: 7 points
+ * - lok-init: 7 points
+ * - ready: 1 point (final)
+ */
+const PHASE_WEIGHTS: Record<WasmLoadPhase, number> = {
+  'download-wasm': 50,
+  'download-data': 30,
+  'compile': 5,
+  'filesystem': 7,
+  'lok-init': 7,
+  'ready': 1,
+};
+
+/** Track completed progress for each phase */
+const phaseProgress: Record<WasmLoadPhase, number> = {
+  'download-wasm': 0,
+  'download-data': 0,
+  'compile': 0,
+  'filesystem': 0,
+  'lok-init': 0,
+  'ready': 0,
+};
+
+/** Current request ID for progress messages */
+let currentInitRequestId: number = 0;
+
+/** Last emitted percentage - ensures monotonic progress */
+let lastEmittedPercent: number = 0;
+
+/** Calculate total progress as sum of all phase progress */
+function calculateTotalProgress(): number {
+  let total = 0;
+  for (const phase of Object.keys(phaseProgress) as WasmLoadPhase[]) {
+    total += phaseProgress[phase];
+  }
+  const percent = Math.min(100, Math.round(total));
+  // Ensure we never emit a lower percentage than before
+  if (percent > lastEmittedPercent) {
+    lastEmittedPercent = percent;
+  }
+  return lastEmittedPercent;
+}
+
+/** Format bytes as human-readable MB */
+function formatBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+/** Emit download progress with bytes info */
+function emitDownloadProgress(phase: WasmLoadPhase, loaded: number, total: number) {
+  const weight = PHASE_WEIGHTS[phase];
+  const phasePercent = total > 0 ? loaded / total : 0;
+  const newProgress = weight * phasePercent;
+
+  // Only update if progress increased (never go backwards)
+  if (newProgress > phaseProgress[phase]) {
+    phaseProgress[phase] = newProgress;
+  }
+
+  const message = phase === 'download-wasm'
+    ? `Downloading WebAssembly... ${formatBytes(loaded)} / ${formatBytes(total)}`
+    : `Downloading filesystem... ${formatBytes(loaded)} / ${formatBytes(total)}`;
+
+  emitProgress({ percent: calculateTotalProgress(), message, phase, bytesLoaded: loaded, bytesTotal: total });
+}
+
+/** Emit phase progress (marks phase as complete) */
+function emitPhaseProgress(phase: WasmLoadPhase, message: string) {
+  // Only update if this is an increase
+  const newProgress = PHASE_WEIGHTS[phase];
+  if (newProgress > phaseProgress[phase]) {
+    phaseProgress[phase] = newProgress;
+  }
+  emitProgress({ percent: calculateTotalProgress(), message, phase });
+}
+
+/** Send progress to main thread */
+function emitProgress(progress: WasmLoadProgress) {
+  self.postMessage({ type: 'progress', id: currentInitRequestId, progress });
+}
+
+/**
+ * Install fetch interceptor to track WASM file downloads
+ * Must be called BEFORE importScripts() loads Emscripten
+ *
+ * Modern Emscripten uses fetch() API for downloading .wasm and .data files
+ */
+function installProgressInterceptors() {
+  const originalFetch = self.fetch;
+
+  // Intercept fetch for progress tracking
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (self as any).fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+    // Identify which file is being downloaded
+    let phase: WasmLoadPhase | null = null;
+    if (url.includes('soffice.wasm')) {
+      phase = 'download-wasm';
+      console.log('[Worker] Starting fetch download: soffice.wasm');
+    } else if (url.includes('soffice.data')) {
+      phase = 'download-data';
+      console.log('[Worker] Starting fetch download: soffice.data');
+    }
+
+    const response = await originalFetch(input, init);
+
+    // If not a tracked file, return original response
+    if (!phase) {
+      return response;
+    }
+
+    // Get content length for progress calculation
+    const contentLength = response.headers.get('Content-Length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+    // If no content length or no body, return original response
+    if (!total || !response.body) {
+      console.log(`[Worker] No content-length for ${url}, skipping progress tracking`);
+      return response;
+    }
+
+    // Create a new response with progress tracking
+    const reader = response.body.getReader();
+    let loaded = 0;
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log(`[Worker] Finished fetch download: ${phase === 'download-wasm' ? 'soffice.wasm' : 'soffice.data'}`);
+            controller.close();
+            break;
+          }
+
+          loaded += value.length;
+          emitDownloadProgress(phase!, loaded, total);
+          controller.enqueue(value);
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText
+    });
+  };
+
+  console.log('[Worker] Installed progress-tracking fetch interceptor');
+
+  // Also intercept XHR as fallback (some Emscripten configurations use it)
+  const OriginalXHR = self.XMLHttpRequest;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ProgressXMLHttpRequest = function(this: XMLHttpRequest) {
+    const xhr = new OriginalXHR();
+    let requestUrl = '';
+
+    const originalOpen = xhr.open.bind(xhr);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (xhr as any).open = function(method: string, url: string | URL, ...args: any[]) {
+      requestUrl = String(url);
+      return originalOpen(method, url, ...args);
+    };
+
+    const originalSend = xhr.send.bind(xhr);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (xhr as any).send = function(body?: any) {
+      let phase: WasmLoadPhase | null = null;
+      if (requestUrl.includes('soffice.wasm')) {
+        phase = 'download-wasm';
+        console.log('[Worker] Starting XHR download: soffice.wasm');
+      } else if (requestUrl.includes('soffice.data')) {
+        phase = 'download-data';
+        console.log('[Worker] Starting XHR download: soffice.data');
+      }
+
+      if (phase) {
+        const downloadPhase = phase;
+        xhr.addEventListener('progress', (e: ProgressEvent) => {
+          if (e.lengthComputable) {
+            emitDownloadProgress(downloadPhase, e.loaded, e.total);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          console.log(`[Worker] Finished XHR download: ${downloadPhase === 'download-wasm' ? 'soffice.wasm' : 'soffice.data'}`);
+        });
+      }
+
+      return originalSend(body);
+    };
+
+    return xhr;
+  };
+
+  Object.defineProperty(ProgressXMLHttpRequest, 'prototype', {
+    value: OriginalXHR.prototype,
+    writable: false,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (self as any).XMLHttpRequest = ProgressXMLHttpRequest;
+
+  console.log('[Worker] Installed progress-tracking XHR interceptor');
+}
 
 interface WorkerMessage {
   type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument';
@@ -150,6 +373,7 @@ let cachedDoc: {
   docPtr: number;
   inputHash: string;
   filePath: string;
+  pageCount: number;  // Cache page count since getting it requires a view
 } | null = null;
 
 // Editor session storage - keeps documents open for editing
@@ -174,37 +398,61 @@ function hashInput(data: Uint8Array): string {
   return `${hash}_${data.length}`;
 }
 
+// Get page count for a document, handling different document types correctly
+function getDocumentPageCount(docPtr: number): number {
+  const docType = lokBindings!.documentGetDocumentType(docPtr);
+
+  // For Text Documents (type 0), getParts returns 0 or 1 (representing "parts" not pages)
+  // We need to use getPartPageRectangles to get actual page count
+  if (docType === 0) { // TEXT document
+    const pageRectsStr = lokBindings!.getPartPageRectangles(docPtr);
+    if (pageRectsStr) {
+      const pageRects = lokBindings!.parsePageRectangles(pageRectsStr);
+      console.log(`[Worker] getDocumentPageCount: TEXT doc has ${pageRects.length} pages from rectangles`);
+      return pageRects.length;
+    }
+    // Fallback: if no page rectangles, assume at least 1 page
+    console.log(`[Worker] getDocumentPageCount: TEXT doc has no page rectangles, assuming 1 page`);
+    return 1;
+  }
+
+  // For Presentations, Drawings, Spreadsheets - getParts returns slide/page/sheet count
+  const parts = lokBindings!.documentGetParts(docPtr);
+  console.log(`[Worker] getDocumentPageCount: docType=${docType} has ${parts} parts`);
+  return parts;
+}
+
 // Get or load a document (reuses cached document if same input)
 function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: number; pageCount: number } {
   const inputHash = hashInput(inputData);
-  
+
   // Check if we already have this document loaded
   if (cachedDoc && cachedDoc.inputHash === inputHash && lokBindings) {
-    console.log(`[Worker] getOrLoadDocument: reusing cached doc ptr=${cachedDoc.docPtr}`);
-    const pageCount = lokBindings.documentGetParts(cachedDoc.docPtr);
-    return { docPtr: cachedDoc.docPtr, pageCount };
+    console.log(`[Worker] getOrLoadDocument: reusing cached doc ptr=${cachedDoc.docPtr}, pageCount=${cachedDoc.pageCount}`);
+    return { docPtr: cachedDoc.docPtr, pageCount: cachedDoc.pageCount };
   }
-  
+
   // Close previous document if any
   console.log(`[Worker] getOrLoadDocument: loading new document (hash=${inputHash})`);
   closeCachedDocument();
-  
+
   // Load new document
   const filePath = `/tmp/input/cached_doc.${inputExt || 'docx'}`;
   module!.FS.writeFile(filePath, inputData);
   const docPtr = lokBindings!.documentLoad(filePath);
-  
+
   if (docPtr === 0) {
     const error = lokBindings!.getError();
     throw new Error(error || 'Failed to load document');
   }
-  
-  const pageCount = lokBindings!.documentGetParts(docPtr);
+
+  const pageCount = getDocumentPageCount(docPtr);
   console.log(`[Worker] getOrLoadDocument: loaded doc ptr=${docPtr}, pageCount=${pageCount}`);
-  
-  // Cache the document
-  cachedDoc = { docPtr, inputHash, filePath };
-  
+
+  // Cache the document with page count (page count requires a view to calculate correctly,
+  // so we cache it here when the document is first loaded)
+  cachedDoc = { docPtr, inputHash, filePath, pageCount };
+
   return { docPtr, pageCount };
 }
 
@@ -240,7 +488,21 @@ async function handleInit(msg: WorkerMessage) {
   const wasmPath = msg.wasmPath || './wasm';
   const verbose = msg.verbose || false;
 
-  postProgress(msg.id, 10, 'Loading WASM module...');
+  // Store request ID for progress emission
+  currentInitRequestId = msg.id;
+
+  // Reset progress tracking for fresh initialization
+  for (const phase of Object.keys(phaseProgress) as WasmLoadPhase[]) {
+    phaseProgress[phase] = 0;
+  }
+  lastEmittedPercent = 0;
+
+  // Install XHR interceptor BEFORE any Emscripten code loads
+  // This intercepts soffice.wasm and soffice.data downloads
+  installProgressInterceptors();
+
+  // Emit initial progress
+  emitPhaseProgress('download-wasm', 'Preparing to download WebAssembly...');
 
   try {
     // Configure global Module for Emscripten
@@ -266,10 +528,13 @@ async function handleInit(msg: WorkerMessage) {
     };
 
     // Load the soffice.js script using importScripts
-    postProgress(msg.id, 20, 'Loading LibreOffice...');
+    // This triggers the .wasm download (tracked by XHR interceptor)
     importScripts(`${wasmPath}/soffice.js`);
 
     // Wait for runtime to be ready
+    // .data file download and WebAssembly compilation happen here
+    emitPhaseProgress('compile', 'Compiling WebAssembly module...');
+
     await new Promise<void>((resolve, reject) => {
       const checkReady = () => {
         if (self.Module && self.Module.calledRun) {
@@ -298,7 +563,7 @@ async function handleInit(msg: WorkerMessage) {
     });
 
     module = self.Module as EmscriptenModule;
-    postProgress(msg.id, 60, 'Setting up filesystem...');
+    emitPhaseProgress('filesystem', 'Setting up filesystem...');
 
     // Set SAL_LOG environment variable for LibreOffice logging
     // Must be done before LOK initialization
@@ -339,7 +604,7 @@ async function handleInit(msg: WorkerMessage) {
     try { fs.mkdir('/tmp/input'); } catch { /* exists */ }
     try { fs.mkdir('/tmp/output'); } catch { /* exists */ }
 
-    postProgress(msg.id, 80, 'Initializing LibreOfficeKit...');
+    emitPhaseProgress('lok-init', 'Initializing LibreOfficeKit...');
 
     // Initialize LOK
     lokBindings = new LOKBindings(module, verbose);
@@ -351,7 +616,7 @@ async function handleInit(msg: WorkerMessage) {
     console.log('[LOK Worker] Enabled synchronous event dispatch (Unipoll mode)');
 
     initialized = true;
-    postProgress(msg.id, 100, 'Ready');
+    emitPhaseProgress('ready', 'Ready');
     postResponse({ type: 'ready', id: msg.id });
 
   } catch (error) {
@@ -733,12 +998,30 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
     return;
   }
 
+  let viewId = -1;
+  let docPtr = 0;
+
   try {
     // Get or reuse cached document
-    const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
-    
+    const result = getOrLoadDocument(inputData, inputExt || 'docx');
+    docPtr = result.docPtr;
+    const pageCount = result.pageCount;
+
     if (pageIndex < 0 || pageIndex >= pageCount) {
       throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
+    }
+
+    // Create a view before rendering for all document types.
+    // Without a view, LOK returns empty page rectangles and incorrect document sizes,
+    // causing paintTile to crash with "memory access out of bounds".
+    // The warning "No Frame-Controller created" indicates no view exists.
+    const docType = lokBindings.documentGetDocumentType(docPtr);
+    const docTypeNames = ['TEXT', 'SPREADSHEET', 'PRESENTATION', 'DRAWING'];
+    console.log(`[Worker] handleRenderSinglePage: ${docTypeNames[docType] || 'UNKNOWN'} document - creating view for rendering`);
+    viewId = lokBindings.createView(docPtr);
+    if (viewId >= 0) {
+      lokBindings.setView(docPtr, viewId);
+      console.log(`[Worker] handleRenderSinglePage: Created and set view ${viewId}`);
     }
 
     // Render the page - let renderPage handle page-specific sizing
@@ -758,10 +1041,22 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
       height: rendered.height
     };
 
+    // Cleanup view if we created one (for Drawing documents)
+    if (viewId >= 0 && docPtr !== 0) {
+      try { lokBindings.destroyView(docPtr, viewId); } catch { /* ignore */ }
+      console.log(`[Worker] handleRenderSinglePage: Destroyed view ${viewId}`);
+    }
+
     // Transfer the buffer
     self.postMessage({ type: 'singlePagePreview', id: msg.id, preview }, [dataCopy.buffer]);
 
   } catch (error) {
+    // Cleanup view if we created one (for Drawing documents)
+    if (viewId >= 0 && docPtr !== 0) {
+      try { lokBindings.destroyView(docPtr, viewId); } catch { /* ignore */ }
+      console.log(`[Worker] handleRenderSinglePage: Destroyed view ${viewId} (on error)`);
+    }
+
     // Convert error message to a regular string (not SharedArrayBuffer-backed)
     const errorMsg = error instanceof Error ? String(error.message) : String(error);
     postResponse({
