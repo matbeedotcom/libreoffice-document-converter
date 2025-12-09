@@ -841,12 +841,12 @@
 
       // Start initialization
       converterInitializing = (async () => {
-        const { WorkerBrowserConverter } = await import('../dist/browser.js');
+        const { WorkerBrowserConverter, createWasmPaths } = await import('../dist/browser.js');
         const baseUrl = new URL('..', window.location.href).href;
 
         cachedConverter = new WorkerBrowserConverter({
-          wasmPath: baseUrl + 'wasm',
-          workerPath: baseUrl + 'dist/browser-worker.global.js',
+          ...createWasmPaths(baseUrl + 'wasm/'),
+          browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
           verbose: false,
           onProgress: (p) => {
             updateProgress(p.percent, p.message);

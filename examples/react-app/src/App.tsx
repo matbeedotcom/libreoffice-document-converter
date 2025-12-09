@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   WorkerBrowserConverter,
+  createWasmPaths,
   type ConversionResult,
   type OutputFormat,
   type InputFormat,
@@ -66,8 +67,8 @@ export default function App() {
     }
 
     const converter = new WorkerBrowserConverter({
-      wasmPath: '/wasm',
-      workerPath: '/dist/browser-worker.global.js',
+      ...createWasmPaths('/wasm/'),
+      browserWorkerJs: '/dist/browser-worker.global.js',
       verbose: false,
       onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
     });

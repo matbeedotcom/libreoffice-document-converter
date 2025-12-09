@@ -13,6 +13,9 @@ export type {
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,
+  BrowserWasmPaths,
+  BrowserConverterOptions,
+  WorkerBrowserConverterOptions,
   OutputFormat,
   PdfOptions,
   ProgressInfo,
@@ -28,6 +31,7 @@ export {
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
   EXTENSION_TO_FORMAT,
+  createWasmPaths,
 } from './types.js';
 
 // Export editor API
@@ -64,7 +68,9 @@ import {
   FORMAT_MIME_TYPES,
   FORMAT_FILTER_OPTIONS,
   OUTPUT_FORMAT_TO_LOK,
-  LibreOfficeWasmOptions,
+  BrowserConverterOptions,
+  WorkerBrowserConverterOptions,
+  BrowserWasmPaths,
   OutputFormat,
   ProgressInfo,
 } from './types.js';
@@ -82,11 +88,10 @@ export class BrowserConverter {
   private lokBindings: LOKBindings | null = null;
   private initialized = false;
   private initializing = false;
-  private options: LibreOfficeWasmOptions;
+  private options: BrowserConverterOptions;
 
-  constructor(options: LibreOfficeWasmOptions = {}) {
+  constructor(options: BrowserConverterOptions) {
     this.options = {
-      wasmPath: './wasm',
       verbose: false,
       ...options,
     };
@@ -127,8 +132,7 @@ export class BrowserConverter {
   }
 
   private async loadModule(): Promise<EmscriptenModule> {
-    const wasmPath = this.options.wasmPath || './wasm';
-    const moduleUrl = `${wasmPath}/soffice.js`;
+    const { sofficeJs, sofficeWasm, sofficeData, sofficeWorkerJs } = this.options;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const win = window as any;
@@ -139,11 +143,12 @@ export class BrowserConverter {
       // soffice.js checks for existing Module and merges with it
       win.Module = {
         locateFile: (path: string) => {
-          if (path.endsWith('.wasm')) return `${wasmPath}/soffice.wasm`;
-          if (path.endsWith('.data')) return `${wasmPath}/soffice.data`;
-          if (path.endsWith('.metadata')) return `${wasmPath}/soffice.data.js.metadata`;
-          if (path.endsWith('.worker.js')) return `${wasmPath}/soffice.worker.js`;
-          return `${wasmPath}/${path}`;
+          if (path.endsWith('.wasm')) return sofficeWasm;
+          if (path.endsWith('.data')) return sofficeData;
+          if (path.endsWith('.worker.js') || path.endsWith('.worker.cjs')) return sofficeWorkerJs;
+          // Fallback: derive from sofficeJs path for any other files
+          const baseUrl = sofficeJs.substring(0, sofficeJs.lastIndexOf('/') + 1);
+          return `${baseUrl}${path}`;
         },
         print: this.options.verbose ? console.log : () => {},
         printErr: this.options.verbose ? console.error : () => {},
@@ -158,8 +163,8 @@ export class BrowserConverter {
 
       // Load the script
       const script = document.createElement('script');
-      script.src = moduleUrl;
-      script.onerror = () => reject(new Error(`Failed to load ${moduleUrl}`));
+      script.src = sofficeJs;
+      script.onerror = () => reject(new Error(`Failed to load ${sofficeJs}`));
       document.head.appendChild(script);
 
       // Timeout after 60 seconds
@@ -455,12 +460,10 @@ export class WorkerBrowserConverter {
   private initializing = false;
   private messageId = 0;
   private pendingRequests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  private options: LibreOfficeWasmOptions;
+  private options: WorkerBrowserConverterOptions;
 
-  constructor(options: LibreOfficeWasmOptions = {}) {
+  constructor(options: WorkerBrowserConverterOptions) {
     this.options = {
-      wasmPath: './wasm',
-      workerPath: './dist/browser-worker.global.js',
       verbose: false,
       ...options,
     };
@@ -484,8 +487,7 @@ export class WorkerBrowserConverter {
 
     try {
       // Create the worker (classic worker, not module)
-      const workerPath = this.options.workerPath || './dist/browser-worker.js';
-      this.worker = new Worker(workerPath);
+      this.worker = new Worker(this.options.browserWorkerJs);
 
       // Set up message handling
       this.worker.onmessage = (event) => this.handleWorkerMessage(event);
@@ -507,9 +509,12 @@ export class WorkerBrowserConverter {
         this.worker!.addEventListener('message', handler);
       });
 
-      // Initialize WASM in worker
+      // Initialize WASM in worker with explicit paths
       await this.sendMessage('init', {
-        wasmPath: this.options.wasmPath,
+        sofficeJs: this.options.sofficeJs,
+        sofficeWasm: this.options.sofficeWasm,
+        sofficeData: this.options.sofficeData,
+        sofficeWorkerJs: this.options.sofficeWorkerJs,
         verbose: this.options.verbose,
       });
 
@@ -1363,9 +1368,8 @@ export class BrowserEditorProxy {
  */
 export function createDropZone(
   element: HTMLElement | string,
-  options: {
+  options: BrowserWasmPaths & {
     outputFormat: OutputFormat;
-    wasmPath?: string;
     onConvert?: (result: ConversionResult) => void;
     onError?: (error: Error) => void;
     onProgress?: (progress: { percent: number; message: string }) => void;
@@ -1386,8 +1390,11 @@ export function createDropZone(
     try {
       if (!converter) {
         converter = new BrowserConverter({
-          wasmPath: options.wasmPath || '/wasm',
-          onProgress: options.onProgress ? (p) => options.onProgress!({ percent: p.percent, message: p.message }) : undefined,
+          sofficeJs: options.sofficeJs,
+          sofficeWasm: options.sofficeWasm,
+          sofficeData: options.sofficeData,
+          sofficeWorkerJs: options.sofficeWorkerJs,
+          onProgress: options.onProgress ? (p: ProgressInfo) => options.onProgress!({ percent: p.percent, message: p.message }) : undefined,
         });
         await converter.initialize();
       }
@@ -1425,9 +1432,14 @@ export function createDropZone(
 export async function quickConvert(
   file: File,
   outputFormat: OutputFormat,
-  options: { wasmPath?: string; download?: boolean } = {}
+  options: BrowserWasmPaths & { download?: boolean }
 ): Promise<ConversionResult> {
-  const converter = new BrowserConverter({ wasmPath: options.wasmPath || '/wasm' });
+  const converter = new BrowserConverter({
+    sofficeJs: options.sofficeJs,
+    sofficeWasm: options.sofficeWasm,
+    sofficeData: options.sofficeData,
+    sofficeWorkerJs: options.sofficeWorkerJs,
+  });
   try {
     await converter.initialize();
     const result = await converter.convertFile(file, { outputFormat });

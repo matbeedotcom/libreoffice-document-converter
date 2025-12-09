@@ -13,11 +13,11 @@ const __dirname = path.dirname(__filename);
 
 // Helper to create a converter and initialize it
 const initConverter = `
-  const { WorkerBrowserConverter } = await import('/dist/browser.js');
+  const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
   const baseUrl = new URL('..', window.location.href).href;
   const converter = new WorkerBrowserConverter({
-    wasmPath: baseUrl + 'wasm',
-    workerPath: baseUrl + 'dist/browser-worker.global.js',
+    ...createWasmPaths(baseUrl + 'wasm/'),
+    browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
     verbose: true,
   });
   await converter.initialize();
@@ -50,11 +50,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -91,11 +91,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -126,11 +126,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -160,11 +160,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -208,11 +208,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -249,11 +249,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -291,11 +291,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -332,11 +332,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -373,11 +373,11 @@ test.describe('Editor API - WriterEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -425,11 +425,11 @@ test.describe('Editor API - CalcEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -462,11 +462,11 @@ test.describe('Editor API - CalcEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -514,11 +514,11 @@ test.describe('Editor API - ImpressEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -551,11 +551,11 @@ test.describe('Editor API - ImpressEditor', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -600,11 +600,11 @@ test.describe('Editor API - DrawEditor (PDF)', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -637,11 +637,11 @@ test.describe('Editor API - DrawEditor (PDF)', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -688,11 +688,11 @@ test.describe('Editor API - Session Management', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -738,11 +738,11 @@ test.describe('Editor API - Session Management', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -787,11 +787,11 @@ test.describe('Editor API - Error Handling', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();
@@ -842,11 +842,11 @@ test.describe('Editor API - Document Modification & Save', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
       await converter.initialize();

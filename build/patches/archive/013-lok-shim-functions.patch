@@ -1,0 +1,57 @@
+diff --git a/desktop/source/lib/init.cxx b/desktop/source/lib/init.cxx
+index d0f67d5ce..9bc5b2545 100644
+--- a/desktop/source/lib/init.cxx
++++ b/desktop/source/lib/init.cxx
+@@ -8351,6 +8351,52 @@ static void lo_destroy(LibreOfficeKit* pThis)
+     SAL_INFO("lok", "LO Destroy Done");
+ }
+ 
++// WASM shims for LibreOfficeKit vtable calls
++// These provide stable exports that don't require vtable traversal from JS
++
++SAL_JNI_EXPORT
++LibreOfficeKitDocument* lok_documentLoad(LibreOfficeKit* pKit, const char* pPath)
++{
++    if (!pKit || !pKit->pClass || !pKit->pClass->documentLoad)
++        return nullptr;
++    return pKit->pClass->documentLoad(pKit, pPath);
++}
++
++SAL_JNI_EXPORT
++LibreOfficeKitDocument* lok_documentLoadWithOptions(LibreOfficeKit* pKit,
++                                                     const char* pPath,
++                                                     const char* pOptions)
++{
++    if (!pKit || !pKit->pClass || !pKit->pClass->documentLoadWithOptions)
++        return nullptr;
++    return pKit->pClass->documentLoadWithOptions(pKit, pPath, pOptions);
++}
++
++SAL_JNI_EXPORT
++int lok_documentSaveAs(LibreOfficeKitDocument* pDoc,
++                       const char* pUrl,
++                       const char* pFormat,
++                       const char* pFilterOptions)
++{
++    if (!pDoc || !pDoc->pClass || !pDoc->pClass->saveAs)
++        return 0;
++    return pDoc->pClass->saveAs(pDoc, pUrl, pFormat, pFilterOptions);
++}
++
++SAL_JNI_EXPORT
++void lok_documentDestroy(LibreOfficeKitDocument* pDoc)
++{
++    if (pDoc && pDoc->pClass && pDoc->pClass->destroy)
++        pDoc->pClass->destroy(pDoc);
++}
++
++SAL_JNI_EXPORT
++char* lok_getError(LibreOfficeKit* pKit)
++{
++    if (!pKit || !pKit->pClass || !pKit->pClass->getError)
++        return nullptr;
++    return pKit->pClass->getError(pKit);
++}
+ } // extern "C"
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

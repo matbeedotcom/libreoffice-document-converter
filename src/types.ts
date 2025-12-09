@@ -145,7 +145,7 @@ export interface ConversionResult {
 }
 
 /**
- * LibreOffice WASM module initialization options
+ * LibreOffice WASM module initialization options (Node.js)
  */
 export interface LibreOfficeWasmOptions {
   /**
@@ -153,12 +153,6 @@ export interface LibreOfficeWasmOptions {
    * @default './wasm'
    */
   wasmPath?: string;
-
-  /**
-   * Path to browser worker script (for WorkerBrowserConverter)
-   * @default './dist/browser-worker.global.js'
-   */
-  workerPath?: string;
 
   /**
    * Enable verbose logging
@@ -180,6 +174,83 @@ export interface LibreOfficeWasmOptions {
    * Called with progress updates during initialization
    */
   onProgress?: (progress: ProgressInfo) => void;
+}
+
+/**
+ * Explicit paths to WASM files (Browser)
+ * Users must configure each path explicitly - no assumptions about file locations
+ */
+export interface BrowserWasmPaths {
+  /** URL to soffice.js - the main Emscripten loader script */
+  sofficeJs: string;
+  /** URL to soffice.wasm - the WebAssembly binary (~112MB) */
+  sofficeWasm: string;
+  /** URL to soffice.data - the virtual filesystem image (~80MB) */
+  sofficeData: string;
+  /** URL to soffice.worker.js - the Emscripten pthread worker */
+  sofficeWorkerJs: string;
+}
+
+/**
+ * Browser converter initialization options
+ * Requires explicit paths to all WASM files
+ */
+export interface BrowserConverterOptions extends BrowserWasmPaths {
+  /**
+   * Enable verbose logging
+   * @default false
+   */
+  verbose?: boolean;
+
+  /**
+   * Called when WASM module is ready
+   */
+  onReady?: () => void;
+
+  /**
+   * Called on initialization error
+   */
+  onError?: (error: Error) => void;
+
+  /**
+   * Called with progress updates during initialization
+   */
+  onProgress?: (progress: ProgressInfo) => void;
+}
+
+/**
+ * Worker browser converter initialization options
+ * Requires explicit paths to all WASM files plus the library worker
+ */
+export interface WorkerBrowserConverterOptions extends BrowserConverterOptions {
+  /** URL to browser-worker.js - the library's Web Worker script */
+  browserWorkerJs: string;
+}
+
+/**
+ * Create WASM file paths from a base URL
+ * Convenience helper for users who keep all WASM files in one directory
+ *
+ * @param baseUrl - Base URL ending with '/' (e.g., '/libreoffice/', 'https://cdn.example.com/wasm/')
+ * @returns Object with all WASM file paths
+ *
+ * @example
+ * ```typescript
+ * const converter = new WorkerBrowserConverter({
+ *   ...createWasmPaths('/libreoffice/'),
+ *   browserWorkerJs: '/workers/browser-worker.js',
+ * });
+ * ```
+ */
+export function createWasmPaths(baseUrl: string): BrowserWasmPaths {
+  // Ensure baseUrl ends with /
+  const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return {
+    sofficeJs: `${base}soffice.js`,
+    sofficeWasm: `${base}soffice.wasm`,
+    sofficeData: `${base}soffice.data`,
+    sofficeWorkerJs: `${base}soffice.worker.js`,
+  };
 }
 
 /**

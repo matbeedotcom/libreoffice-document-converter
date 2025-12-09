@@ -146,12 +146,12 @@ test.describe('Browser Editor API', () => {
     // Run the text insertion test via page.evaluate
     const result = await page.evaluate(async () => {
       // @ts-ignore - access global module from test page
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
 
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
 
@@ -202,12 +202,12 @@ test.describe('Browser Editor API', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
 
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
 
@@ -272,12 +272,12 @@ test.describe('Browser Editor API', () => {
 
     const result = await page.evaluate(async () => {
       // @ts-ignore
-      const { WorkerBrowserConverter } = await import('/dist/browser.js');
+      const { WorkerBrowserConverter, createWasmPaths } = await import('/dist/browser.js');
 
       const baseUrl = new URL('..', window.location.href).href;
       const converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
       });
 

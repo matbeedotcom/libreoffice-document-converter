@@ -13,13 +13,26 @@ set -e
 
 # Configuration
 LIBREOFFICE_VERSION="${LIBREOFFICE_VERSION:-libreoffice-24-8}"
-EMSDK_VERSION="${EMSDK_VERSION:-3.1.51}"
-BUILD_DIR="${BUILD_DIR:-$HOME/libreoffice-wasm-build}"
-OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/wasm}"
+EMSDK_VERSION="${EMSDK_VERSION:-3.1.74}"
 BUILD_JOBS="${BUILD_JOBS:-$(nproc)}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
 CLEAN_BUILD="${CLEAN_BUILD:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Detect Docker environment and use pre-installed paths
+if [ -d "/opt/emsdk" ] && [ -d "/build/libreoffice" ]; then
+    # Running in Docker - use pre-installed paths
+    DOCKER_MODE=1
+    BUILD_DIR="/build/libreoffice"
+    OUTPUT_DIR="${OUTPUT_DIR:-/output}"
+    EMSDK_DIR="/opt/emsdk"
+else
+    # Running locally
+    DOCKER_MODE=0
+    BUILD_DIR="${BUILD_DIR:-$HOME/libreoffice-wasm-build}"
+    OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/wasm}"
+    EMSDK_DIR="${BUILD_DIR}/emsdk"
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -42,12 +55,13 @@ echo "  LibreOffice:  ${LIBREOFFICE_VERSION}"
 echo "  Emscripten:   ${EMSDK_VERSION}"
 echo "  Build Dir:    ${BUILD_DIR}"
 echo "  Output Dir:   ${OUTPUT_DIR}"
+echo "  EMSDK Dir:    ${EMSDK_DIR}"
 echo "  Jobs:         ${BUILD_JOBS}"
-echo "  Skip deps:    ${SKIP_DEPS}"
+echo "  Docker mode:  ${DOCKER_MODE}"
 echo "  Clean build:  ${CLEAN_BUILD}"
 echo ""
 
-mkdir -p "${BUILD_DIR}"
+mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}"
 cd "${BUILD_DIR}"
 
 # ============================================================
@@ -98,43 +112,57 @@ fi
 # ============================================================
 log_info "[2/7] Setting up Emscripten SDK..."
 
-EMSDK_DIR="${BUILD_DIR}/emsdk"
-
-if [ ! -d "${EMSDK_DIR}" ]; then
-    log_info "Cloning Emscripten SDK..."
-    git clone https://github.com/emscripten-core/emsdk.git "${EMSDK_DIR}"
-fi
-
-cd "${EMSDK_DIR}"
-
-if [ ! -f "${EMSDK_DIR}/upstream/emscripten/emcc" ]; then
-    log_info "Installing Emscripten ${EMSDK_VERSION}..."
-    ./emsdk install ${EMSDK_VERSION}
-    ./emsdk activate ${EMSDK_VERSION}
+if [ "$DOCKER_MODE" = "1" ]; then
+    # In Docker, Emscripten is pre-installed
+    log_info "Using pre-installed Emscripten at ${EMSDK_DIR}..."
+    cd "${EMSDK_DIR}"
+    source "${EMSDK_DIR}/emsdk_env.sh"
+    log_success "Emscripten $(emcc --version | head -1)"
 else
-    ./emsdk activate ${EMSDK_VERSION}
+    # Local build - download if needed
+    if [ ! -d "${EMSDK_DIR}" ]; then
+        log_info "Cloning Emscripten SDK..."
+        git clone https://github.com/emscripten-core/emsdk.git "${EMSDK_DIR}"
+    fi
+
+    cd "${EMSDK_DIR}"
+
+    if [ ! -f "${EMSDK_DIR}/upstream/emscripten/emcc" ]; then
+        log_info "Installing Emscripten ${EMSDK_VERSION}..."
+        ./emsdk install ${EMSDK_VERSION}
+        ./emsdk activate ${EMSDK_VERSION}
+    else
+        ./emsdk activate ${EMSDK_VERSION}
+    fi
+
+    source "${EMSDK_DIR}/emsdk_env.sh"
+    log_success "Emscripten $(emcc --version | head -1)"
+
+    # Pre-compile system libraries
+    log_info "Pre-compiling Emscripten system libraries..."
+    embuilder build sysroot libc libc++ libc++abi 2>/dev/null || true
 fi
-
-source "${EMSDK_DIR}/emsdk_env.sh"
-log_success "Emscripten $(emcc --version | head -1)"
-
-# Pre-compile system libraries
-log_info "Pre-compiling Emscripten system libraries..."
-embuilder build sysroot libc libc++ libc++abi 2>/dev/null || true
 
 # ============================================================
 # Step 3: Clone LibreOffice
 # ============================================================
 log_info "[3/7] Setting up LibreOffice source..."
 
-LO_DIR="${BUILD_DIR}/libreoffice"
-
-if [ ! -d "${LO_DIR}" ]; then
-    log_info "Cloning LibreOffice ${LIBREOFFICE_VERSION} (this takes a while)..."
-    git clone --depth 1 --branch ${LIBREOFFICE_VERSION} \
-        https://git.libreoffice.org/core "${LO_DIR}"
+if [ "$DOCKER_MODE" = "1" ]; then
+    # In Docker, LibreOffice is pre-cloned at /build/libreoffice
+    LO_DIR="/build/libreoffice"
+    log_success "Using pre-cloned LibreOffice at ${LO_DIR}"
 else
-    log_success "LibreOffice source exists at ${LO_DIR}"
+    # Local build - clone if needed
+    LO_DIR="${BUILD_DIR}/libreoffice"
+
+    if [ ! -d "${LO_DIR}" ]; then
+        log_info "Cloning LibreOffice ${LIBREOFFICE_VERSION} (this takes a while)..."
+        git clone --depth 1 --branch ${LIBREOFFICE_VERSION} \
+            https://git.libreoffice.org/core "${LO_DIR}"
+    else
+        log_success "LibreOffice source exists at ${LO_DIR}"
+    fi
 fi
 
 cd "${LO_DIR}"
@@ -150,263 +178,47 @@ fi
 # ============================================================
 log_info "[4/7] Applying patches for headless WASM build..."
 
-# Patch 1: Fix xmlsecurity Module for headless (no UI config)
-# The UIConfig_xmlsec needs to be disabled when building without GUI
-XMLSEC_MODULE="${LO_DIR}/xmlsecurity/Module_xmlsecurity.mk"
-if grep -q "UIConfig_xmlsec" "$XMLSEC_MODULE" && ! grep -q 'DISABLE_GUI.*UIConfig_xmlsec' "$XMLSEC_MODULE"; then
-    log_info "Patching xmlsecurity/Module_xmlsecurity.mk..."
-    cat > "$XMLSEC_MODULE" << 'PATCH_EOF'
-# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
-#
-# This file is part of the LibreOffice project.
-#
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
+# Apply the consolidated WASM build fixes patch
+# This patch includes all necessary fixes for headless WASM builds:
+# - Repository.mk: conditional wpftdraw/wpftimpress based on ENABLE_CDR/ENABLE_ETONYEK
+# - autogen.input: WASM build configuration
+# - desktop/source/lib/init.cxx: LOK shim functions for WASM
+# - solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk: PROXY_TO_PTHREAD, exports
+# - writerperfect module fixes
+# - xmlsecurity headless fixes
+# - Emscripten fs image optimizations
+CONSOLIDATED_PATCH="${SCRIPT_DIR}/patches/wasm-build-fixes.patch"
+if [ -f "$CONSOLIDATED_PATCH" ]; then
+    log_info "Checking consolidated WASM build fixes patch..."
 
-$(eval $(call gb_Module_Module,xmlsecurity))
-
-$(eval $(call gb_Module_add_targets,xmlsecurity,\
-	Library_xmlsecurity \
-	$(if $(ENABLE_NSS)$(ENABLE_OPENSSL),Library_xsec_xmlsec) \
-	$(if $(DISABLE_GUI),,UIConfig_xmlsec) \
-))
-
-$(eval $(call gb_Library_use_custom_headers,xmlsecurity,\
-    officecfg/registry \
-))
-
-$(eval $(call gb_Module_add_l10n_targets,xmlsecurity,\
-    $(if $(DISABLE_GUI),,AllLangMoTarget_xsc) \
-))
-
-# vim: set noet sw=4 ts=4:
-PATCH_EOF
-    log_success "Patched xmlsecurity module"
-else
-    log_success "xmlsecurity module already patched"
-fi
-
-# Patch 2: Remove ALL UI files from emscripten fs image
-# In headless mode, we don't need any UI configuration files
-# This significantly reduces the .data file size (20-40MB savings)
-FS_IMAGE_MK="${LO_DIR}/static/CustomTarget_emscripten_fs_image.mk"
-if [ -f "$FS_IMAGE_MK" ]; then
-    log_info "Patching emscripten fs image (removing ALL UI references)..."
-    
-    # Create backup
-    cp "$FS_IMAGE_MK" "${FS_IMAGE_MK}.backup"
-    
-    # Remove ALL UI-related directories from fs image:
-    # - soffice.cfg/*/ui/  (all UI dialogs)
-    # - soffice.cfg/menubar/ (menus)
-    # - soffice.cfg/statusbar/ (status bar)
-    # - soffice.cfg/toolbar/ (toolbars)
-    # - soffice.cfg/popupmenu/ (context menus)
-    # - soffice.cfg/classification/ (security classification UI)
-    # Keep only: filter/, modules/, registry/ (needed for document processing)
-    
-    grep -v -E "soffice\.cfg/[^/]+/ui/" "$FS_IMAGE_MK" | \
-    grep -v -E "soffice\.cfg/menubar" | \
-    grep -v -E "soffice\.cfg/statusbar" | \
-    grep -v -E "soffice\.cfg/toolbar" | \
-    grep -v -E "soffice\.cfg/popupmenu" | \
-    grep -v -E "soffice\.cfg/classification" | \
-    grep -v -E "soffice\.cfg/.*accelerator" > "${FS_IMAGE_MK}.tmp"
-    
-    mv "${FS_IMAGE_MK}.tmp" "$FS_IMAGE_MK"
-    
-    # Count how many lines were removed
-    LINES_REMOVED=$(($(wc -l < "${FS_IMAGE_MK}.backup") - $(wc -l < "$FS_IMAGE_MK")))
-    log_success "Removed $LINES_REMOVED UI file references from fs image"
-else
-    log_warn "Emscripten fs image file not found: $FS_IMAGE_MK"
-fi
-
-# Patch 3: Autotext files will be created during build (see Step 6)
-# The mytexts autotext build tries to zip files that don't exist in WASM builds
-# We handle this with a background process during build
-
-# Patch 4: Ensure desktop module links correctly for headless
-DESKTOP_LIB="${LO_DIR}/desktop/Library_sofficeapp.mk"
-if [ -f "$DESKTOP_LIB" ]; then
-    log_success "Desktop library makefile exists"
-fi
-
-# Patch 5: Add PROXY_TO_PTHREAD and export FS/wasmTable for LibreOfficeKit
-EMSCRIPTEN_MK="${LO_DIR}/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk"
-if [ -f "$EMSCRIPTEN_MK" ] && ! grep -q "PROXY_TO_PTHREAD" "$EMSCRIPTEN_MK"; then
-    log_info "Patching EMSCRIPTEN_INTEL_GCC.mk for LOK exports..."
-    if [ -f "${SCRIPT_DIR}/patches/002-emscripten-exports.patch" ]; then
-        patch -p1 < "${SCRIPT_DIR}/patches/002-emscripten-exports.patch" || {
-            log_warn "Patch failed, applying manually..."
-            # Manual fallback: add PROXY_TO_PTHREAD
-            sed -i 's/PTHREAD_POOL_SIZE=4$/PTHREAD_POOL_SIZE=4 -s PROXY_TO_PTHREAD=1/' "$EMSCRIPTEN_MK"
-            # Add FS and wasmTable to exports
-            sed -i 's/EXPORTED_RUNTIME_METHODS=\["/EXPORTED_RUNTIME_METHODS=["FS","wasmTable","/g' "$EMSCRIPTEN_MK"
-        }
-        log_success "Patched Emscripten linker flags"
-    fi
-else
-    log_success "Emscripten linker flags already patched"
-fi
-
-# Patch 6: Add LOK_SKIP_PRELOAD option for faster init (optional)
-INIT_CXX="${LO_DIR}/desktop/source/lib/init.cxx"
-if [ -f "$INIT_CXX" ] && ! grep -q "LOK_SKIP_PRELOAD" "$INIT_CXX"; then
-    log_info "Patching init.cxx for LOK_SKIP_PRELOAD option..."
-    if [ -f "${SCRIPT_DIR}/patches/003-skip-preload-option.patch" ]; then
-        patch -p1 < "${SCRIPT_DIR}/patches/003-skip-preload-option.patch" || log_warn "LOK_SKIP_PRELOAD patch failed (optional)"
-        log_success "Patched LOK_SKIP_PRELOAD option"
-    fi
-else
-    log_success "LOK_SKIP_PRELOAD already patched or not needed"
-fi
-
-# Patch 7: Apply additional missing patches
-# We need 006 for Impress/Draw/Math support, and others for stability
-for patch_file in \
-    "006-add-impress-draw-math-fs-image.patch" \
-    "009-fix-repository.patch" \
-    "010-fix-writerperfect.patch" \
-    "012-lok-shim-exports.patch" \
-    "013-lok-shim-functions.patch" \
-    "014-emscripten-unipoll-fix.patch"; do
-    
-    if [ -f "${SCRIPT_DIR}/patches/${patch_file}" ]; then
-        log_info "Checking patch: ${patch_file}..."
-        # Check if patch is already applied (loose check)
-        if patch -R -p1 -s -f --dry-run < "${SCRIPT_DIR}/patches/${patch_file}" &>/dev/null; then
-            log_success "${patch_file} already applied"
+    # Check if patch is already applied
+    if patch -R -p1 -s -f --dry-run < "$CONSOLIDATED_PATCH" &>/dev/null; then
+        log_success "wasm-build-fixes.patch already applied"
+    else
+        log_info "Applying wasm-build-fixes.patch..."
+        if patch -f -p1 < "$CONSOLIDATED_PATCH"; then
+            log_success "Applied wasm-build-fixes.patch"
         else
-            log_info "Applying ${patch_file}..."
-            if patch -f -p1 < "${SCRIPT_DIR}/patches/${patch_file}"; then
-                log_success "Applied ${patch_file}"
-            else
-                log_warn "Failed to apply ${patch_file}"
-            fi
+            log_error "Failed to apply wasm-build-fixes.patch"
+            log_warn "Build may fail without these patches"
         fi
     fi
-done
+else
+    log_error "Consolidated patch not found: $CONSOLIDATED_PATCH"
+    log_warn "Please ensure build/patches/wasm-build-fixes.patch exists"
+fi
+
+# Create autotext files (handled in Step 6 background process)
+# The mytexts autotext build tries to zip files that don't exist in WASM builds
 
 # ============================================================
 # Step 5: Configure LibreOffice
 # ============================================================
 log_info "[5/7] Configuring LibreOffice for WASM..."
 
-cat > autogen.input << EOF
-# LibreOffice WASM Conversion-Only Build Configuration
-# Auto-generated by build-wasm.sh
-# Optimized for document conversion with no UI/desktop features
-
-# ============================================================
-# Core WASM settings
-# ============================================================
---host=wasm32-local-emscripten
-# --enable-headless
---disable-gui
---enable-wasm-strip
---with-parallelism=${BUILD_JOBS}
-
-# Include all main modules (Writer, Calc, Impress, Draw)
-# By default --enable-wasm-strip strips Impress/Draw/Math/Basic
-# We need to explicitly keep them for PPTX/ODP support
-# --disable-wasm-strip-basic-draw-math-impress
-
-# ============================================================
-# Build optimization settings
-# ============================================================
---disable-debug
---enable-sal-log
---disable-crashdump
-
-# ============================================================
-# Remove unnecessary resources (reduces .data size significantly)
-# ============================================================
---without-fonts
---without-help
---without-java
---without-galleries
---without-myspell-dicts
-
-# Disable fontconfig (useless in WASM, saves init time)
-# --disable-fontconfig
-
-# Skip translations (reduces .data by several MB)
---with-lang=en-US
-
-# ============================================================
-# Disable all UI/Desktop features
-# ============================================================
---disable-avmedia
---disable-sdremote
---disable-sdremote-bluetooth
---disable-cairo-canvas
---disable-dbus
---disable-gio
---disable-cups
---disable-randr
---disable-librelogo
---disable-atspi-tests
---disable-gstreamer-1-0
---disable-qt5
---disable-qt6
---disable-gtk3
---disable-gtk4
---disable-kf5
---disable-kf6
---disable-skia
-# --disable-opengl
-
-# ============================================================
-# Disable scripting (not needed for conversion)
-# ============================================================
---disable-scripting
---disable-scripting-beanshell
---disable-scripting-javascript
-
-# ============================================================
-# Disable extensions and updates
-# ============================================================
---disable-extensions
---disable-extension-update
---disable-extension-integration
---disable-online-update
-
-# ============================================================
-# Disable non-conversion features
-# ============================================================
-# --disable-xmlhelp  # KEEP ENABLED - needed for filter registry
---disable-report-builder
---disable-zxing
---disable-gpgmepp
---disable-ldap
---disable-libcmis
---disable-odk
-# --disable-chart-tests
---disable-cve-tests
-# --disable-export-validation
-
-# ============================================================
-# Disable database connectivity
-# ============================================================
---disable-database-connectivity
---disable-mariadb-sdbc
---disable-postgresql-sdbc
---disable-firebird-sdbc
-
-# ============================================================
-# Additional size optimizations
-# ============================================================
-# --disable-lpsolve
-# --disable-coinmp
-
-# PDF features (enable if needed)
-# --disable-pdfimport
-# --disable-pdfium
-# --disable-poppler
-EOF
+# Copy the working autogen.input from the build directory
+cp "${SCRIPT_DIR}/autogen.input" autogen.input
+log_info "Using autogen.input from ${SCRIPT_DIR}/autogen.input"
 
 log_info "Running autogen.sh..."
 ./autogen.sh

@@ -138,16 +138,16 @@
     
     async function getConverter() {
       if (converter) return converter;
-      
+
       console.log('Importing WorkerBrowserConverter...');
-      const { WorkerBrowserConverter } = await import('../dist/browser.js');
-      
+      const { WorkerBrowserConverter, createWasmPaths } = await import('../dist/browser.js');
+
       const baseUrl = new URL('..', window.location.href).href;
       console.log('Base URL:', baseUrl);
-      
+
       converter = new WorkerBrowserConverter({
-        wasmPath: baseUrl + 'wasm',
-        workerPath: baseUrl + 'dist/browser-worker.global.js',
+        ...createWasmPaths(baseUrl + 'wasm/'),
+        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
         verbose: true,
         onProgress: (p) => {
           console.log(`Progress: ${p.percent}% - ${p.message}`);

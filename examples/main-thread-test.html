@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibreOffice WASM - Main Thread Test (No Worker)</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    pre { background: #0f0f1a; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 400px; }
+    button { background: #ff9f43; color: #000; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 4px; font-weight: bold; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+    .success { background: #00ff8833; border: 1px solid #00ff88; }
+    .error { background: #ff475733; border: 1px solid #ff4757; }
+    .progress { background: #ff9f4333; border: 1px solid #ff9f43; }
+    h3 { color: #ff9f43; margin-top: 25px; }
+    .section { margin-bottom: 20px; }
+    .warning { background: #ff9f4322; border: 1px solid #ff9f43; padding: 15px; border-radius: 8px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>LibreOffice WASM - Main Thread Test</h1>
+
+  <div class="warning">
+    <strong>Note:</strong> This test loads WASM directly on the main thread (using <code>BrowserConverter</code> instead of <code>WorkerBrowserConverter</code>).
+    The UI will be blocked during initialization (~80s) and conversions (~5-10s each).
+    <br><br>
+    With Emscripten 3.1.58+, pthread workers are inlined - no separate worker file needed for the WASM pthreads.
+  </div>
+
+  <div class="section">
+    <h3>Test Main Thread Loading</h3>
+    <div id="controls">
+      <button id="initBtn">Initialize (Main Thread)</button>
+      <button id="testDocx" disabled>Convert DOCX to PDF</button>
+    </div>
+  </div>
+
+  <div id="status" class="status progress">Ready to test main thread loading...</div>
+
+  <h3>Console Output:</h3>
+  <pre id="log"></pre>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const initBtn = document.getElementById('initBtn');
+    const testDocxBtn = document.getElementById('testDocx');
+
+    // Override console.log to capture output
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    function appendLog(type, ...args) {
+      const line = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
+      logEl.textContent += `[${type}] ${line}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    console.log = (...args) => { originalLog(...args); appendLog('LOG', ...args); };
+    console.error = (...args) => { originalError(...args); appendLog('ERR', ...args); };
+    console.warn = (...args) => { originalWarn(...args); appendLog('WRN', ...args); };
+
+    function setStatus(text, type = 'progress') {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + type;
+    }
+
+    // Check browser capabilities
+    console.log('=== Browser Capability Check ===');
+    console.log('SharedArrayBuffer available:', typeof SharedArrayBuffer !== 'undefined');
+    console.log('crossOriginIsolated:', window.crossOriginIsolated);
+    console.log('User Agent:', navigator.userAgent);
+
+    if (!window.crossOriginIsolated) {
+      console.warn('crossOriginIsolated is false - WASM threads may not work');
+    }
+
+    let converter = null;
+
+    initBtn.onclick = async () => {
+      initBtn.disabled = true;
+      setStatus('Loading BrowserConverter module...', 'progress');
+      logEl.textContent = '';
+
+      try {
+        console.log('Importing BrowserConverter (main thread version)...');
+        const { BrowserConverter, createWasmPaths } = await import('../dist/browser.js');
+
+        const baseUrl = new URL('..', window.location.href).href;
+        console.log('Base URL:', baseUrl);
+
+        console.log('Creating BrowserConverter instance...');
+        converter = new BrowserConverter({
+          ...createWasmPaths(baseUrl + 'wasm/'),
+          verbose: true,
+          onProgress: (p) => {
+            console.log(`Progress: ${p.percent}% - ${p.phase} - ${p.message}`);
+            setStatus(`${p.percent}% - ${p.message}`, 'progress');
+          },
+          onReady: () => {
+            console.log('onReady callback fired!');
+          },
+          onError: (err) => {
+            console.error('onError callback:', err);
+          }
+        });
+
+        console.log('Calling converter.initialize() - this will BLOCK the UI...');
+        const startTime = Date.now();
+
+        await converter.initialize();
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`Initialization complete! Took ${elapsed}s`);
+        setStatus(`Initialized in ${elapsed}s - ready for conversions`, 'success');
+
+        testDocxBtn.disabled = false;
+
+      } catch (error) {
+        console.error('Initialization failed:', error);
+        setStatus(`Failed: ${error.message}`, 'error');
+        initBtn.disabled = false;
+      }
+    };
+
+    testDocxBtn.onclick = async () => {
+      if (!converter) {
+        setStatus('Converter not initialized', 'error');
+        return;
+      }
+
+      testDocxBtn.disabled = true;
+      setStatus('Converting DOCX to PDF...', 'progress');
+
+      try {
+        console.log('Fetching test file...');
+        const res = await fetch('../tests/sample_test_3.docx');
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        console.log('File loaded:', buffer.byteLength, 'bytes');
+
+        console.log('Starting conversion (main thread - will block UI)...');
+        const startTime = Date.now();
+
+        const result = await converter.convert(new Uint8Array(buffer), {
+          inputFormat: 'docx',
+          outputFormat: 'pdf'
+        });
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`Conversion complete! Took ${elapsed}s, output: ${result.data.length} bytes`);
+        setStatus(`Converted in ${elapsed}s - ${result.data.length} bytes`, 'success');
+
+        // Trigger download
+        converter.download(result);
+
+      } catch (error) {
+        console.error('Conversion failed:', error);
+        setStatus(`Failed: ${error.message}`, 'error');
+      } finally {
+        testDocxBtn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

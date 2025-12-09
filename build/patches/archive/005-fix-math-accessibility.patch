@@ -1,0 +1,14 @@
+diff --git a/starmath/source/edit.cxx b/starmath/source/edit.cxx
+index d0f25259f..38b79c7a2 100644
+--- a/starmath/source/edit.cxx
++++ b/starmath/source/edit.cxx
+@@ -125,7 +125,9 @@ void SmEditTextWindow::SetDrawingArea(weld::DrawingArea* pDrawingArea)
+ 
+     pEditEngine->SetStatusEventHdl(LINK(this, SmEditTextWindow, EditStatusHdl));
+ 
++#if !ENABLE_WASM_STRIP_ACCESSIBILITY
+     InitAccessible();
++#endif
+ 
+     //Apply zoom to smeditwindow text
+     if(GetEditView())

@@ -8,7 +8,7 @@ LABEL description="Dedicated LibreOffice WASM build environment"
 
 # Build arguments
 ARG LIBREOFFICE_VERSION=libreoffice-24-8
-ARG EMSDK_VERSION=3.1.51
+ARG EMSDK_VERSION=3.1.74
 ARG BUILD_JOBS=4
 
 # Environment
@@ -91,22 +91,20 @@ RUN git clone --depth 1 https://github.com/emscripten-core/emsdk.git ${EMSDK} \
     && echo "source ${EMSDK}/emsdk_env.sh" >> /etc/bash.bashrc
 
 # Pre-compile Emscripten system libraries
-RUN . ${EMSDK}/emsdk_env.sh && \
-    embuilder.py build sysroot system_libs
+RUN cd ${EMSDK} && . ./emsdk_env.sh && \
+    embuilder build sysroot libc libc++ libc++abi
 
 # Clone LibreOffice
 WORKDIR /build
 RUN git clone --depth 1 --branch ${LIBREOFFICE_VERSION} \
     https://git.libreoffice.org/core libreoffice
 
-# Copy build configuration
-COPY autogen.input /build/libreoffice/autogen.input
-
 # Create working directories
 RUN mkdir -p /output /ccache
 
 # Copy and set up build scripts
 COPY build-wasm.sh /build/build-wasm.sh
+COPY autogen.input /build/autogen.input
 COPY patches/ /build/patches/
 RUN chmod +x /build/build-wasm.sh
 

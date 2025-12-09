@@ -1,0 +1,17 @@
+--- a/desktop/source/lib/init.cxx
++++ b/desktop/source/lib/init.cxx
+@@ -7563,6 +7563,14 @@ void setLanguageToolConfig();
+ /// Used only by LibreOfficeKit when used by Online to pre-initialize
+ static void preloadData()
+ {
++    // Allow skipping preload for faster init (conversion-only use case)
++    // Set LOK_SKIP_PRELOAD=1 environment variable to skip
++    const char* skipPreload = getenv("LOK_SKIP_PRELOAD");
++    if (skipPreload && (strcmp(skipPreload, "1") == 0 || strcmp(skipPreload, "true") == 0))
++    {
++        std::cerr << "LOK_SKIP_PRELOAD: Skipping preloadData()\n";
++        return;
++    }
+     comphelper::ProfileZone aZone("preload data");
+ 
+     // Create user profile in the temp directory for loading the dictionaries

@@ -15,7 +15,6 @@
 --host=wasm32-local-emscripten
 --with-main-module=all
 --disable-gui
---with-parallelism=32
 
 # ==========================================
 # Disable GUI toolkits, OS deps

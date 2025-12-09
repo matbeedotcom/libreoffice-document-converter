@@ -1,0 +1,43 @@
+diff --git a/desktop/source/lib/init.cxx b/desktop/source/lib/init.cxx
+index d0f67d5ce..5ed2799e3 100644
+--- a/desktop/source/lib/init.cxx
++++ b/desktop/source/lib/init.cxx
+@@ -134,7 +134,7 @@
+ #include <com/sun/star/view/XSelectionSupplier.hpp>
+
+ #include <editeng/flstitem.hxx>
+-#ifdef IOS
++#if defined(IOS) || defined(__EMSCRIPTEN__)
+ #include <sfx2/app.hxx>
+ #endif
+ #include <sfx2/objsh.hxx>
+@@ -7912,7 +7912,15 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
+
+     // Did we do a pre-initialize
+     static bool bPreInited = false;
++#ifdef __EMSCRIPTEN__
++    // Force unipoll mode for Emscripten/WASM builds.
++    // With PROXY_TO_PTHREAD=1, main() already runs on a pthread worker.
++    // Creating additional threads with osl_createThread causes conflicts.
++    // Unipoll mode keeps everything on the same thread, avoiding the issue.
++    static bool bUnipoll = true;
++#else
+     static bool bUnipoll = false;
++#endif
+     static bool bProfileZones = false;
+     static bool bNotebookbar = false;
+
+@@ -8210,7 +8218,13 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
+                 SAL_INFO("lok", "RequestHandler ready -- continuing");
+             }
+             else
++            {
++                // Unipoll mode: Initialize VCL and SfxApplication directly
++                // without running the full soffice_main event loop.
++                SAL_INFO("lok", "Unipoll mode: InitVCL + SfxApplication");
+                 InitVCL();
++                SfxApplication::GetOrCreate();
++            }
+         }
+
+         if (eStage != SECOND_INIT)

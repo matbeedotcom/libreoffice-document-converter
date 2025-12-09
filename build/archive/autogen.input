@@ -1,0 +1,95 @@
+# ==========================================
+# LibreOffice WASM: Full Document IO Build
+# ==========================================
+# GOALS:
+#   - 100% import/export format support (DOCX, XLSX, PPTX, etc.)
+#   - NO UI, NO desktop toolkits, NO Java
+#   - Fully compatible with LOK + WASM threading
+#   - Smallest possible footprint for a full-format runtime
+#
+# IMPORTANT:
+#   --with-main-module=all is REQUIRED for PPTX support.
+#   Anything else causes missing Impress filters.
+# ==========================================
+
+--host=wasm32-local-emscripten
+--with-main-module=all
+--disable-gui
+--with-parallelism=32
+
+# ==========================================
+# Disable GUI toolkits, OS deps
+# Note: Do NOT disable cairo-canvas or skia - needed for PDF/SVG rendering
+# ==========================================
+--disable-kf5
+--disable-kf6
+--disable-gtk3
+--disable-gtk4
+--disable-qt5
+--disable-qt6
+--disable-gstreamer-1-0
+--disable-sdremote
+--disable-sdremote-bluetooth
+--disable-dbus
+--disable-cups
+--disable-randr
+
+# ==========================================
+# Remove anything related to scripting/automation
+# ==========================================
+--disable-scripting
+--disable-librelogo
+--disable-odk
+
+# ==========================================
+# Disable database connectors (not supported in WASM)
+# ==========================================
+--disable-database-connectivity
+--disable-mariadb-sdbc
+--disable-postgresql-sdbc
+--disable-firebird-sdbc
+--disable-ldap
+--without-krb5
+--without-gssapi
+
+# ==========================================
+# Ensure full filter system is built
+# (OOXML, MS binary, DrawingML, VML, SVG, PDF, etc.)
+# ==========================================
+# lpsolve/coinmp disabled in WASM builds
+
+# ==========================================
+# Disable updates / crash reporter / telemetry
+# ==========================================
+--disable-online-update
+--disable-crashdump
+--disable-cve-tests
+
+# ==========================================
+# Crypto not needed for conversion
+# ==========================================
+--disable-nss
+
+# ==========================================
+# Remove unused extras (keeps binary small)
+# ==========================================
+--without-java
+--without-doxygen
+--without-helppack-integration
+--without-myspell-dicts
+--with-lang=en-US
+
+# ==========================================
+# WASM build optimizations
+# ==========================================
+--enable-optimized
+--enable-wasm-strip
+--disable-debug
+--enable-sal-log
+
+# ==========================================
+# PDF import/export support
+# ==========================================
+--enable-pdfimport
+--enable-pdfium
+--disable-poppler

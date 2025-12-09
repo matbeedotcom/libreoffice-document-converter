@@ -237,7 +237,11 @@ function installProgressInterceptors() {
 interface WorkerMessage {
   type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument';
   id: number;
-  wasmPath?: string;
+  // Explicit WASM file paths (required for init)
+  sofficeJs?: string;
+  sofficeWasm?: string;
+  sofficeData?: string;
+  sofficeWorkerJs?: string;
   verbose?: boolean;
   inputData?: Uint8Array;
   inputExt?: string;
@@ -485,7 +489,13 @@ async function handleInit(msg: WorkerMessage) {
     return;
   }
 
-  const wasmPath = msg.wasmPath || './wasm';
+  // Require explicit paths
+  const { sofficeJs, sofficeWasm, sofficeData, sofficeWorkerJs } = msg;
+  if (!sofficeJs || !sofficeWasm || !sofficeData || !sofficeWorkerJs) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing required WASM paths (sofficeJs, sofficeWasm, sofficeData, sofficeWorkerJs)' });
+    return;
+  }
+
   const verbose = msg.verbose || false;
 
   // Store request ID for progress emission
@@ -506,19 +516,21 @@ async function handleInit(msg: WorkerMessage) {
 
   try {
     // Configure global Module for Emscripten
-    console.log('[Worker] Setting up Module with wasmPath:', wasmPath);
-    const sofficeJsUrl = `${wasmPath}/soffice.js`;
+    console.log('[Worker] Setting up Module with explicit paths:', { sofficeJs, sofficeWasm, sofficeData, sofficeWorkerJs });
     self.Module = {
       // Tell pthread workers where to load the main module from
-      mainScriptUrlOrBlob: sofficeJsUrl,
+      mainScriptUrlOrBlob: sofficeJs,
       locateFile: (path: string, scriptDir: string) => {
         let result: string;
-        if (path.endsWith('.wasm')) result = `${wasmPath}/soffice.wasm`;
-        else if (path.endsWith('.data')) result = `${wasmPath}/soffice.data`;
-        else if (path.endsWith('.metadata')) result = `${wasmPath}/soffice.data.js.metadata`;
+        if (path.endsWith('.wasm')) result = sofficeWasm;
+        else if (path.endsWith('.data')) result = sofficeData;
         // Handle both .worker.js and .worker.cjs requests
-        else if (path.includes('.worker.')) result = `${wasmPath}/soffice.worker.js`;
-        else result = `${wasmPath}/${path}`;
+        else if (path.includes('.worker.')) result = sofficeWorkerJs;
+        else {
+          // Fallback: derive from sofficeJs path for any other files
+          const baseUrl = sofficeJs.substring(0, sofficeJs.lastIndexOf('/') + 1);
+          result = `${baseUrl}${path}`;
+        }
         console.log('[Worker] locateFile called:', path, 'scriptDir:', scriptDir, '-> result:', result);
         return result;
       },
@@ -529,7 +541,7 @@ async function handleInit(msg: WorkerMessage) {
 
     // Load the soffice.js script using importScripts
     // This triggers the .wasm download (tracked by XHR interceptor)
-    importScripts(`${wasmPath}/soffice.js`);
+    importScripts(sofficeJs);
 
     // Wait for runtime to be ready
     // .data file download and WebAssembly compilation happen here
