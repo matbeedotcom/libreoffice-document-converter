@@ -1144,10 +1144,10 @@ const converter = await createConverter({
 
 | Operation | Time |
 |-----------|------|
-| First initialization | ~1-2s |
-| DOCX → PDF (1 page) | ~1-2s |
-| XLSX → PDF (100 rows) | ~2-3s |
-| PPTX → PDF (10 slides) | ~3-5s |
+| First initialization | ~1s |
+| DOCX → PDF | ~100ms (first), ~35ms (subsequent) |
+| XLSX → PDF | ~65ms (first), ~35ms (subsequent) |
+| PPTX → PDF | ~290ms (first), ~250ms (subsequent) |
 
 **Browser (network-based):**
 
@@ -1156,9 +1156,11 @@ const converter = await createConverter({
 | WASM download (~240MB) | 5-30s (depends on network) |
 | WASM compilation | ~1-2s |
 | LibreOfficeKit initialization | ~2-5s |
-| Subsequent conversions | ~1-5s |
+| Subsequent conversions | ~100-300ms |
 
 > **Note:** Browser initialization time depends heavily on network speed for the initial WASM download. The ~240MB of WASM files are cached after first load. Node.js loads from filesystem so initialization is much faster.
+>
+> Benchmarks measured on Node.js v22 with 20KB DOCX, 5KB XLSX, and 937KB PPTX test files.
 
 ### Optimization Tips
 

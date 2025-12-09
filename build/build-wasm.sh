@@ -353,9 +353,9 @@ WASM_FILES_FOUND=0
 # Primary location: instdir/program
 if [ -f "instdir/program/soffice.wasm" ]; then
     cp instdir/program/soffice.wasm "${OUTPUT_DIR}/"
-    cp instdir/program/soffice.js "${OUTPUT_DIR}/" 2>/dev/null || true
+    cp instdir/program/soffice.js "${OUTPUT_DIR}/soffice.cjs" 2>/dev/null || true
     cp instdir/program/soffice.data "${OUTPUT_DIR}/" 2>/dev/null || true
-    cp instdir/program/soffice.worker.js "${OUTPUT_DIR}/" 2>/dev/null || true
+    cp instdir/program/soffice.worker.js "${OUTPUT_DIR}/soffice.worker.cjs" 2>/dev/null || true
     WASM_FILES_FOUND=1
     log_success "Copied WASM files from instdir/program"
 fi
@@ -366,7 +366,7 @@ if [ "$WASM_FILES_FOUND" = "0" ]; then
     if [ -n "$WASM_IN_WORKDIR" ]; then
         WASM_WORKDIR=$(dirname "$WASM_IN_WORKDIR")
         cp "${WASM_WORKDIR}/soffice.wasm" "${OUTPUT_DIR}/"
-        cp "${WASM_WORKDIR}/soffice.js" "${OUTPUT_DIR}/" 2>/dev/null || true
+        cp "${WASM_WORKDIR}/soffice.js" "${OUTPUT_DIR}/soffice.cjs" 2>/dev/null || true
         cp "${WASM_WORKDIR}/soffice.data" "${OUTPUT_DIR}/" 2>/dev/null || true
         WASM_FILES_FOUND=1
         log_success "Copied WASM files from workdir"
@@ -379,6 +379,33 @@ if [ "$WASM_FILES_FOUND" = "0" ]; then
     find . -name "*.wasm" -size +1M 2>/dev/null | head -10
     exit 1
 fi
+
+# Apply patches to soffice.cjs for Node.js compatibility
+log_info "Applying patches to soffice.cjs..."
+
+cd "${OUTPUT_DIR}"
+
+# 1. Add global.Module for Node.js compatibility
+if ! head -c 50 soffice.cjs | grep -q "global.Module"; then
+    sed -i '1s/^/if(typeof global!=="undefined"){var Module=global.Module=global.Module||{}}\n/' soffice.cjs
+    log_success "Added global.Module patch"
+fi
+
+# 2. Fix hardcoded PACKAGE_NAME path (from build directory to relative)
+sed -i 's|PACKAGE_NAME="[^"]*emscripten_fs_image/soffice\.data"|PACKAGE_NAME="soffice.data"|g' soffice.cjs
+sed -i "s|PACKAGE_NAME='[^']*emscripten_fs_image/soffice\.data'|PACKAGE_NAME='soffice.data'|g" soffice.cjs
+
+# 3. Fix datafile_ reference
+sed -i 's|datafile_[^"]*emscripten_fs_image/soffice\.data|datafile_soffice.data|g' soffice.cjs
+
+# 4. Create browser-compatible copy (.js from .cjs)
+cp soffice.cjs soffice.js
+if [ -f "soffice.worker.cjs" ]; then
+    cp soffice.worker.cjs soffice.worker.js
+fi
+log_success "Created browser copies (soffice.js, soffice.worker.js)"
+
+cd "${LO_DIR}"
 
 # Calculate sizes
 echo ""

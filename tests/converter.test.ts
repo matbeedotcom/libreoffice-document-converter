@@ -123,13 +123,13 @@ describe('LibreOfficeConverter', () => {
   });
 
   // Integration tests (require WASM build)
-  describe.skip('Integration tests (requires WASM build)', () => {
+  describe('Integration tests (requires WASM build)', () => {
     let converter: LibreOfficeConverter;
 
     beforeAll(async () => {
       converter = new LibreOfficeConverter({
         wasmPath: './wasm',
-        verbose: false,
+        verbose: true,
       });
       await converter.initialize();
     }, 120000); // 2 minute timeout for initialization
