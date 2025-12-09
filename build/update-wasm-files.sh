@@ -25,25 +25,38 @@ echo "=== Copying files ==="
 cp "$LO_DIR/instdir/program/soffice.wasm" "$WASM_DIR/"
 echo "Copied soffice.wasm ($(du -h "$WASM_DIR/soffice.wasm" | cut -f1))"
 
-# JS loader - rename to .cjs for Node.js CommonJS
-cp "$LO_DIR/instdir/program/soffice.js" "$WASM_DIR/soffice.cjs"
-echo "Copied soffice.js -> soffice.cjs"
+# CRITICAL: soffice.js and soffice.data MUST come from the same directory
+# The JS file contains metadata offsets that must match the data file
+# Priority order:
+#   1. instdir/program/ (final build output - preferred)
+#   2. workdir/CustomTarget/static/emscripten_fs_image/ (intermediate)
 
-# Note: With Emscripten 3.1.58+, pthread workers are inlined automatically
-# No separate soffice.worker.js file is generated
-
-# Data file - from the fs_image output (has the complete filesystem)
-DATA_SRC="$LO_DIR/workdir/CustomTarget/static/emscripten_fs_image/soffice.data"
-
-if [ -f "$DATA_SRC" ]; then
-    cp "$DATA_SRC" "$WASM_DIR/"
-    echo "Copied soffice.data ($(du -h "$WASM_DIR/soffice.data" | cut -f1))"
-else
-    echo "WARNING: soffice.data not found in workdir, checking instdir/sdk/bin..."
-    if [ -f "$LO_DIR/instdir/sdk/bin/soffice.data" ]; then
-        cp "$LO_DIR/instdir/sdk/bin/soffice.data" "$WASM_DIR/"
-        echo "Copied soffice.data from sdk/bin"
+if [ -f "$LO_DIR/instdir/program/soffice.data" ]; then
+    # Both files from instdir/program/ (preferred - ensures matching metadata)
+    cp "$LO_DIR/instdir/program/soffice.js" "$WASM_DIR/soffice.cjs"
+    cp "$LO_DIR/instdir/program/soffice.data" "$WASM_DIR/"
+    echo "Copied soffice.js -> soffice.cjs (from instdir/program/)"
+    echo "Copied soffice.data ($(du -h "$WASM_DIR/soffice.data" | cut -f1)) (from instdir/program/)"
+elif [ -f "$LO_DIR/workdir/CustomTarget/static/emscripten_fs_image/soffice.data" ]; then
+    # Fallback: workdir has the data, need matching JS
+    FS_IMG_DIR="$LO_DIR/workdir/CustomTarget/static/emscripten_fs_image"
+    if [ -f "$FS_IMG_DIR/soffice.js" ]; then
+        cp "$FS_IMG_DIR/soffice.js" "$WASM_DIR/soffice.cjs"
+        cp "$FS_IMG_DIR/soffice.data" "$WASM_DIR/"
+        echo "Copied soffice.js -> soffice.cjs (from workdir fs_image)"
+        echo "Copied soffice.data ($(du -h "$WASM_DIR/soffice.data" | cut -f1)) (from workdir fs_image)"
+    else
+        # Last resort: JS from instdir, data from workdir (may cause offset mismatch!)
+        echo "WARNING: Using soffice.js from instdir/program/ but soffice.data from workdir"
+        echo "         This may cause metadata offset mismatch errors!"
+        cp "$LO_DIR/instdir/program/soffice.js" "$WASM_DIR/soffice.cjs"
+        cp "$FS_IMG_DIR/soffice.data" "$WASM_DIR/"
+        echo "Copied soffice.js -> soffice.cjs"
+        echo "Copied soffice.data ($(du -h "$WASM_DIR/soffice.data" | cut -f1))"
     fi
+else
+    echo "ERROR: soffice.data not found in either location!"
+    exit 1
 fi
 
 # Apply patches

@@ -39,6 +39,9 @@ export {
   LOKDocumentType,
   LOK_DOCTYPE_OUTPUT_FORMATS,
   getOutputFormatsForDocType,
+  // Browser WASM path helpers (also useful for understanding paths)
+  createWasmPaths,
+  DEFAULT_WASM_BASE_URL,
 } from './types.js';
 
 export type { DocumentCategory, WasmLoadPhase, WasmLoadProgress } from './types.js';

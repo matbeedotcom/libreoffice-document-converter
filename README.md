@@ -11,7 +11,7 @@ A headless document conversion toolkit that uses LibreOffice compiled to WebAsse
 - 🔒 **Secure** - Documents never leave your environment
 - ⚡ **Fast Conversions** - 1-5 seconds per document after initialization
 
-> **Note:** First initialization takes ~80 seconds as LibreOffice loads its modules. After that, conversions are fast. Reuse the converter instance for best performance.
+> **Note:** First browser initialization includes downloading ~240MB of WASM files. After that, conversions are fast. Reuse the converter instance for best performance.
 
 ## Quick Start
 
@@ -532,13 +532,10 @@ The `WorkerBrowserConverter` runs LibreOffice in a Web Worker, keeping the main 
 ```javascript
 import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
-// Create converter with explicit WASM file paths
+// Create converter - serves WASM from /wasm/ by default
 const converter = new WorkerBrowserConverter({
-  // Use helper to generate paths from a base URL
-  ...createWasmPaths('/wasm/'),
-  // Path to the library's worker script
+  ...createWasmPaths(), // Defaults to /wasm/
   browserWorkerJs: '/dist/browser-worker.js',
-  // Progress callback
   onProgress: (info) => {
     progressBar.style.width = `${info.percent}%`;
     statusText.textContent = info.message;
@@ -571,7 +568,7 @@ For simpler setups without a worker (blocks UI during conversion):
 import { BrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
 const converter = new BrowserConverter({
-  ...createWasmPaths('/wasm/'),
+  ...createWasmPaths(), // Defaults to /wasm/
   onProgress: (info) => console.log(`${info.percent}%: ${info.message}`),
 });
 
@@ -581,18 +578,23 @@ const result = await converter.convert(fileData, { outputFormat: 'pdf' }, 'doc.d
 
 ### Required WASM Paths
 
-The browser converter requires explicit paths to all WASM files. Use `createWasmPaths()` for convenience:
+The browser converter requires paths to WASM files. Use `createWasmPaths()` which defaults to `/wasm/`:
 
 ```javascript
-// Using the helper (all files in one directory)
-const paths = createWasmPaths('/libreoffice/');
+import { createWasmPaths, DEFAULT_WASM_BASE_URL } from '@libreoffice-wasm/converter/browser';
+
+// Use default /wasm/ path (same-origin)
+const paths = createWasmPaths();
 // Returns:
 // {
-//   sofficeJs: '/libreoffice/soffice.js',
-//   sofficeWasm: '/libreoffice/soffice.wasm',
-//   sofficeData: '/libreoffice/soffice.data',
-//   sofficeWorkerJs: '/libreoffice/soffice.worker.js',
+//   sofficeJs: '/wasm/soffice.js',
+//   sofficeWasm: '/wasm/soffice.wasm',
+//   sofficeData: '/wasm/soffice.data',
+//   sofficeWorkerJs: '/wasm/soffice.worker.js',
 // }
+
+// Or use your own CDN
+const paths = createWasmPaths('https://cdn.example.com/wasm/');
 
 // Or specify each path manually
 const converter = new WorkerBrowserConverter({
@@ -603,6 +605,8 @@ const converter = new WorkerBrowserConverter({
   browserWorkerJs: '/workers/browser-worker.js',
 });
 ```
+
+> **Note:** For production, consider hosting WASM files on your own CDN for better reliability and caching.
 
 ### Required HTTP Headers
 
@@ -617,7 +621,7 @@ Cross-Origin-Embedder-Policy: require-corp
 
 ## WASM Loading Progress
 
-The browser converter provides detailed progress tracking during WASM initialization, which can take ~80 seconds on first load. The progress system tracks download bytes, compilation phases, and LibreOffice initialization.
+The browser converter provides detailed progress tracking during WASM initialization. The progress system tracks download bytes, compilation phases, and LibreOffice initialization.
 
 ### Progress Callback
 
@@ -1051,13 +1055,14 @@ Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-#### Initialization takes ~80 seconds
+#### Browser initialization seems slow
 
-This is expected. LibreOffice loads all modules, fonts, and registries during startup. 
+Browser initialization includes downloading ~240MB of WASM files. This is network-dependent.
 The cost is paid **only once** per converter instance. After initialization:
+- WASM files are cached by the browser
 - Conversions take 1-5 seconds depending on document size
 - Reuse the converter instance for multiple conversions
-- For servers, initialize once at startup
+- For servers (Node.js), initialization is much faster (~1-2s) since files load from disk
 
 #### Memory issues
 
@@ -1135,20 +1140,29 @@ const converter = await createConverter({
 
 ### Benchmarks
 
+**Node.js (filesystem-based):**
+
 | Operation | Time |
 |-----------|------|
-| **First initialization** | **~80s** |
-| WASM loading & compilation | ~0.5s |
-| LibreOfficeKit initialization | ~77s |
+| First initialization | ~1-2s |
 | DOCX → PDF (1 page) | ~1-2s |
 | XLSX → PDF (100 rows) | ~2-3s |
 | PPTX → PDF (10 slides) | ~3-5s |
 
-> **Important:** The 80-second initialization is a one-time cost per converter instance. LibreOffice loads all its modules, fonts, and registries during startup. Once initialized, conversions are fast.
+**Browser (network-based):**
+
+| Operation | Time |
+|-----------|------|
+| WASM download (~240MB) | 5-30s (depends on network) |
+| WASM compilation | ~1-2s |
+| LibreOfficeKit initialization | ~2-5s |
+| Subsequent conversions | ~1-5s |
+
+> **Note:** Browser initialization time depends heavily on network speed for the initial WASM download. The ~240MB of WASM files are cached after first load. Node.js loads from filesystem so initialization is much faster.
 
 ### Optimization Tips
 
-1. **Reuse converter instances** - The 80s init cost is paid only once
+1. **Reuse converter instances** - Initialization cost is paid only once
 2. **Pre-initialize** - Start loading during idle time or page load
 3. **Server keep-warm** - In production, keep converter processes alive
 4. **Use Web Workers** - Keep UI responsive (browser)

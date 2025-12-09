@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  libreoffice-wasm-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - ../wasm:/output
+      - ./tarballs:/build/libreoffice/external/tarballs
+      - ./workdir:/build/libreoffice/workdir
+      - ./ccache:/ccache
+    environment:
+      - BUILD_JOBS=${BUILD_JOBS:-4}
+      - CLEAN_BUILD=${CLEAN_BUILD:-0}

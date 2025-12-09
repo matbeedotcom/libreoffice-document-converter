@@ -61,4 +61,6 @@ temp/
 build.log
 lazy-loading-test-*.png
 docs/plans/
-
+build/ccache
+build/tarballs
+build/workdir

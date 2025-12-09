@@ -32,6 +32,7 @@ export {
   FORMAT_MIME_TYPES,
   EXTENSION_TO_FORMAT,
   createWasmPaths,
+  DEFAULT_WASM_BASE_URL,
 } from './types.js';
 
 // Export editor API
@@ -70,9 +71,12 @@ import {
   OUTPUT_FORMAT_TO_LOK,
   BrowserConverterOptions,
   WorkerBrowserConverterOptions,
+  ResolvedBrowserConverterOptions,
+  ResolvedWorkerBrowserConverterOptions,
   BrowserWasmPaths,
   OutputFormat,
   ProgressInfo,
+  createWasmPaths,
 } from './types.js';
 
 import { LOKBindings } from './lok-bindings.js';
@@ -88,11 +92,14 @@ export class BrowserConverter {
   private lokBindings: LOKBindings | null = null;
   private initialized = false;
   private initializing = false;
-  private options: BrowserConverterOptions;
+  private options: ResolvedBrowserConverterOptions;
 
-  constructor(options: BrowserConverterOptions) {
+  constructor(options: BrowserConverterOptions = {}) {
+    // Apply defaults for WASM paths using createWasmPaths
+    const defaultPaths = createWasmPaths();
     this.options = {
       verbose: false,
+      ...defaultPaths,
       ...options,
     };
   }
@@ -460,11 +467,15 @@ export class WorkerBrowserConverter {
   private initializing = false;
   private messageId = 0;
   private pendingRequests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  private options: WorkerBrowserConverterOptions;
+  private options: ResolvedWorkerBrowserConverterOptions;
 
-  constructor(options: WorkerBrowserConverterOptions) {
+  constructor(options: WorkerBrowserConverterOptions = {}) {
+    // Apply defaults for WASM paths using createWasmPaths
+    const defaultPaths = createWasmPaths();
     this.options = {
       verbose: false,
+      browserWorkerJs: '/dist/browser-worker.global.js',
+      ...defaultPaths,
       ...options,
     };
   }

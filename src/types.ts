@@ -178,7 +178,7 @@ export interface LibreOfficeWasmOptions {
 
 /**
  * Explicit paths to WASM files (Browser)
- * Users must configure each path explicitly - no assumptions about file locations
+ * All paths are required when specified explicitly
  */
 export interface BrowserWasmPaths {
   /** URL to soffice.js - the main Emscripten loader script */
@@ -193,9 +193,18 @@ export interface BrowserWasmPaths {
 
 /**
  * Browser converter initialization options
- * Requires explicit paths to all WASM files
+ * All WASM paths are optional and default to /wasm/ via createWasmPaths()
  */
-export interface BrowserConverterOptions extends BrowserWasmPaths {
+export interface BrowserConverterOptions {
+  /** URL to soffice.js - defaults to /wasm/soffice.js */
+  sofficeJs?: string;
+  /** URL to soffice.wasm - defaults to /wasm/soffice.wasm */
+  sofficeWasm?: string;
+  /** URL to soffice.data - defaults to /wasm/soffice.data */
+  sofficeData?: string;
+  /** URL to soffice.worker.js - defaults to /wasm/soffice.worker.js */
+  sofficeWorkerJs?: string;
+
   /**
    * Enable verbose logging
    * @default false
@@ -220,29 +229,57 @@ export interface BrowserConverterOptions extends BrowserWasmPaths {
 
 /**
  * Worker browser converter initialization options
- * Requires explicit paths to all WASM files plus the library worker
+ * All WASM paths are optional and default to /wasm/ via createWasmPaths()
  */
 export interface WorkerBrowserConverterOptions extends BrowserConverterOptions {
-  /** URL to browser-worker.js - the library's Web Worker script */
-  browserWorkerJs: string;
+  /** URL to browser-worker.js - defaults to /dist/browser-worker.global.js */
+  browserWorkerJs?: string;
 }
+
+/**
+ * Internal type for BrowserConverterOptions after defaults are applied
+ * All WASM paths are guaranteed to be defined
+ */
+export type ResolvedBrowserConverterOptions = BrowserConverterOptions & BrowserWasmPaths;
+
+/**
+ * Internal type for WorkerBrowserConverterOptions after defaults are applied
+ * All WASM paths and browserWorkerJs are guaranteed to be defined
+ */
+export type ResolvedWorkerBrowserConverterOptions = WorkerBrowserConverterOptions & BrowserWasmPaths & {
+  browserWorkerJs: string;
+};
+
+/**
+ * Default URL for WASM files - relative path for same-origin hosting
+ * Users typically serve WASM files from their own server at /wasm/
+ */
+export const DEFAULT_WASM_BASE_URL = '/wasm/';
 
 /**
  * Create WASM file paths from a base URL
  * Convenience helper for users who keep all WASM files in one directory
  *
- * @param baseUrl - Base URL ending with '/' (e.g., '/libreoffice/', 'https://cdn.example.com/wasm/')
+ * @param baseUrl - Base URL ending with '/' (e.g., '/wasm/', 'https://cdn.example.com/wasm/')
+ *                  Defaults to '/wasm/' for same-origin hosting
  * @returns Object with all WASM file paths
  *
  * @example
  * ```typescript
+ * // Use default /wasm/ path (same-origin)
  * const converter = new WorkerBrowserConverter({
- *   ...createWasmPaths('/libreoffice/'),
- *   browserWorkerJs: '/workers/browser-worker.js',
+ *   ...createWasmPaths(),
+ *   browserWorkerJs: '/dist/browser-worker.js',
+ * });
+ *
+ * // Or use your own CDN
+ * const converter = new WorkerBrowserConverter({
+ *   ...createWasmPaths('https://cdn.example.com/wasm/'),
+ *   browserWorkerJs: '/dist/browser-worker.js',
  * });
  * ```
  */
-export function createWasmPaths(baseUrl: string): BrowserWasmPaths {
+export function createWasmPaths(baseUrl: string = DEFAULT_WASM_BASE_URL): BrowserWasmPaths {
   // Ensure baseUrl ends with /
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   return {
