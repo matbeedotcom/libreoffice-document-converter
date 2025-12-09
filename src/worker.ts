@@ -1,17 +1,21 @@
 /**
  * LibreOffice WASM Worker Thread
- * 
+ *
  * This module runs the LibreOffice WASM in a Worker thread to avoid
- * blocking the main Node.js event loop. The WASM module is designed
- * for browser use and will block during initialization.
+ * blocking the main Node.js event loop.
+ *
+ * Instead of duplicating LOK logic, this worker uses LibreOfficeConverter
+ * directly - the same implementation used by the main thread converter.
  */
 
-import { parentPort, workerData } from 'worker_threads';
-import * as path from 'path';
-import * as fs from 'fs';
+import { parentPort } from 'worker_threads';
+import { LibreOfficeConverter } from './converter.js';
+import { createEditor, OfficeEditor } from './editor/index.js';
+import type { ConversionOptions } from './types.js';
+import type { OperationResult } from './editor/types.js';
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy';
+  type: string;
   id: string;
   payload?: unknown;
 }
@@ -23,241 +27,400 @@ interface InitPayload {
 
 interface ConvertPayload {
   inputData: Uint8Array;
-  inputPath: string;
-  outputPath: string;
+  inputFormat: string;
   outputFormat: string;
-  filterOptions: string;
+  filterOptions?: string;
+  filename?: string;
 }
 
-// Global state
-let Module: any = null;
-let lokPtr: number = 0;
-let initialized = false;
-
-/**
- * XMLHttpRequest polyfill for Node.js
- */
-class NodeXMLHttpRequest {
-  readyState = 0;
-  status = 0;
-  statusText = '';
-  responseType = '';
-  response: any = null;
-  responseText = '';
-  onload: (() => void) | null = null;
-  onerror: ((err: any) => void) | null = null;
-  onreadystatechange: (() => void) | null = null;
-  private _url = '';
-  private _wasmDir = '';
-
-  constructor(wasmDir: string) {
-    this._wasmDir = wasmDir;
-  }
-
-  open(_method: string, url: string) {
-    this._url = url;
-    this.readyState = 1;
-  }
-
-  overrideMimeType() {}
-  setRequestHeader() {}
-
-  send() {
-    let filePath = this._url;
-    if (filePath.startsWith('file://')) {
-      filePath = filePath.slice(7);
-    }
-    if (!path.isAbsolute(filePath) && !filePath.startsWith('http')) {
-      filePath = path.resolve(this._wasmDir, filePath);
-    }
-
-    try {
-      const data = fs.readFileSync(filePath);
-      this.status = 200;
-      this.statusText = 'OK';
-      this.readyState = 4;
-
-      if (this.responseType === 'arraybuffer') {
-        this.response = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-      } else {
-        this.responseText = data.toString('utf8');
-        this.response = this.responseText;
-      }
-
-      if (this.onload) this.onload();
-      if (this.onreadystatechange) this.onreadystatechange();
-    } catch (err) {
-      this.status = 404;
-      this.statusText = 'Not Found';
-      this.readyState = 4;
-      if (this.onerror) this.onerror(err);
-      if (this.onreadystatechange) this.onreadystatechange();
-    }
-  }
+interface RenderPagePayload {
+  inputData: Uint8Array;
+  inputFormat: string;
+  pageIndex: number;
+  width: number;
+  height?: number;
 }
 
-/**
- * Allocate a null-terminated string in WASM memory
- */
-function allocString(str: string): number {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(str + '\0');
-  const ptr = Module._malloc(bytes.length);
-  Module.HEAPU8.set(bytes, ptr);
-  return ptr;
+interface RenderPagePreviewsPayload {
+  inputData: Uint8Array;
+  inputFormat: string;
+  width: number;
+  height?: number;
+  pageIndices?: number[];
 }
 
-/**
- * Read a 32-bit pointer from WASM memory
- */
-function readPtr(address: number): number {
-  return Module.HEAP32[address >> 2];
+interface DocumentPayload {
+  inputData: Uint8Array;
+  inputFormat: string;
 }
 
-// Global wasm directory for XHR polyfill
-let wasmDirectory = '';
+interface OpenDocumentPayload {
+  inputData: Uint8Array;
+  inputFormat: string;
+}
+
+interface EditorOperationPayload {
+  sessionId: string;
+  method: string;
+  args?: unknown[];
+}
+
+interface CloseDocumentPayload {
+  sessionId: string;
+}
+
+// Editor session tracking
+interface EditorSession {
+  sessionId: string;
+  docPtr: number;
+  filePath: string;
+  editor: OfficeEditor;
+  documentType: string;
+}
+
+// The converter instance - reuses the same LibreOfficeConverter as direct usage
+let converter: LibreOfficeConverter | null = null;
+
+// Active editor sessions
+const editorSessions = new Map<string, EditorSession>();
+let sessionCounter = 0;
 
 /**
- * Initialize the WASM module
+ * Initialize the converter
  */
-async function initialize(payload: InitPayload): Promise<void> {
-  if (initialized) {
+async function handleInit(payload: InitPayload): Promise<void> {
+  if (converter?.isReady()) {
     return;
   }
 
-  wasmDirectory = path.resolve(payload.wasmPath);
+  converter = new LibreOfficeConverter({
+    wasmPath: payload.wasmPath,
+    verbose: payload.verbose,
+  });
 
-  // Set up XMLHttpRequest polyfill with the wasm directory
-  (global as any).XMLHttpRequest = class extends NodeXMLHttpRequest {
-    constructor() {
-      super(wasmDirectory);
-    }
-  };
-
-  // Set up Module with locateFile for proper file resolution
-  (global as any).Module = {
-    locateFile: (filename: string) => {
-      return path.join(wasmDirectory, filename);
-    },
-    print: payload.verbose ? console.log : () => {},
-    printErr: payload.verbose ? console.error : () => {},
-  };
-
-  // Load the module from absolute path
-  const loaderPath = path.join(wasmDirectory, 'soffice.cjs');
-  
-  // Override require to handle relative paths from within soffice.cjs
-  const originalRequire = require;
-  (global as any).require = (id: string) => {
-    if (id.startsWith('./') || id.startsWith('../')) {
-      return originalRequire(path.join(wasmDirectory, id));
-    }
-    return originalRequire(id);
-  };
-  
-  originalRequire(loaderPath);
-  
-  (global as any).require = originalRequire;
-
-  Module = (global as any).Module;
-
-  // Wait for WASM to be ready (poll for _malloc)
-  const startTime = Date.now();
-  const timeout = 120000; // 2 minutes
-  
-  while (!Module._malloc || !Module._libreofficekit_hook) {
-    if (Date.now() - startTime > timeout) {
-      throw new Error('WASM initialization timeout');
-    }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-
-  // Initialize LibreOfficeKit
-  const installPath = '/instdir/program';
-  const pathPtr = allocString(installPath);
-
-  if (Module._lok_preinit) {
-    Module._lok_preinit(pathPtr, 0);
-  }
-
-  lokPtr = Module._libreofficekit_hook(pathPtr);
-  Module._free(pathPtr);
-
-  if (lokPtr === 0) {
-    throw new Error('Failed to initialize LibreOfficeKit');
-  }
-
-  initialized = true;
+  await converter.initialize();
 }
 
 /**
  * Convert a document
  */
-async function convert(payload: ConvertPayload): Promise<Uint8Array> {
-  if (!initialized || !Module || lokPtr === 0) {
+async function handleConvert(payload: ConvertPayload): Promise<Uint8Array> {
+  if (!converter?.isReady()) {
     throw new Error('Worker not initialized');
   }
 
-  // Write input file to virtual filesystem
-  Module.FS.writeFile(payload.inputPath, payload.inputData);
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: payload.outputFormat as ConversionOptions['outputFormat'],
+  };
 
-  // Get LOK class vtable
-  const lokClassPtr = readPtr(lokPtr);
-  const documentLoadFnPtr = readPtr(lokClassPtr + 8); // offset for documentLoad
+  const result = await converter.convert(
+    payload.inputData,
+    options,
+    payload.filename || 'document'
+  );
 
-  // Load document
-  const inputPathPtr = allocString(payload.inputPath);
-  
-  // Call documentLoad through function table
-  const wasmTable = Module.wasmTable as WebAssembly.Table;
-  const documentLoadFn = wasmTable.get(documentLoadFnPtr) as (lok: number, path: number) => number;
-  const docPtr = documentLoadFn(lokPtr, inputPathPtr);
-  Module._free(inputPathPtr);
+  return result.data;
+}
 
-  if (docPtr === 0) {
-    throw new Error('Failed to load document');
+/**
+ * Get page count
+ */
+async function handleGetPageCount(payload: DocumentPayload): Promise<number> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
   }
 
-  try {
-    // Get document class vtable
-    const docClassPtr = readPtr(docPtr);
-    const saveAsFnPtr = readPtr(docClassPtr + 8); // offset for saveAs
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for page count
+  };
 
-    // Save document
-    const outputPathPtr = allocString(payload.outputPath);
-    const formatPtr = allocString(payload.outputFormat);
-    const filterPtr = allocString(payload.filterOptions);
+  return converter.getPageCount(payload.inputData, options);
+}
 
-    const saveAsFn = wasmTable.get(saveAsFnPtr) as (
-      doc: number, path: number, format: number, filter: number
-    ) => number;
-    
-    const result = saveAsFn(docPtr, outputPathPtr, formatPtr, filterPtr);
+/**
+ * Get document info
+ */
+async function handleGetDocumentInfo(payload: DocumentPayload): Promise<unknown> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
 
-    Module._free(outputPathPtr);
-    Module._free(formatPtr);
-    Module._free(filterPtr);
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for document info
+  };
 
-    if (result === 0) {
-      throw new Error('Failed to save document');
+  return converter.getDocumentInfo(payload.inputData, options);
+}
+
+/**
+ * Render a single page
+ */
+async function handleRenderPage(payload: RenderPagePayload): Promise<{
+  data: Uint8Array;
+  width: number;
+  height: number;
+}> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for rendering
+  };
+
+  const previews = await converter.renderPagePreviews(
+    payload.inputData,
+    options,
+    payload.width,
+    payload.height,
+    [payload.pageIndex]
+  );
+
+  if (previews.length === 0) {
+    throw new Error(`Page ${payload.pageIndex} not found`);
+  }
+
+  const preview = previews[0]!;
+  return {
+    data: preview.data,
+    width: preview.width,
+    height: preview.height,
+  };
+}
+
+/**
+ * Render multiple page previews
+ */
+async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Promise<Array<{
+  page: number;
+  data: Uint8Array;
+  width: number;
+  height: number;
+}>> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for rendering
+  };
+
+  return converter.renderPagePreviews(
+    payload.inputData,
+    options,
+    payload.width,
+    payload.height,
+    payload.pageIndices
+  );
+}
+
+/**
+ * Get document text
+ */
+async function handleGetDocumentText(payload: DocumentPayload): Promise<string | null> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for text extraction
+  };
+
+  return converter.getDocumentText(payload.inputData, options);
+}
+
+/**
+ * Get page/slide names
+ */
+async function handleGetPageNames(payload: DocumentPayload): Promise<string[]> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const options: ConversionOptions = {
+    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
+    outputFormat: 'pdf', // Required but not used for page names
+  };
+
+  return converter.getPageNames(payload.inputData, options);
+}
+
+/**
+ * Open a document for editing
+ */
+async function handleOpenDocument(payload: OpenDocumentPayload): Promise<{
+  sessionId: string;
+  documentType: string;
+  pageCount: number;
+}> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const lokBindings = converter.getLokBindings();
+  const module = converter.getModule();
+
+  if (!lokBindings || !module) {
+    throw new Error('LOK bindings not available');
+  }
+
+  // Generate unique session ID
+  const sessionId = `session_${++sessionCounter}_${Date.now()}`;
+  const filePath = `/tmp/edit_${sessionId}.${payload.inputFormat}`;
+
+  // Write file to virtual FS
+  module.FS.writeFile(filePath, payload.inputData);
+
+  // Load document
+  const docPtr = lokBindings.documentLoad(filePath);
+  if (docPtr === 0) {
+    const error = lokBindings.getError();
+    module.FS.unlink(filePath);
+    throw new Error(`Failed to load document: ${error}`);
+  }
+
+  // Initialize for rendering/editing
+  lokBindings.documentInitializeForRendering(docPtr);
+
+  // Create a view and register callback
+  const viewId = lokBindings.createView(docPtr);
+  lokBindings.setView(docPtr, viewId);
+  lokBindings.registerCallback(docPtr);
+
+  // Enable edit mode
+  lokBindings.postUnoCommand(docPtr, '.uno:Edit');
+
+  // Create the appropriate editor using factory
+  const editor = createEditor(lokBindings, docPtr);
+  const documentType = editor.getDocumentType();
+
+  // Get page count
+  const pageCount = lokBindings.documentGetParts(docPtr);
+
+  // Store session
+  editorSessions.set(sessionId, {
+    sessionId,
+    docPtr,
+    filePath,
+    editor,
+    documentType,
+  });
+
+  return {
+    sessionId,
+    documentType,
+    pageCount,
+  };
+}
+
+/**
+ * Execute an editor operation on an open session
+ */
+async function handleEditorOperation(payload: EditorOperationPayload): Promise<OperationResult<unknown>> {
+  const session = editorSessions.get(payload.sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${payload.sessionId}`);
+  }
+
+  const { editor } = session;
+  const args = payload.args || [];
+
+  // Call the method on the editor
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const method = (editor as any)[payload.method];
+  if (typeof method !== 'function') {
+    throw new Error(`Unknown editor method: ${payload.method}`);
+  }
+
+  // Execute the method
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = method.apply(editor, args) as OperationResult<any>;
+
+  // Convert Map to object for serialization if needed
+  let serializedData = result.data;
+  if (result.data instanceof Map) {
+    serializedData = Object.fromEntries(result.data);
+  }
+
+  return {
+    success: result.success,
+    verified: result.verified,
+    data: serializedData,
+    error: result.error,
+    suggestion: result.suggestion,
+  };
+}
+
+/**
+ * Close an editor session and optionally save the document
+ */
+async function handleCloseDocument(payload: CloseDocumentPayload): Promise<Uint8Array | undefined> {
+  const session = editorSessions.get(payload.sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${payload.sessionId}`);
+  }
+
+  const lokBindings = converter?.getLokBindings();
+  const module = converter?.getModule();
+  const { docPtr, filePath } = session;
+
+  // Get the modified document data before closing
+  let modifiedData: Uint8Array | undefined;
+  if (module && lokBindings) {
+    try {
+      // Save to original path first
+      const ext = filePath.split('.').pop() || 'docx';
+      lokBindings.documentSaveAs(docPtr, filePath, ext, '');
+      modifiedData = module.FS.readFile(filePath) as Uint8Array;
+    } catch (e) {
+      console.warn('[Worker] Could not save document:', e);
     }
+  }
 
-    // Read output file
-    const outputData = Module.FS.readFile(payload.outputPath) as Uint8Array;
+  // Cleanup
+  if (lokBindings && docPtr !== 0) {
+    try { lokBindings.unregisterCallback(docPtr); } catch { /* ignore */ }
+    try { lokBindings.documentDestroy(docPtr); } catch { /* ignore */ }
+  }
+  if (module) {
+    try { module.FS.unlink(filePath); } catch { /* ignore */ }
+  }
 
-    // Cleanup files
-    try { Module.FS.unlink(payload.inputPath); } catch {}
-    try { Module.FS.unlink(payload.outputPath); } catch {}
+  // Remove session
+  editorSessions.delete(payload.sessionId);
 
-    return outputData;
-  } finally {
-    // Destroy document
-    const docClassPtr = readPtr(docPtr);
-    const destroyFnPtr = readPtr(docClassPtr + 4); // offset for destroy
-    if (destroyFnPtr !== 0) {
-      const destroyFn = wasmTable.get(destroyFnPtr) as (doc: number) => void;
-      destroyFn(docPtr);
-    }
+  return modifiedData;
+}
+
+/**
+ * Destroy the converter
+ */
+async function handleDestroy(): Promise<void> {
+  // Close all editor sessions first
+  for (const [, session] of editorSessions) {
+    try {
+      const lokBindings = converter?.getLokBindings();
+      const module = converter?.getModule();
+      if (lokBindings && session.docPtr !== 0) {
+        try { lokBindings.unregisterCallback(session.docPtr); } catch { /* ignore */ }
+        try { lokBindings.documentDestroy(session.docPtr); } catch { /* ignore */ }
+      }
+      if (module) {
+        try { module.FS.unlink(session.filePath); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+  editorSessions.clear();
+
+  if (converter) {
+    await converter.destroy();
+    converter = null;
   }
 }
 
@@ -266,46 +429,74 @@ async function convert(payload: ConvertPayload): Promise<Uint8Array> {
  */
 parentPort?.on('message', async (message: WorkerMessage) => {
   try {
+    let result: unknown;
+
     switch (message.type) {
       case 'init':
-        await initialize(message.payload as InitPayload);
-        parentPort?.postMessage({ id: message.id, success: true });
+        await handleInit(message.payload as InitPayload);
         break;
 
       case 'convert':
-        const result = await convert(message.payload as ConvertPayload);
-        parentPort?.postMessage({ 
-          id: message.id, 
-          success: true, 
-          data: result 
-        });
+        result = await handleConvert(message.payload as ConvertPayload);
+        break;
+
+      case 'getPageCount':
+        result = await handleGetPageCount(message.payload as DocumentPayload);
+        break;
+
+      case 'getDocumentInfo':
+        result = await handleGetDocumentInfo(message.payload as DocumentPayload);
+        break;
+
+      case 'renderPage':
+        result = await handleRenderPage(message.payload as RenderPagePayload);
+        break;
+
+      case 'renderPagePreviews':
+        result = await handleRenderPagePreviews(message.payload as RenderPagePreviewsPayload);
+        break;
+
+      case 'getDocumentText':
+        result = await handleGetDocumentText(message.payload as DocumentPayload);
+        break;
+
+      case 'getPageNames':
+        result = await handleGetPageNames(message.payload as DocumentPayload);
+        break;
+
+      case 'openDocument':
+        result = await handleOpenDocument(message.payload as OpenDocumentPayload);
+        break;
+
+      case 'editorOperation':
+        result = await handleEditorOperation(message.payload as EditorOperationPayload);
+        break;
+
+      case 'closeDocument':
+        result = await handleCloseDocument(message.payload as CloseDocumentPayload);
         break;
 
       case 'destroy':
-        // Destroy LOK instance
-        if (lokPtr !== 0 && Module) {
-          const lokClassPtr = readPtr(lokPtr);
-          const destroyFnPtr = readPtr(lokClassPtr + 4);
-          if (destroyFnPtr !== 0) {
-            const wasmTable = Module.wasmTable as WebAssembly.Table;
-            const destroyFn = wasmTable.get(destroyFnPtr) as (lok: number) => void;
-            destroyFn(lokPtr);
-          }
-          lokPtr = 0;
-        }
-        initialized = false;
-        parentPort?.postMessage({ id: message.id, success: true });
+        await handleDestroy();
         break;
+
+      default:
+        throw new Error(`Unknown message type: ${message.type}`);
     }
+
+    parentPort?.postMessage({
+      id: message.id,
+      success: true,
+      data: result,
+    });
   } catch (error) {
-    parentPort?.postMessage({ 
-      id: message.id, 
-      success: false, 
-      error: (error as Error).message 
+    parentPort?.postMessage({
+      id: message.id,
+      success: false,
+      error: (error as Error).message,
     });
   }
 });
 
 // Signal ready
 parentPort?.postMessage({ type: 'ready' });
-

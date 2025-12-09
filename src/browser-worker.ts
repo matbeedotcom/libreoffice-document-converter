@@ -10,6 +10,7 @@ import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OperationResult } from './editor/types.js';
+import { LibreOfficeConverter } from './converter.js';
 
 // ============================================
 // WASM Loading Progress System
@@ -370,6 +371,7 @@ declare function importScripts(...urls: string[]): void;
 
 let module: EmscriptenModule | null = null;
 let lokBindings: LOKBindings | null = null;
+let converter: LibreOfficeConverter | null = null;
 let initialized = false;
 
 // Document cache for efficient multi-page rendering
@@ -618,9 +620,17 @@ async function handleInit(msg: WorkerMessage) {
 
     emitPhaseProgress('lok-init', 'Initializing LibreOfficeKit...');
 
-    // Initialize LOK
-    lokBindings = new LOKBindings(module, verbose);
-    lokBindings.initialize('/instdir/program');
+    // Initialize LibreOfficeConverter with the pre-loaded module
+    // This reuses the same LOK initialization logic as the Node.js converter
+    converter = new LibreOfficeConverter({ verbose });
+    await converter.initializeWithModule(module);
+
+    // Get LOK bindings from converter for direct access (needed for browser-specific features)
+    lokBindings = converter.getLokBindings();
+
+    if (!lokBindings) {
+      throw new Error('Failed to get LOK bindings from converter');
+    }
 
     // Enable synchronous event dispatch (Unipoll mode) globally
     // Without this, postKeyEvent/postMouseEvent events are queued but never processed
@@ -2382,12 +2392,17 @@ function handleDestroy(msg: WorkerMessage) {
 
   // Close any cached document
   closeCachedDocument();
-  
-  if (lokBindings) {
+
+  // Destroy the converter (which also destroys lokBindings)
+  if (converter) {
+    try { converter.destroy(); } catch { /* ignore */ }
+    converter = null;
+    lokBindings = null; // Already destroyed by converter
+  } else if (lokBindings) {
     try { lokBindings.destroy(); } catch { /* ignore */ }
     lokBindings = null;
   }
-  
+
   // Terminate any Emscripten pthread workers
   if (module && (module as unknown as { PThread?: { terminateAllThreads?: () => void } }).PThread?.terminateAllThreads) {
     try {

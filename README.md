@@ -157,16 +157,6 @@ BUILD_JOBS=32 ./build/build-wasm.sh
 | `SKIP_DEPS` | `0` | Skip dependency installation |
 | `CLEAN_BUILD` | `0` | Clean before building |
 
-### Incremental Rebuild
-
-After the initial build, use `rebuild-minimal.sh` for faster rebuilds:
-
-```bash
-# Quick incremental rebuild (re-links soffice, ~3-5 minutes)
-./build/rebuild-minimal.sh
-
-# Full clean rebuild (2-4 hours)
-CLEAN=1 ./build/rebuild-minimal.sh
 ```
 
 ### Build Output
@@ -182,57 +172,8 @@ After building, the `wasm/` directory contains:
 | `loader.cjs` | 8 KB | - | Node.js module loader |
 | **Total** | **192 MB** | **40 MB** | With Brotli compression |
 
-### Applied Patches
-
-The build automatically applies these patches for headless WASM support:
-
-| Patch | Purpose |
-|-------|---------|
-| `001-fix-xmlsecurity-headless.patch` | Disables UI config for xmlsecurity |
-| `002-emscripten-exports.patch` | Exports FS, wasmTable, enables PROXY_TO_PTHREAD |
-| `003-skip-preload-option.patch` | Adds LOK_SKIP_PRELOAD env var (optional) |
-| `004-remove-xmlsec-ui-from-fs-image.patch` | Removes missing UI files from fs image |
-
----
 
 ## Project Setup
-
-### Directory Structure
-
-```
-node-libreoffice-v2/
-├── build/                    # Build scripts and configs
-│   ├── build-wasm.sh         # Main build script (full build)
-│   ├── rebuild-minimal.sh    # Incremental rebuild script
-│   └── patches/              # LibreOffice source patches
-│       ├── 001-fix-xmlsecurity-headless.patch
-│       ├── 002-emscripten-exports.patch
-│       ├── 003-skip-preload-option.patch
-│       └── 004-remove-xmlsec-ui-from-fs-image.patch
-├── dist/                     # Compiled TypeScript (npm run build)
-├── docs/                     # Additional documentation
-│   ├── API.md
-│   ├── BUILDING.md
-│   ├── EXAMPLES.md
-│   └── OPTIMIZATION.md
-├── examples/                 # Usage examples
-│   └── node-conversion.mjs
-├── scripts/                  # Utility scripts
-│   └── compress-wasm.sh
-├── src/                      # TypeScript source
-│   ├── index.ts              # Main API exports
-│   ├── converter.ts          # Core converter class
-│   ├── browser.ts            # Browser-specific module
-│   ├── lok-bindings.ts       # LibreOfficeKit bindings
-│   └── types.ts              # TypeScript types
-├── wasm/                     # WASM binary files
-│   ├── soffice.wasm          # Main WASM binary (112MB)
-│   ├── soffice.cjs           # JavaScript loader
-│   ├── soffice.data          # Filesystem image (80MB)
-│   ├── soffice.worker.cjs    # Web Worker script
-│   └── loader.cjs            # Node.js module loader
-└── package.json
-```
 
 ### Development Setup
 
@@ -1149,18 +1090,19 @@ const converter = await createConverter({
 | XLSX → PDF | ~65ms (first), ~35ms (subsequent) |
 | PPTX → PDF | ~290ms (first), ~250ms (subsequent) |
 
-**Browser (network-based):**
+**Browser (Chromium, local server):**
 
 | Operation | Time |
 |-----------|------|
 | WASM download (~240MB) | 5-30s (depends on network) |
-| WASM compilation | ~1-2s |
-| LibreOfficeKit initialization | ~2-5s |
-| Subsequent conversions | ~100-300ms |
+| LibreOfficeKit initialization | ~2.5s |
+| DOCX → PDF | ~95ms |
+| XLSX → PDF | ~85ms |
+| PPTX → PDF | ~305ms |
 
 > **Note:** Browser initialization time depends heavily on network speed for the initial WASM download. The ~240MB of WASM files are cached after first load. Node.js loads from filesystem so initialization is much faster.
 >
-> Benchmarks measured on Node.js v22 with 20KB DOCX, 5KB XLSX, and 937KB PPTX test files.
+> Benchmarks measured on Node.js v22 / Chromium with 20KB DOCX, 5KB XLSX, and 937KB PPTX test files.
 
 ### Optimization Tips
 

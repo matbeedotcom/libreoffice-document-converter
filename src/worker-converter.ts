@@ -15,16 +15,59 @@ import {
   ConversionOptions,
   ConversionResult,
   FORMAT_MIME_TYPES,
-  OUTPUT_FORMAT_TO_LOK,
-  FORMAT_FILTER_OPTIONS,
   LibreOfficeWasmOptions,
+  LOKDocumentType,
+  OutputFormat,
 } from './types.js';
+
+// Re-export types used by consumers
+export type { LOKDocumentType, OutputFormat };
+
+/** Options for rendering page previews */
+export interface RenderOptions {
+  /** Width of rendered image in pixels */
+  width?: number;
+  /** Height of rendered image in pixels (0 = auto based on aspect ratio) */
+  height?: number;
+  /** Specific page indices to render (0-based). If empty, renders all pages */
+  pageIndices?: number[];
+}
 
 interface WorkerResponse {
   id: string;
   success: boolean;
   error?: string;
-  data?: Uint8Array;
+  data?: unknown;
+}
+
+export interface PagePreview {
+  page: number;
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
+export interface DocumentInfo {
+  documentType: LOKDocumentType;
+  documentTypeName: string;
+  validOutputFormats: OutputFormat[];
+  pageCount: number;
+}
+
+/** Editor session returned from openDocument */
+export interface EditorSession {
+  sessionId: string;
+  documentType: string;
+  pageCount: number;
+}
+
+/** Result from an editor operation */
+export interface EditorOperationResult<T = unknown> {
+  success: boolean;
+  verified?: boolean;
+  data?: T;
+  error?: string;
+  suggestion?: string;
 }
 
 /**
@@ -194,38 +237,14 @@ export class WorkerConverter {
       );
     }
 
-    const inputExt = options.inputFormat || this.getExtensionFromFilename(filename) || 'docx';
+    const inputFormat = options.inputFormat || this.getExtensionFromFilename(filename) || 'docx';
     const outputFormat = options.outputFormat;
-
-    const inputPath = `/tmp/input/doc.${inputExt}`;
-    const outputPath = `/tmp/output/doc.${outputFormat}`;
-
-    // Build filter options
-    let filterOptions = FORMAT_FILTER_OPTIONS[outputFormat] || '';
-    if (outputFormat === 'pdf' && options.pdf) {
-      const pdfOpts: string[] = [];
-      if (options.pdf.pdfaLevel) {
-        const levelMap: Record<string, number> = {
-          'PDF/A-1b': 1,
-          'PDF/A-2b': 2,
-          'PDF/A-3b': 3,
-        };
-        pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
-      }
-      if (options.pdf.quality !== undefined) {
-        pdfOpts.push(`Quality=${options.pdf.quality}`);
-      }
-      if (pdfOpts.length > 0) {
-        filterOptions = pdfOpts.join(',');
-      }
-    }
 
     const result = await this.sendMessage('convert', {
       inputData,
-      inputPath,
-      outputPath,
-      outputFormat: OUTPUT_FORMAT_TO_LOK[outputFormat],
-      filterOptions,
+      inputFormat,
+      outputFormat,
+      filename,
     });
 
     const baseName = this.getBasename(filename);
@@ -237,6 +256,205 @@ export class WorkerConverter {
       filename: outputFilename,
       duration: Date.now() - startTime,
     };
+  }
+
+  /**
+   * Get the number of pages in a document
+   */
+  async getPageCount(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string
+  ): Promise<number> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    return this.sendMessage('getPageCount', { inputData, inputFormat });
+  }
+
+  /**
+   * Get document information including type and valid output formats
+   */
+  async getDocumentInfo(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string
+  ): Promise<DocumentInfo> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    return this.sendMessage('getDocumentInfo', { inputData, inputFormat });
+  }
+
+  /**
+   * Render a single page as an image
+   */
+  async renderPage(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string,
+    pageIndex: number,
+    width: number,
+    height = 0
+  ): Promise<PagePreview> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    const result = await this.sendMessage('renderPage', {
+      inputData,
+      inputFormat,
+      pageIndex,
+      width,
+      height,
+    });
+
+    return {
+      page: pageIndex,
+      data: new Uint8Array(result.data),
+      width: result.width,
+      height: result.height,
+    };
+  }
+
+  /**
+   * Render multiple page previews
+   */
+  async renderPagePreviews(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string,
+    options: RenderOptions = {}
+  ): Promise<PagePreview[]> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    const result = await this.sendMessage('renderPagePreviews', {
+      inputData,
+      inputFormat,
+      width: options.width || 800,
+      height: options.height || 0,
+      pageIndices: options.pageIndices,
+    });
+
+    return result.map((preview: any) => ({
+      page: preview.page,
+      data: new Uint8Array(preview.data),
+      width: preview.width,
+      height: preview.height,
+    }));
+  }
+
+  /**
+   * Extract text content from a document
+   */
+  async getDocumentText(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string
+  ): Promise<string | null> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    return this.sendMessage('getDocumentText', { inputData, inputFormat });
+  }
+
+  /**
+   * Get page/slide names from a document
+   */
+  async getPageNames(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string
+  ): Promise<string[]> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    return this.sendMessage('getPageNames', { inputData, inputFormat });
+  }
+
+  // ============================================
+  // Editor Operations
+  // ============================================
+
+  /**
+   * Open a document for editing
+   * Returns a session ID that can be used for subsequent editor operations
+   */
+  async openDocument(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    inputFormat: string
+  ): Promise<EditorSession> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    return this.sendMessage('openDocument', { inputData, inputFormat });
+  }
+
+  /**
+   * Execute an editor operation on an open document session
+   * @param sessionId - The session ID from openDocument
+   * @param method - The editor method to call (e.g., 'insertParagraph', 'getStructure')
+   * @param args - Arguments to pass to the method
+   */
+  async editorOperation<T = unknown>(
+    sessionId: string,
+    method: string,
+    ...args: unknown[]
+  ): Promise<EditorOperationResult<T>> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    return this.sendMessage('editorOperation', { sessionId, method, args });
+  }
+
+  /**
+   * Close an editor session and get the modified document
+   * @param sessionId - The session ID from openDocument
+   * @returns The modified document data, or undefined if save failed
+   */
+  async closeDocument(sessionId: string): Promise<Uint8Array | undefined> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const result = await this.sendMessage('closeDocument', { sessionId });
+    return result ? new Uint8Array(result) : undefined;
   }
 
   /**

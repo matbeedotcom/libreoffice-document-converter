@@ -35,6 +35,30 @@ const isNode =
   process.versions != null &&
   process.versions.node != null;
 
+// Node.js modules - only imported when running in Node.js
+// These are declared as any to avoid type issues in browser builds
+let pathModule: typeof import('path') | null = null;
+let urlModule: typeof import('url') | null = null;
+let fsModule: typeof import('fs') | null = null;
+let moduleModule: typeof import('module') | null = null;
+
+// Load Node.js modules synchronously at startup if in Node.js environment
+if (isNode) {
+  try {
+    // Use require for synchronous loading in Node.js
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    pathModule = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    urlModule = require('url');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    fsModule = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    moduleModule = require('module');
+  } catch {
+    // Ignore - not in Node.js environment
+  }
+}
+
 /**
  * LibreOffice WASM Document Converter
  *
@@ -77,7 +101,7 @@ export class LibreOfficeConverter {
     if (this.options.verbose) {
       console.log('[LibreOfficeConverter] Reinitializing due to corruption...');
     }
-    
+
     // Clean up existing state
     if (this.lokBindings) {
       try {
@@ -90,9 +114,55 @@ export class LibreOfficeConverter {
     this.module = null;
     this.initialized = false;
     this.corrupted = false;
-    
+
     // Reinitialize
     await this.initialize();
+  }
+
+  /**
+   * Initialize with a pre-loaded Emscripten module
+   * This is useful for environments like Web Workers that have their own
+   * WASM loading mechanism (e.g., importScripts with progress tracking)
+   */
+  async initializeWithModule(module: EmscriptenModule): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    if (this.initializing) {
+      while (this.initializing) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return;
+    }
+
+    this.initializing = true;
+
+    try {
+      this.module = module;
+
+      // Set up filesystem
+      this.setupFileSystem();
+
+      // Initialize LibreOfficeKit
+      await this.initializeLibreOfficeKit();
+
+      this.initialized = true;
+      this.options.onReady?.();
+    } catch (error) {
+      console.error('[LibreOfficeConverter] Initialization error:', error);
+      const convError =
+        error instanceof ConversionError
+          ? error
+          : new ConversionError(
+              ConversionErrorCode.WASM_NOT_INITIALIZED,
+              `Failed to initialize with module: ${error}`
+            );
+      this.options.onError?.(convError);
+      throw convError;
+    } finally {
+      this.initializing = false;
+    }
   }
 
   /**
@@ -133,6 +203,7 @@ export class LibreOfficeConverter {
       this.emitProgress('complete', 100, 'LibreOffice ready');
       this.options.onReady?.();
     } catch (error) {
+      console.error('[LibreOfficeConverter] Initialization error:', error);
       const convError =
         error instanceof ConversionError
           ? error
@@ -152,7 +223,7 @@ export class LibreOfficeConverter {
    */
   private async loadModule(): Promise<EmscriptenModule> {
     const wasmPath = this.options.wasmPath || './wasm';
-
+    console.log('[LibreOfficeConverter] Loading WASM module from:', wasmPath);
     if (isNode) {
       return this.loadNodeModule(wasmPath);
     } else {
@@ -164,11 +235,13 @@ export class LibreOfficeConverter {
    * Load module in Node.js environment
    */
   private async loadNodeModule(wasmPath: string): Promise<EmscriptenModule> {
-    // Dynamic imports for Node.js only
-    const pathModule = await import('path');
-    const { fileURLToPath } = await import('url');
-    const fsModule = await import('fs');
-    const { createRequire } = await import('module');
+    // Ensure Node.js modules are available
+    if (!pathModule || !urlModule || !fsModule || !moduleModule) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Node.js modules not available. This method should only be called in Node.js environment.'
+      );
+    }
 
     // Resolve absolute path
     let absolutePath = wasmPath;
@@ -176,7 +249,7 @@ export class LibreOfficeConverter {
       let currentDir: string;
       try {
         // ESM
-        currentDir = pathModule.dirname(fileURLToPath(import.meta.url));
+        currentDir = pathModule.dirname(urlModule.fileURLToPath(import.meta.url));
       } catch {
         // CJS fallback
         currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
@@ -203,10 +276,10 @@ export class LibreOfficeConverter {
     }
 
     // Use createRequire to load CommonJS module from ESM context
-    const require = createRequire(import.meta.url);
-    
+    const requireFn = moduleModule.createRequire(import.meta.url);
+
     // Load the loader module
-    const loader = require(pathModule.resolve(loaderPath));
+    const loader = requireFn(pathModule.resolve(loaderPath));
 
     // Use the loader's createModule function with progress callback
     const config = {
@@ -1250,6 +1323,14 @@ export class LibreOfficeConverter {
    */
   isReady(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Get the Emscripten module for advanced operations
+   * This is useful for direct filesystem or module access
+   */
+  getModule(): EmscriptenModule | null {
+    return this.module;
   }
 
   /**
