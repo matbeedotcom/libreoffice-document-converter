@@ -1,0 +1,56 @@
+# Source files (dist/ is published)
+src/
+tsconfig.json
+tsup.config.ts
+
+# Tests
+tests/
+vitest.config.ts
+playwright.config.ts
+test-results/
+playwright-report/
+coverage/
+
+# Examples and documentation
+examples/
+docs/
+
+# Build system
+build/
+Makefile
+Dockerfile
+docker-compose.yml
+
+# Development files
+dev-server.mjs
+serve.json
+CLAUDE.md
+.editorconfig
+.eslintrc*
+.prettierrc*
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
+
+# Local env
+.env*
+
+# Cache
+.cache/
+.ccache/
+.eslintcache

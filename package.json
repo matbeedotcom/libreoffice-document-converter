@@ -80,6 +80,15 @@
   ],
   "author": "",
   "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matbeedotcom/libreoffice-document-converter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/matbeedotcom/libreoffice-document-converter/issues"
+  },
+  "homepage": "https://github.com/matbeedotcom/libreoffice-document-converter#readme",
+  "sideEffects": false,
   "engines": {
     "node": ">=18.0.0"
   },

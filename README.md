@@ -27,10 +27,11 @@ npm install @libreoffice-wasm/converter
 import { createConverter } from '@libreoffice-wasm/converter';
 import fs from 'fs';
 
-// Initialize the converter
+// Initialize the converter (blocks main thread)
 const converter = await createConverter({
   wasmPath: './node_modules/@libreoffice-wasm/converter/wasm',
   verbose: true,
+  onProgress: (info) => console.log(`[${info.phase}] ${info.percent}%`),
 });
 
 // Read a document
@@ -39,7 +40,7 @@ const docxBuffer = fs.readFileSync('document.docx');
 // Convert to PDF
 const result = await converter.convert(docxBuffer, {
   outputFormat: 'pdf',
-});
+}, 'document.docx');
 
 // Save the result
 fs.writeFileSync('document.pdf', result.data);
@@ -49,12 +50,27 @@ console.log(`Converted in ${result.duration}ms`);
 await converter.destroy();
 ```
 
+### Non-Blocking Conversion (Recommended for Servers)
+
+```javascript
+import { createWorkerConverter } from '@libreoffice-wasm/converter';
+
+// Runs in a worker thread - doesn't block the main thread
+const converter = await createWorkerConverter({
+  wasmPath: './wasm',
+});
+
+const result = await converter.convert(docxBuffer, { outputFormat: 'pdf' });
+await converter.destroy();
+```
+
 ### One-Shot Conversion
 
 ```javascript
 import { convertDocument } from '@libreoffice-wasm/converter';
 
-const pdfData = await convertDocument(
+// Creates converter, converts, then destroys - best for single conversions
+const result = await convertDocument(
   docxBuffer,
   { outputFormat: 'pdf' },
   { wasmPath: './wasm' }
@@ -67,6 +83,8 @@ const pdfData = await convertDocument(
 - [Building from Source](#building-from-source)
 - [Project Setup](#project-setup)
 - [API Reference](#api-reference)
+  - [Node.js Converters](#converter-comparison)
+  - [Conversion Validation](#isconversionsupportedinputformat-outputformat)
 - [Supported Formats](#supported-formats)
 - [Browser Usage](#browser-usage)
 - [WASM Loading Progress](#wasm-loading-progress)
@@ -120,8 +138,8 @@ sudo apt-get install -y \
 
 ```bash
 # Clone this repository
-git clone https://github.com/your-repo/node-libreoffice-wasm.git
-cd node-libreoffice-wasm
+git clone https://github.com/matbeedotcom/libreoffice-document-converter.git
+cd libreoffice-document-converter
 
 # Run the build script (takes 1-4 hours)
 BUILD_JOBS=32 ./build/build-wasm.sh
@@ -337,6 +355,46 @@ const result = await convertDocument(
 );
 ```
 
+### `createWorkerConverter(options?)`
+
+Creates a converter that runs in a worker thread. **Recommended for servers** as it doesn't block the main thread.
+
+```typescript
+import { createWorkerConverter } from '@libreoffice-wasm/converter';
+
+const converter = await createWorkerConverter({
+  wasmPath: './wasm',
+  verbose: false,
+});
+
+// Same API as LibreOfficeConverter
+const result = await converter.convert(docxBuffer, { outputFormat: 'pdf' });
+await converter.destroy();
+```
+
+### `createSubprocessConverter(options?)`
+
+Creates a converter that runs in a separate child process. Best for **memory isolation** and automatic recovery from crashes.
+
+```typescript
+import { createSubprocessConverter } from '@libreoffice-wasm/converter';
+
+const converter = await createSubprocessConverter({
+  wasmPath: './wasm',
+});
+
+const result = await converter.convert(xlsxBuffer, { outputFormat: 'pdf' }, 'report.xlsx');
+await converter.destroy();
+```
+
+### Converter Comparison
+
+| Converter | Thread | Memory | Use Case |
+|-----------|--------|--------|----------|
+| `createConverter()` | Main | Shared | Simple scripts |
+| `createWorkerConverter()` | Worker | Shared | **Servers (recommended)** |
+| `createSubprocessConverter()` | Process | Isolated | High reliability, memory-constrained |
+
 ### `LibreOfficeConverter.getSupportedInputFormats()`
 
 Get list of supported input formats.
@@ -355,6 +413,57 @@ Get list of supported output formats.
 ```typescript
 const formats = LibreOfficeConverter.getSupportedOutputFormats();
 // ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'xlsx', ...]
+```
+
+### `isConversionSupported(inputFormat, outputFormat)`
+
+Check if a specific conversion path is supported.
+
+```typescript
+import { isConversionSupported } from '@libreoffice-wasm/converter';
+
+isConversionSupported('docx', 'pdf');   // true
+isConversionSupported('pdf', 'docx');   // false - PDFs can't be converted to DOCX
+isConversionSupported('xlsx', 'csv');   // true
+isConversionSupported('pptx', 'xlsx');  // false - can't convert presentations to spreadsheets
+```
+
+### `getValidOutputFormatsFor(inputFormat)`
+
+Get valid output formats for a given input format.
+
+```typescript
+import { getValidOutputFormatsFor } from '@libreoffice-wasm/converter';
+
+getValidOutputFormatsFor('docx');
+// ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png']
+
+getValidOutputFormatsFor('xlsx');
+// ['pdf', 'xlsx', 'xls', 'ods', 'csv', 'html', 'png']
+
+getValidOutputFormatsFor('pdf');
+// ['pdf', 'png', 'svg', 'html'] (PDFs are imported as Draw documents)
+```
+
+### Conversion Validation Example
+
+```typescript
+import {
+  isConversionSupported,
+  getValidOutputFormatsFor,
+  getConversionErrorMessage,
+} from '@libreoffice-wasm/converter';
+
+function validateConversion(inputFile: string, outputFormat: string) {
+  const ext = inputFile.split('.').pop()?.toLowerCase();
+
+  if (!isConversionSupported(ext, outputFormat)) {
+    throw new Error(getConversionErrorMessage(ext, outputFormat));
+    // "Cannot convert PDF to DOCX. PDF files are imported as Draw documents
+    //  and cannot be exported to Office formats. Valid output formats for PDF:
+    //  pdf, png, svg, html"
+  }
+}
 ```
 
 ---
@@ -408,25 +517,28 @@ const formats = LibreOfficeConverter.getSupportedOutputFormats();
 
 ```html
 <script type="module">
-import { BrowserConverter, quickConvert } from '@libreoffice-wasm/converter/browser';
+import {
+  WorkerBrowserConverter,
+  BrowserConverter,
+  createWasmPaths
+} from '@libreoffice-wasm/converter/browser';
 </script>
 ```
 
-Or via CDN:
+### Basic Browser Usage (Web Worker - Recommended)
 
-```html
-<script type="module">
-import { BrowserConverter } from 'https://cdn.jsdelivr.net/npm/@libreoffice-wasm/converter/dist/browser.js';
-</script>
-```
-
-### Basic Browser Usage
+The `WorkerBrowserConverter` runs LibreOffice in a Web Worker, keeping the main thread responsive:
 
 ```javascript
-import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
-const converter = new BrowserConverter({
-  wasmPath: '/wasm',
+// Create converter with explicit WASM file paths
+const converter = new WorkerBrowserConverter({
+  // Use helper to generate paths from a base URL
+  ...createWasmPaths('/wasm/'),
+  // Path to the library's worker script
+  browserWorkerJs: '/dist/browser-worker.js',
+  // Progress callback
   onProgress: (info) => {
     progressBar.style.width = `${info.percent}%`;
     statusText.textContent = info.message;
@@ -436,47 +548,69 @@ const converter = new BrowserConverter({
 await converter.initialize();
 
 // Convert a File object
-const result = await converter.convertFile(file, { outputFormat: 'pdf' });
-
-// Auto-download
-converter.download(result);
-
-// Or preview in new tab
-converter.preview(result);
-
-// Or get blob URL
-const url = converter.createBlobUrl(result);
-```
-
-### Drag and Drop
-
-```javascript
-import { createDropZone } from '@libreoffice-wasm/converter/browser';
-
-const dropZone = createDropZone('#drop-area', {
+const file = document.querySelector('input[type="file"]').files[0];
+const arrayBuffer = await file.arrayBuffer();
+const result = await converter.convert(new Uint8Array(arrayBuffer), {
   outputFormat: 'pdf',
-  wasmPath: '/wasm',
-  autoDownload: true,
-  onProgress: (info) => console.log(info.message),
-  onConvert: (result) => console.log('Converted:', result.filename),
-  onError: (err) => alert(err.message),
-});
+}, file.name);
 
-// Clean up when done
-dropZone.destroy();
+// Download the result
+const blob = new Blob([result.data], { type: result.mimeType });
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = result.filename;
+a.click();
 ```
 
-### Quick Convert
+### Main Thread Converter (Alternative)
+
+For simpler setups without a worker (blocks UI during conversion):
 
 ```javascript
-import { quickConvert } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
-// From file input
-const fileInput = document.querySelector('input[type="file"]');
-fileInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  const result = await quickConvert(file, 'pdf', { download: true });
+const converter = new BrowserConverter({
+  ...createWasmPaths('/wasm/'),
+  onProgress: (info) => console.log(`${info.percent}%: ${info.message}`),
 });
+
+await converter.initialize();
+const result = await converter.convert(fileData, { outputFormat: 'pdf' }, 'doc.docx');
+```
+
+### Required WASM Paths
+
+The browser converter requires explicit paths to all WASM files. Use `createWasmPaths()` for convenience:
+
+```javascript
+// Using the helper (all files in one directory)
+const paths = createWasmPaths('/libreoffice/');
+// Returns:
+// {
+//   sofficeJs: '/libreoffice/soffice.js',
+//   sofficeWasm: '/libreoffice/soffice.wasm',
+//   sofficeData: '/libreoffice/soffice.data',
+//   sofficeWorkerJs: '/libreoffice/soffice.worker.js',
+// }
+
+// Or specify each path manually
+const converter = new WorkerBrowserConverter({
+  sofficeJs: 'https://cdn.example.com/wasm/soffice.js',
+  sofficeWasm: 'https://cdn.example.com/wasm/soffice.wasm',
+  sofficeData: 'https://cdn.example.com/wasm/soffice.data',
+  sofficeWorkerJs: 'https://cdn.example.com/wasm/soffice.worker.js',
+  browserWorkerJs: '/workers/browser-worker.js',
+});
+```
+
+### Required HTTP Headers
+
+SharedArrayBuffer requires specific CORS headers on your server:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
 ---
@@ -488,10 +622,11 @@ The browser converter provides detailed progress tracking during WASM initializa
 ### Progress Callback
 
 ```typescript
-import { WorkerBrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
 const converter = new WorkerBrowserConverter({
-  wasmPath: '/wasm',
+  ...createWasmPaths('/wasm/'),
+  browserWorkerJs: '/dist/browser-worker.js',
   onProgress: (progress) => {
     // progress is a WasmLoadProgress object
     console.log(`Phase: ${progress.phase}`);
@@ -553,14 +688,15 @@ type WasmLoadPhase =
 <div id="progress-bytes"></div>
 
 <script type="module">
-import { WorkerBrowserConverter } from '/dist/browser.js';
+import { WorkerBrowserConverter, createWasmPaths } from '/dist/browser.js';
 
 const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const progressBytes = document.getElementById('progress-bytes');
 
 const converter = new WorkerBrowserConverter({
-  wasmPath: '/wasm',
+  ...createWasmPaths('/wasm/'),
+  browserWorkerJs: '/dist/browser-worker.js',
   onProgress: (progress) => {
     progressBar.style.width = `${progress.percent}%`;
     progressText.textContent = progress.message;
@@ -589,7 +725,12 @@ The browser converter provides APIs for rendering document page previews without
 ### Get Document Info
 
 ```typescript
-const converter = new WorkerBrowserConverter({ wasmPath: '/wasm' });
+import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+
+const converter = new WorkerBrowserConverter({
+  ...createWasmPaths('/wasm/'),
+  browserWorkerJs: '/dist/browser-worker.js',
+});
 await converter.initialize();
 
 // Load a document and get its metadata
@@ -642,7 +783,12 @@ console.log(lokInfo);
 ### Example: Document Thumbnail Gallery
 
 ```typescript
-const converter = new WorkerBrowserConverter({ wasmPath: '/wasm' });
+import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+
+const converter = new WorkerBrowserConverter({
+  ...createWasmPaths('/wasm/'),
+  browserWorkerJs: '/dist/browser-worker.js',
+});
 await converter.initialize();
 
 async function renderThumbnails(fileBuffer: Uint8Array, filename: string) {
@@ -762,26 +908,36 @@ await converter.destroy();
 ```javascript
 import express from 'express';
 import multer from 'multer';
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createWorkerConverter, isConversionSupported } from '@libreoffice-wasm/converter';
 
 const app = express();
 const upload = multer();
 let converter;
 
-// Initialize on startup
+// Initialize on startup (use worker converter for non-blocking)
 (async () => {
-  converter = await createConverter({ wasmPath: './wasm' });
+  converter = await createWorkerConverter({ wasmPath: './wasm' });
   console.log('Converter ready');
 })();
 
 app.post('/convert', upload.single('file'), async (req, res) => {
   try {
+    const inputFormat = req.file.originalname.split('.').pop()?.toLowerCase();
+    const outputFormat = req.body.format || 'pdf';
+
+    // Validate conversion before attempting
+    if (!isConversionSupported(inputFormat, outputFormat)) {
+      return res.status(400).json({
+        error: `Cannot convert ${inputFormat} to ${outputFormat}`,
+      });
+    }
+
     const result = await converter.convert(
       req.file.buffer,
-      { outputFormat: req.body.format || 'pdf' },
+      { outputFormat },
       req.file.originalname
     );
-    
+
     res.set('Content-Type', result.mimeType);
     res.set('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(Buffer.from(result.data));
@@ -790,49 +946,68 @@ app.post('/convert', upload.single('file'), async (req, res) => {
   }
 });
 
-app.listen(3000);
+app.listen(3000, () => console.log('Server running on port 3000'));
 ```
 
 ### React Component
 
-```jsx
+```tsx
 import { useState, useEffect, useRef } from 'react';
-import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
 
 function DocumentConverter() {
-  const [converter, setConverter] = useState(null);
+  const converterRef = useRef<WorkerBrowserConverter | null>(null);
   const [status, setStatus] = useState('Loading...');
   const [progress, setProgress] = useState(0);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const init = async () => {
-      const conv = new BrowserConverter({
-        wasmPath: '/wasm',
+      const converter = new WorkerBrowserConverter({
+        ...createWasmPaths('/wasm/'),
+        browserWorkerJs: '/dist/browser-worker.js',
         onProgress: (info) => {
           setProgress(info.percent);
           setStatus(info.message);
         },
       });
-      await conv.initialize();
-      setConverter(conv);
+      await converter.initialize();
+      converterRef.current = converter;
+      setReady(true);
       setStatus('Ready');
     };
     init();
-    
-    return () => converter?.destroy();
+
+    return () => {
+      converterRef.current?.destroy();
+    };
   }, []);
 
-  const handleFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !converter) return;
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !converterRef.current) return;
 
     setStatus('Converting...');
     try {
-      const result = await converter.convertFile(file, { outputFormat: 'pdf' });
-      converter.download(result);
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await converterRef.current.convert(
+        new Uint8Array(arrayBuffer),
+        { outputFormat: 'pdf' },
+        file.name
+      );
+
+      // Download the result
+      const blob = new Blob([result.data], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
       setStatus('Done!');
     } catch (err) {
-      setStatus(`Error: ${err.message}`);
+      setStatus(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -841,7 +1016,12 @@ function DocumentConverter() {
       <h2>Document Converter</h2>
       <p>Status: {status}</p>
       <progress value={progress} max={100} />
-      <input type="file" onChange={handleFile} accept=".doc,.docx,.odt,.rtf" />
+      <input
+        type="file"
+        onChange={handleFile}
+        accept=".doc,.docx,.odt,.rtf,.xls,.xlsx,.ppt,.pptx"
+        disabled={!ready}
+      />
     </div>
   );
 }
@@ -996,8 +1176,8 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 ```bash
 # Clone and setup
-git clone https://github.com/your-repo/node-libreoffice-wasm.git
-cd node-libreoffice-wasm
+git clone https://github.com/matbeedotcom/libreoffice-document-converter.git
+cd libreoffice-document-converter
 npm install
 
 # Build
@@ -1014,5 +1194,5 @@ npm run lint:fix
 
 ## Support
 
-- [GitHub Issues](https://github.com/your-repo/node-libreoffice-wasm/issues)
-- [Documentation](https://github.com/your-repo/node-libreoffice-wasm/wiki)
+- [GitHub Issues](https://github.com/matbeedotcom/libreoffice-document-converter/issues)
+- [Documentation](https://github.com/matbeedotcom/libreoffice-document-converter#readme)

@@ -38,6 +38,10 @@ yarn-error.log*
 # Testing
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+tests/output/
+tests/large_sample*.docx
 
 # Docker
 .docker/
@@ -52,4 +56,9 @@ coverage/
 *.temp
 tmp/
 temp/
+
+# Development artifacts
+build.log
+lazy-loading-test-*.png
+docs/plans/
 
