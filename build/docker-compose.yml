@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.build
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
     volumes:
       - ../wasm:/output
       - ./tarballs:/build/libreoffice/external/tarballs

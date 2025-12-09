@@ -10,6 +10,8 @@ LABEL description="Dedicated LibreOffice WASM build environment"
 ARG LIBREOFFICE_VERSION=libreoffice-24-8
 ARG EMSDK_VERSION=3.1.74
 ARG BUILD_JOBS=4
+ARG USER_ID=1000
+ARG GROUP_ID=1000
 
 # Environment
 ENV DEBIAN_FRONTEND=noninteractive
@@ -82,30 +84,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Emscripten
-WORKDIR /opt
-RUN git clone --depth 1 https://github.com/emscripten-core/emsdk.git ${EMSDK} \
-    && cd ${EMSDK} \
-    && ./emsdk install ${EMSDK_VERSION} \
-    && ./emsdk activate ${EMSDK_VERSION} \
-    && echo "source ${EMSDK}/emsdk_env.sh" >> /etc/bash.bashrc
+# Create builder user early, before any file operations
+ARG USER_ID
+ARG GROUP_ID
+RUN (getent group ${GROUP_ID} || groupadd -g ${GROUP_ID} builder) && \
+    (getent passwd ${USER_ID} || useradd -m -u ${USER_ID} -g ${GROUP_ID} -s /bin/bash builder) && \
+    mkdir -p /opt/emsdk /build /output /ccache && \
+    chown ${USER_ID}:${GROUP_ID} /opt/emsdk /build /output /ccache
+
+# Switch to builder user for all remaining operations
+USER ${USER_ID}:${GROUP_ID}
+
+# Install Emscripten (as builder user)
+WORKDIR /opt/emsdk
+RUN git clone --depth 1 https://github.com/emscripten-core/emsdk.git . && \
+    ./emsdk install ${EMSDK_VERSION} && \
+    ./emsdk activate ${EMSDK_VERSION}
 
 # Pre-compile Emscripten system libraries
-RUN cd ${EMSDK} && . ./emsdk_env.sh && \
+RUN . ./emsdk_env.sh && \
     embuilder build sysroot libc libc++ libc++abi
 
-# Clone LibreOffice
+# Clone LibreOffice (as builder user)
 WORKDIR /build
 RUN git clone --depth 1 --branch ${LIBREOFFICE_VERSION} \
     https://git.libreoffice.org/core libreoffice
 
-# Create working directories
-RUN mkdir -p /output /ccache
-
-# Copy and set up build scripts
-COPY build-wasm.sh /build/build-wasm.sh
-COPY autogen.input /build/autogen.input
-COPY patches/ /build/patches/
+# Copy build scripts - need to re-declare ARGs after USER for --chown
+ARG USER_ID
+ARG GROUP_ID
+COPY --chown=${USER_ID}:${GROUP_ID} build-wasm.sh /build/build-wasm.sh
+COPY --chown=${USER_ID}:${GROUP_ID} autogen.input /build/autogen.input
+COPY --chown=${USER_ID}:${GROUP_ID} patches/ /build/patches/
 RUN chmod +x /build/build-wasm.sh
 
 WORKDIR /build/libreoffice
@@ -118,4 +128,3 @@ RUN echo "max_size = 10G" > /ccache/ccache.conf
 
 # Default: run the build
 CMD ["/build/build-wasm.sh"]
-
