@@ -1,0 +1,15 @@
+{
+  "name": "libreoffice-converter-example",
+  "version": "1.0.0",
+  "description": "Example application using @matbee/libreoffice-converter",
+  "type": "module",
+  "scripts": {
+    "convert": "node convert.js",
+    "inspect": "node inspect-document.js",
+    "preview": "node generate-previews.js",
+    "server": "node conversion-server.js"
+  },
+  "dependencies": {
+    "@matbee/libreoffice-converter": "^1.1.0"
+  }
+}

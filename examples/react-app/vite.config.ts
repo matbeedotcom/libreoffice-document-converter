@@ -61,12 +61,12 @@ export default defineConfig({
   resolve: {
     alias: {
       // Resolve linked package subpath exports
-      '@libreoffice-wasm/converter/browser': resolve(__dirname, '../../dist/browser.js'),
-      '@libreoffice-wasm/converter': resolve(__dirname, '../../dist/index.js'),
+      '@matbee/libreoffice-converter/browser': resolve(__dirname, '../../dist/browser.js'),
+      '@matbee/libreoffice-converter': resolve(__dirname, '../../dist/index.js'),
     },
   },
   optimizeDeps: {
     // Don't pre-bundle the linked package
-    exclude: ['@libreoffice-wasm/converter'],
+    exclude: ['@matbee/libreoffice-converter'],
   },
 });

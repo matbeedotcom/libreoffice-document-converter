@@ -20,7 +20,7 @@ Collection of example code for common use cases.
 ### Convert DOCX to PDF
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
 async function convertToPdf() {
@@ -88,7 +88,7 @@ fs.writeFileSync('data.csv', result.data);
 ### Convert All Documents in Directory
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 import path from 'path';
 
@@ -142,7 +142,7 @@ batchConvert('./documents', './converted-pdfs', 'pdf');
 ### Parallel Batch Conversion with Limits
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -196,7 +196,7 @@ parallelConvert('./docs', './pdfs', 4);
 ```javascript
 import express from 'express';
 import multer from 'multer';
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -264,7 +264,7 @@ initConverter().then(() => {
 ```javascript
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 
 const fastify = Fastify({ logger: true });
 fastify.register(multipart);
@@ -304,7 +304,7 @@ start();
 
 ```jsx
 import { useState, useEffect, useCallback } from 'react';
-import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 export function DocumentConverter() {
   const [converter, setConverter] = useState(null);
@@ -429,7 +429,7 @@ export function DocumentConverter() {
 ```jsx
 // ConverterContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
-import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 const ConverterContext = createContext(null);
 
@@ -485,7 +485,7 @@ function ConvertButton({ file }) {
 ```javascript
 // useConverter.js
 import { ref, onMounted, onUnmounted } from 'vue';
-import { BrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 export function useConverter() {
   const converter = ref(null);
@@ -610,7 +610,7 @@ app.whenReady().then(createWindow);
 let converter;
 
 ipcMain.handle('init-converter', async () => {
-  const { createConverter } = await import('@libreoffice-wasm/converter');
+  const { createConverter } = await import('@matbee/libreoffice-converter');
   converter = await createConverter({
     wasmPath: path.join(__dirname, 'wasm'),
   });
@@ -688,7 +688,7 @@ window.converter.init().then(() => {
 ```javascript
 // worker.js
 const { parentPort, workerData } = require('worker_threads');
-const { createConverter } = require('@libreoffice-wasm/converter');
+const { createConverter } = require('@matbee/libreoffice-converter');
 
 let converter;
 
@@ -829,7 +829,7 @@ fs.writeFileSync('document.pdf', result.data);
 For very large files, use streams to reduce memory usage:
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 import { pipeline } from 'stream/promises';
 
@@ -877,7 +877,7 @@ convertLargeFile('large-document.docx', 'output.pdf');
 import express from 'express';
 import multer from 'multer';
 import { Readable } from 'stream';
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });

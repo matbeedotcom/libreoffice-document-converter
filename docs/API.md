@@ -39,7 +39,7 @@ function createConverter(options?: LibreOfficeWasmOptions): Promise<LibreOfficeC
 **Example:**
 
 ```typescript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 
 const converter = await createConverter({
   wasmPath: './wasm',
@@ -77,7 +77,7 @@ function convertDocument(
 **Example:**
 
 ```typescript
-import { convertDocument } from '@libreoffice-wasm/converter';
+import { convertDocument } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
 const docx = fs.readFileSync('document.docx');
@@ -201,7 +201,7 @@ static getSupportedOutputFormats(): OutputFormat[]
 Import from the browser module:
 
 ```typescript
-import { BrowserConverter, createDropZone, quickConvert } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter, createDropZone, quickConvert } from '@matbee/libreoffice-converter/browser';
 ```
 
 ---
@@ -393,7 +393,7 @@ function createDropZone(
 </style>
 
 <script type="module">
-import { createDropZone } from '@libreoffice-wasm/converter/browser';
+import { createDropZone } from '@matbee/libreoffice-converter/browser';
 
 const dropZone = createDropZone('#drop-zone', {
   outputFormat: 'pdf',
@@ -435,7 +435,7 @@ async function quickConvert(
 **Example:**
 
 ```typescript
-import { quickConvert } from '@libreoffice-wasm/converter/browser';
+import { quickConvert } from '@matbee/libreoffice-converter/browser';
 
 const fileInput = document.querySelector('input[type="file"]');
 fileInput.addEventListener('change', async (e) => {
@@ -660,7 +660,7 @@ enum ConversionErrorCode {
 **Example:**
 
 ```typescript
-import { createConverter, ConversionError, ConversionErrorCode } from '@libreoffice-wasm/converter';
+import { createConverter, ConversionError, ConversionErrorCode } from '@matbee/libreoffice-converter';
 
 try {
   const result = await converter.convert(input, { outputFormat: 'pdf' });
@@ -790,7 +790,7 @@ function isOutputFormatSupported(format: string): boolean
 **Example:**
 
 ```typescript
-import { isInputFormatSupported, isOutputFormatSupported } from '@libreoffice-wasm/converter';
+import { isInputFormatSupported, isOutputFormatSupported } from '@matbee/libreoffice-converter';
 
 if (isInputFormatSupported('docx')) {
   console.log('DOCX input supported');

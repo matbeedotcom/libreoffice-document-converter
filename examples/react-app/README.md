@@ -1,6 +1,6 @@
 # React Document Converter Example
 
-This example demonstrates how to use `@libreoffice-wasm/converter` in a React application.
+This example demonstrates how to use `@matbee/libreoffice-converter` in a React application.
 
 ## Setup
 
@@ -29,7 +29,7 @@ npm run dev
 ## Using the Package
 
 ```tsx
-import { WorkerBrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 const converter = new WorkerBrowserConverter({
   wasmPath: '/wasm',
@@ -45,7 +45,7 @@ converter.download(result);
 
 ```tsx
 import { useRef, useCallback, useEffect } from 'react';
-import { WorkerBrowserConverter } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 function useConverter() {
   const converterRef = useRef<WorkerBrowserConverter | null>(null);

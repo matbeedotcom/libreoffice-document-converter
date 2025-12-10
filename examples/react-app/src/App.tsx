@@ -5,7 +5,7 @@ import {
   type ConversionResult,
   type OutputFormat,
   type InputFormat,
-} from '@libreoffice-wasm/converter/browser';
+} from '@matbee/libreoffice-converter/browser';
 
 // Output format options
 const OUTPUT_FORMATS: { value: OutputFormat; label: string; group: string }[] = [
@@ -209,7 +209,7 @@ export default function App() {
         <header>
           <h1>React Document Converter</h1>
           <p className="tagline">
-            Powered by @libreoffice-wasm/converter
+            Powered by @matbee/libreoffice-converter
           </p>
         </header>
 
@@ -408,7 +408,7 @@ export default function App() {
           <p>
             Powered by <a href="https://www.libreoffice.org/" target="_blank" rel="noreferrer">LibreOffice</a>{' '}
             compiled to WebAssembly •{' '}
-            <a href="https://www.npmjs.com/package/@libreoffice-wasm/converter" target="_blank" rel="noreferrer">
+            <a href="https://www.npmjs.com/package/@matbee/libreoffice-converter" target="_blank" rel="noreferrer">
               NPM Package
             </a>
           </p>

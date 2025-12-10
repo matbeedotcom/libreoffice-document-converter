@@ -18,18 +18,18 @@ A headless document conversion toolkit that uses LibreOffice compiled to WebAsse
 ### Installation
 
 ```bash
-npm install @libreoffice-wasm/converter
+npm install @matbee/libreoffice-converter
 ```
 
 ### Basic Usage (Node.js)
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
 // Initialize the converter (blocks main thread)
 const converter = await createConverter({
-  wasmPath: './node_modules/@libreoffice-wasm/converter/wasm',
+  wasmPath: './node_modules/@matbee/libreoffice-converter/wasm',
   verbose: true,
   onProgress: (info) => console.log(`[${info.phase}] ${info.percent}%`),
 });
@@ -53,7 +53,7 @@ await converter.destroy();
 ### Non-Blocking Conversion (Recommended for Servers)
 
 ```javascript
-import { createWorkerConverter } from '@libreoffice-wasm/converter';
+import { createWorkerConverter } from '@matbee/libreoffice-converter';
 
 // Runs in a worker thread - doesn't block the main thread
 const converter = await createWorkerConverter({
@@ -67,7 +67,7 @@ await converter.destroy();
 ### One-Shot Conversion
 
 ```javascript
-import { convertDocument } from '@libreoffice-wasm/converter';
+import { convertDocument } from '@matbee/libreoffice-converter';
 
 // Creates converter, converts, then destroys - best for single conversions
 const result = await convertDocument(
@@ -216,7 +216,7 @@ npm run dev
 Creates and initializes a converter instance.
 
 ```typescript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 
 const converter = await createConverter({
   wasmPath: './wasm',
@@ -289,7 +289,7 @@ await converter.destroy();
 One-shot conversion utility. Creates converter, converts, then destroys.
 
 ```typescript
-import { convertDocument } from '@libreoffice-wasm/converter';
+import { convertDocument } from '@matbee/libreoffice-converter';
 
 const result = await convertDocument(
   inputBuffer,
@@ -303,7 +303,7 @@ const result = await convertDocument(
 Creates a converter that runs in a worker thread. **Recommended for servers** as it doesn't block the main thread.
 
 ```typescript
-import { createWorkerConverter } from '@libreoffice-wasm/converter';
+import { createWorkerConverter } from '@matbee/libreoffice-converter';
 
 const converter = await createWorkerConverter({
   wasmPath: './wasm',
@@ -320,7 +320,7 @@ await converter.destroy();
 Creates a converter that runs in a separate child process. Best for **memory isolation** and automatic recovery from crashes.
 
 ```typescript
-import { createSubprocessConverter } from '@libreoffice-wasm/converter';
+import { createSubprocessConverter } from '@matbee/libreoffice-converter';
 
 const converter = await createSubprocessConverter({
   wasmPath: './wasm',
@@ -343,7 +343,7 @@ await converter.destroy();
 Get list of supported input formats.
 
 ```typescript
-import { LibreOfficeConverter } from '@libreoffice-wasm/converter';
+import { LibreOfficeConverter } from '@matbee/libreoffice-converter';
 
 const formats = LibreOfficeConverter.getSupportedInputFormats();
 // ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', ...]
@@ -363,7 +363,7 @@ const formats = LibreOfficeConverter.getSupportedOutputFormats();
 Check if a specific conversion path is supported.
 
 ```typescript
-import { isConversionSupported } from '@libreoffice-wasm/converter';
+import { isConversionSupported } from '@matbee/libreoffice-converter';
 
 isConversionSupported('docx', 'pdf');   // true
 isConversionSupported('pdf', 'docx');   // false - PDFs can't be converted to DOCX
@@ -376,7 +376,7 @@ isConversionSupported('pptx', 'xlsx');  // false - can't convert presentations t
 Get valid output formats for a given input format.
 
 ```typescript
-import { getValidOutputFormatsFor } from '@libreoffice-wasm/converter';
+import { getValidOutputFormatsFor } from '@matbee/libreoffice-converter';
 
 getValidOutputFormatsFor('docx');
 // ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'png']
@@ -395,7 +395,7 @@ import {
   isConversionSupported,
   getValidOutputFormatsFor,
   getConversionErrorMessage,
-} from '@libreoffice-wasm/converter';
+} from '@matbee/libreoffice-converter';
 
 function validateConversion(inputFile: string, outputFormat: string) {
   const ext = inputFile.split('.').pop()?.toLowerCase();
@@ -464,7 +464,7 @@ import {
   WorkerBrowserConverter,
   BrowserConverter,
   createWasmPaths
-} from '@libreoffice-wasm/converter/browser';
+} from '@matbee/libreoffice-converter/browser';
 </script>
 ```
 
@@ -473,7 +473,7 @@ import {
 The `WorkerBrowserConverter` runs LibreOffice in a Web Worker, keeping the main thread responsive:
 
 ```javascript
-import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 // Create converter - serves WASM from /wasm/ by default
 const converter = new WorkerBrowserConverter({
@@ -508,7 +508,7 @@ a.click();
 For simpler setups without a worker (blocks UI during conversion):
 
 ```javascript
-import { BrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { BrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 const converter = new BrowserConverter({
   ...createWasmPaths(), // Defaults to /wasm/
@@ -524,7 +524,7 @@ const result = await converter.convert(fileData, { outputFormat: 'pdf' }, 'doc.d
 The browser converter requires paths to WASM files. Use `createWasmPaths()` which defaults to `/wasm/`:
 
 ```javascript
-import { createWasmPaths, DEFAULT_WASM_BASE_URL } from '@libreoffice-wasm/converter/browser';
+import { createWasmPaths, DEFAULT_WASM_BASE_URL } from '@matbee/libreoffice-converter/browser';
 
 // Use default /wasm/ path (same-origin)
 const paths = createWasmPaths();
@@ -569,7 +569,7 @@ The browser converter provides detailed progress tracking during WASM initializa
 ### Progress Callback
 
 ```typescript
-import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
@@ -675,7 +675,7 @@ Get document metadata including type, page count, and valid output formats.
 
 ```typescript
 // Node.js
-import { createWorkerConverter } from '@libreoffice-wasm/converter';
+import { createWorkerConverter } from '@matbee/libreoffice-converter';
 
 const converter = await createWorkerConverter({ wasmPath: './wasm' });
 
@@ -922,7 +922,7 @@ if (modifiedData) {
 ### Complete Editing Example
 
 ```typescript
-import { createWorkerConverter } from '@libreoffice-wasm/converter';
+import { createWorkerConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
 const converter = await createWorkerConverter({ wasmPath: './wasm' });
@@ -959,7 +959,7 @@ The browser converter provides additional convenience methods for rendering.
 ### Get Document Info (Browser)
 
 ```typescript
-import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
@@ -984,7 +984,7 @@ console.log(lokInfo);
 ### Example: Document Thumbnail Gallery
 
 ```typescript
-import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
@@ -1058,7 +1058,7 @@ const result = await converter.convert(encryptedDoc, {
 ### Convert DOCX to PDF
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
 const converter = await createConverter({ wasmPath: './wasm' });
@@ -1073,7 +1073,7 @@ await converter.destroy();
 ### Batch Conversion
 
 ```javascript
-import { createConverter } from '@libreoffice-wasm/converter';
+import { createConverter } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 import path from 'path';
 
@@ -1100,7 +1100,7 @@ await converter.destroy();
 ```javascript
 import express from 'express';
 import multer from 'multer';
-import { createWorkerConverter, isConversionSupported } from '@libreoffice-wasm/converter';
+import { createWorkerConverter, isConversionSupported } from '@matbee/libreoffice-converter';
 
 const app = express();
 const upload = multer();
@@ -1145,7 +1145,7 @@ app.listen(3000, () => console.log('Server running on port 3000'));
 
 ```tsx
 import { useState, useEffect, useRef } from 'react';
-import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
+import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-converter/browser';
 
 function DocumentConverter() {
   const converterRef = useRef<WorkerBrowserConverter | null>(null);
