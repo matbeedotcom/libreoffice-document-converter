@@ -4,12 +4,12 @@ A headless document conversion toolkit that uses LibreOffice compiled to WebAsse
 
 ## Features
 
-- 🚀 **Pure WebAssembly** - No native LibreOffice installation required
-- 📄 **Wide Format Support** - Convert between 15+ document formats
-- 🌐 **Cross-Platform** - Works in Node.js and browsers
-- 📦 **Zero Dependencies** - Self-contained WASM module
-- 🔒 **Secure** - Documents never leave your environment
-- ⚡ **Fast Conversions** - 1-5 seconds per document after initialization
+- **Pure WebAssembly** - No native LibreOffice installation required
+- **Wide Format Support** - Convert between 15+ document formats
+- **Cross-Platform** - Works in Node.js and browsers
+- **Zero Dependencies** - Self-contained WASM module
+- **Secure** - Documents never leave your environment
+- **Fast Conversions** - ~30ms seconds per document after initialization
 
 > **Note:** First browser initialization includes downloading ~240MB of WASM files. After that, conversions are fast. Reuse the converter instance for best performance.
 
@@ -77,15 +77,38 @@ const result = await convertDocument(
 );
 ```
 
+### Page Previews
+
+```javascript
+import { createWorkerConverter, rgbaToPng } from '@matbee/libreoffice-converter';
+import fs from 'fs';
+
+const converter = await createWorkerConverter({ wasmPath: './wasm' });
+
+// Render all pages as thumbnails (returns raw RGBA pixel data)
+const pptxBuffer = fs.readFileSync('presentation.pptx');
+const previews = await converter.renderPagePreviews(pptxBuffer, 'pptx', {
+  width: 400,
+});
+
+// Convert RGBA to PNG and save (uses sharp if available, falls back to pure JS)
+for (const preview of previews) {
+  const pngBuffer = await rgbaToPng(preview.data, preview.width, preview.height);
+  fs.writeFileSync(`page-${preview.page + 1}.png`, pngBuffer);
+}
+
+await converter.destroy();
+```
+
 ## Table of Contents
 
 - [System Requirements](#system-requirements)
-- [Building from Source](#building-from-source)
 - [Project Setup](#project-setup)
 - [API Reference](#api-reference)
   - [Node.js Converters](#converter-comparison)
   - [Conversion Validation](#isconversionsupportedinputformat-outputformat)
   - [Supported Formats](#supported-formats)
+  - [Image Encoding](#image-encoding)
   - [Browser Usage](#browser-usage)
   - [WASM Loading Progress](#wasm-loading-progress)
   - [Document Inspection & Rendering API](#document-inspection--rendering-api)
@@ -94,6 +117,7 @@ const result = await convertDocument(
   - [Configuration](#configuration)
 - [Examples](#examples)
 - [Troubleshooting](#troubleshooting)
+- [Building from Source](#building-from-source)
 - [License](#license)
 
 ---
@@ -112,100 +136,6 @@ const result = await convertDocument(
 - 50GB+ disk space
 - 8+ CPU cores (32 recommended)
 - Build time: 1-4 hours
-
----
-
-## Building from Source
-
-If you need to build the LibreOffice WASM module yourself:
-
-### Prerequisites
-
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y \
-    build-essential git cmake ninja-build \
-    python3 python3-pip python3-dev \
-    autoconf automake bison ccache flex gawk gettext \
-    libarchive-dev libcups2-dev libcurl4-openssl-dev \
-    libfontconfig1-dev libfreetype6-dev libglib2.0-dev \
-    libharfbuzz-dev libicu-dev libjpeg-dev liblcms2-dev \
-    libpng-dev libssl-dev libtool libxml2-dev libxslt1-dev \
-    pkg-config uuid-dev xsltproc zip unzip wget curl \
-    ca-certificates xz-utils gperf nasm
-```
-
-### Build Steps
-
-```bash
-# Clone this repository
-git clone https://github.com/matbeedotcom/libreoffice-document-converter.git
-cd libreoffice-document-converter
-
-# Run the build script (takes 1-4 hours)
-BUILD_JOBS=32 ./build/build-wasm.sh
-```
-
-### Build Options
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BUILD_JOBS` | `$(nproc)` | Number of parallel compile jobs |
-| `BUILD_DIR` | `~/libreoffice-wasm-build` | Build directory |
-| `OUTPUT_DIR` | `./wasm` | Output directory for WASM files |
-| `LIBREOFFICE_VERSION` | `libreoffice-24-8` | LibreOffice Git branch |
-| `EMSDK_VERSION` | `3.1.51` | Emscripten SDK version |
-| `SKIP_DEPS` | `0` | Skip dependency installation |
-| `CLEAN_BUILD` | `0` | Clean before building |
-
-```
-
-### Build Output
-
-After building, the `wasm/` directory contains:
-
-| File | Size (Raw) | Size (Brotli) | Description |
-|------|------------|---------------|-------------|
-| `soffice.wasm` | 112 MB | 24.8 MB | Main WebAssembly binary |
-| `soffice.data` | 80 MB | 15.2 MB | Filesystem image (fonts, configs) |
-| `soffice.cjs` | 230 KB | - | JavaScript loader |
-| `soffice.worker.cjs` | 4 KB | - | Web Worker script |
-| `loader.cjs` | 8 KB | - | Node.js module loader |
-| **Total** | **192 MB** | **40 MB** | With Brotli compression |
-
-
-## Project Setup
-
-### Development Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Run tests
-npm test
-
-# Type checking
-npm run typecheck
-
-# Development mode with auto-reload
-npm run dev
-```
-
-### NPM Scripts
-
-| Script | Description |
-|--------|-------------|
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run build:wasm` | Build LibreOffice WASM |
-| `npm test` | Run tests |
-| `npm run dev` | Development server with watch |
-| `npm run typecheck` | TypeScript type checking |
-| `npm run lint` | ESLint code linting |
 
 ---
 
@@ -451,6 +381,91 @@ function validateConversion(inputFile: string, outputFormat: string) {
 | PNG | `.png` | `image/png` |
 | JPG | `.jpg` | `image/jpeg` |
 | SVG | `.svg` | `image/svg+xml` |
+
+---
+
+## Image Encoding
+
+The `renderPage` and `renderPagePreviews` methods return raw RGBA pixel data. Use the built-in image encoding utilities to convert to PNG, JPEG, or WebP.
+
+### Installation
+
+The image utilities use [sharp](https://sharp.pixelplumbing.com/) for high-performance encoding when available. Sharp is an **optional** peer dependency - if not installed, a pure JavaScript PNG fallback is used.
+
+```bash
+# Optional: Install sharp for faster encoding and JPEG/WebP support
+npm install sharp
+```
+
+### `rgbaToPng(rgbaData, width, height)`
+
+Convert raw RGBA pixel data to PNG format.
+
+```typescript
+import { createWorkerConverter, rgbaToPng } from '@matbee/libreoffice-converter';
+
+const converter = await createWorkerConverter({ wasmPath: './wasm' });
+const preview = await converter.renderPage(docBuffer, 'docx', 0, 800);
+
+// Convert to PNG (uses sharp if available, falls back to pure JS)
+const pngBuffer = await rgbaToPng(preview.data, preview.width, preview.height);
+fs.writeFileSync('page.png', pngBuffer);
+```
+
+### `encodeImage(rgbaData, width, height, options)`
+
+Encode to any supported format with options.
+
+```typescript
+import { encodeImage } from '@matbee/libreoffice-converter';
+
+// PNG with custom compression
+const png = await encodeImage(preview.data, preview.width, preview.height, {
+  format: 'png',
+  compressionLevel: 9,  // 0-9, default 6
+});
+
+// JPEG (requires sharp)
+const jpeg = await encodeImage(preview.data, preview.width, preview.height, {
+  format: 'jpeg',
+  quality: 85,  // 1-100, default 90
+});
+
+// WebP (requires sharp)
+const webp = await encodeImage(preview.data, preview.width, preview.height, {
+  format: 'webp',
+  quality: 80,
+});
+```
+
+### `isSharpAvailable()`
+
+Check if sharp is installed for advanced encoding options.
+
+```typescript
+import { isSharpAvailable } from '@matbee/libreoffice-converter';
+
+if (await isSharpAvailable()) {
+  console.log('Using sharp for fast image encoding');
+} else {
+  console.log('Using pure JS fallback (PNG only)');
+}
+```
+
+### Convenience Functions
+
+```typescript
+import { rgbaToPng, rgbaToJpeg, rgbaToWebp } from '@matbee/libreoffice-converter';
+
+// PNG (works without sharp)
+const png = await rgbaToPng(data, width, height);
+
+// JPEG (requires sharp)
+const jpeg = await rgbaToJpeg(data, width, height, 90);  // quality 1-100
+
+// WebP (requires sharp)
+const webp = await rgbaToWebp(data, width, height, 80);  // quality 1-100
+```
 
 ---
 
@@ -1394,6 +1409,102 @@ npm test
 # Lint
 npm run lint:fix
 ```
+
+
+## Building from Source
+
+If you need to build the LibreOffice WASM module yourself:
+
+### Prerequisites
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential git cmake ninja-build \
+    python3 python3-pip python3-dev \
+    autoconf automake bison ccache flex gawk gettext \
+    libarchive-dev libcups2-dev libcurl4-openssl-dev \
+    libfontconfig1-dev libfreetype6-dev libglib2.0-dev \
+    libharfbuzz-dev libicu-dev libjpeg-dev liblcms2-dev \
+    libpng-dev libssl-dev libtool libxml2-dev libxslt1-dev \
+    pkg-config uuid-dev xsltproc zip unzip wget curl \
+    ca-certificates xz-utils gperf nasm
+```
+
+### Build Steps
+
+```bash
+# Clone this repository
+git clone https://github.com/matbeedotcom/libreoffice-document-converter.git
+cd libreoffice-document-converter
+
+# Run the build script (takes 1-4 hours)
+BUILD_JOBS=32 ./build/build-wasm.sh
+```
+
+### Build Options
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `BUILD_JOBS` | `$(nproc)` | Number of parallel compile jobs |
+| `BUILD_DIR` | `~/libreoffice-wasm-build` | Build directory |
+| `OUTPUT_DIR` | `./wasm` | Output directory for WASM files |
+| `LIBREOFFICE_VERSION` | `libreoffice-24-8` | LibreOffice Git branch |
+| `EMSDK_VERSION` | `3.1.51` | Emscripten SDK version |
+| `SKIP_DEPS` | `0` | Skip dependency installation |
+| `CLEAN_BUILD` | `0` | Clean before building |
+
+```
+
+### Build Output
+
+After building, the `wasm/` directory contains:
+
+| File | Size (Raw) | Size (Brotli) | Description |
+|------|------------|---------------|-------------|
+| `soffice.wasm` | 112 MB | 24.8 MB | Main WebAssembly binary |
+| `soffice.data` | 80 MB | 15.2 MB | Filesystem image (fonts, configs) |
+| `soffice.cjs` | 230 KB | - | JavaScript loader |
+| `soffice.worker.cjs` | 4 KB | - | Web Worker script |
+| `loader.cjs` | 8 KB | - | Node.js module loader |
+| **Total** | **192 MB** | **40 MB** | With Brotli compression |
+
+
+## Project Setup
+
+### Development Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Build TypeScript
+npm run build
+
+# Run tests
+npm test
+
+# Type checking
+npm run typecheck
+
+# Development mode with auto-reload
+npm run dev
+```
+
+### NPM Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run build:wasm` | Build LibreOffice WASM |
+| `npm test` | Run tests |
+| `npm run dev` | Development server with watch |
+| `npm run typecheck` | TypeScript type checking |
+| `npm run lint` | ESLint code linting |
+
+---
+
 
 ---
 

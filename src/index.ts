@@ -12,6 +12,17 @@ export { LibreOfficeConverter } from './converter.js';
 export { WorkerConverter, createWorkerConverter } from './worker-converter.js';
 export { SubprocessConverter, createSubprocessConverter } from './subprocess-converter.js';
 
+// Image encoding utilities (uses sharp when available, falls back to pure JS)
+export {
+  encodeImage,
+  rgbaToPng,
+  rgbaToJpeg,
+  rgbaToWebp,
+  isSharpAvailable,
+  getSharp,
+} from './image-utils.js';
+export type { ImageEncodeOptions } from './image-utils.js';
+
 export type {
   ConversionOptions,
   ConversionResult,
