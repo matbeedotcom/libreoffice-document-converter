@@ -16,9 +16,8 @@ import {
   PagePreview,
   DocumentInfo,
   EditorSession,
-  EditorOperationResult,
 } from '../src/node.worker-converter.js';
-import { ConversionError } from '../src/types.js';
+import { ConversionError, EditorOperationResult } from '../src/types.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -64,7 +63,7 @@ describe('WorkerConverter', () => {
       const converter = new WorkerConverter();
       const testData = new Uint8Array([1, 2, 3, 4]);
 
-      await expect(converter.getPageCount(testData, 'docx')).rejects.toThrow(
+      await expect(converter.getPageCount(testData, { inputFormat: 'docx' })).rejects.toThrow(
         ConversionError
       );
     });
@@ -73,7 +72,7 @@ describe('WorkerConverter', () => {
       const converter = new WorkerConverter();
       const testData = new Uint8Array([1, 2, 3, 4]);
 
-      await expect(converter.getDocumentInfo(testData, 'docx')).rejects.toThrow(
+      await expect(converter.getDocumentInfo(testData, { inputFormat: 'docx' })).rejects.toThrow(
         ConversionError
       );
     });
@@ -83,7 +82,7 @@ describe('WorkerConverter', () => {
       const testData = new Uint8Array([1, 2, 3, 4]);
 
       await expect(
-        converter.renderPage(testData, 'docx', 0, 800)
+        converter.renderPage(testData, { inputFormat: 'docx' }, 0, 800)
       ).rejects.toThrow(ConversionError);
     });
 
@@ -92,7 +91,7 @@ describe('WorkerConverter', () => {
       const testData = new Uint8Array([1, 2, 3, 4]);
 
       await expect(
-        converter.renderPagePreviews(testData, 'docx', { width: 800 })
+        converter.renderPagePreviews(testData, { inputFormat: 'docx' }, { width: 800 })
       ).rejects.toThrow(ConversionError);
     });
 
@@ -118,7 +117,7 @@ describe('WorkerConverter', () => {
       const converter = new WorkerConverter();
       const testData = new Uint8Array([1, 2, 3, 4]);
 
-      await expect(converter.openDocument(testData, 'docx')).rejects.toThrow(
+      await expect(converter.openDocument(testData, { inputFormat: 'docx' })).rejects.toThrow(
         ConversionError
       );
     });
@@ -322,7 +321,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const pageCount = await converter.getPageCount(docxData, 'docx');
+        const pageCount = await converter.getPageCount(docxData, { inputFormat: 'docx' });
 
         expect(typeof pageCount).toBe('number');
         expect(pageCount).toBeGreaterThanOrEqual(1);
@@ -332,7 +331,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPdfPath)) return;
 
         const pdfData = fs.readFileSync(testPdfPath);
-        const pageCount = await converter.getPageCount(pdfData, 'pdf');
+        const pageCount = await converter.getPageCount(pdfData, { inputFormat: 'pdf' });
 
         expect(typeof pageCount).toBe('number');
         expect(pageCount).toBeGreaterThanOrEqual(1);
@@ -342,7 +341,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
-        const pageCount = await converter.getPageCount(pptxData, 'pptx');
+        const pageCount = await converter.getPageCount(pptxData, { inputFormat: 'pptx' });
 
         expect(typeof pageCount).toBe('number');
         expect(pageCount).toBeGreaterThanOrEqual(1);
@@ -354,7 +353,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const info = await converter.getDocumentInfo(docxData, 'docx');
+        const info = await converter.getDocumentInfo(docxData, { inputFormat: 'docx' });
 
         expect(info.documentType).toBeDefined();
         expect(info.documentTypeName).toBeDefined();
@@ -367,7 +366,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
         const xlsxData = fs.readFileSync(testXlsxPath);
-        const info = await converter.getDocumentInfo(xlsxData, 'xlsx');
+        const info = await converter.getDocumentInfo(xlsxData, { inputFormat: 'xlsx' });
 
         expect(info.documentType).toBeDefined();
         expect(info.documentTypeName).toBeDefined();
@@ -378,7 +377,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
-        const info = await converter.getDocumentInfo(pptxData, 'pptx');
+        const info = await converter.getDocumentInfo(pptxData, { inputFormat: 'pptx' });
 
         expect(info.documentType).toBeDefined();
         expect(info.documentTypeName).toBeDefined();
@@ -391,7 +390,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const preview = await converter.renderPage(docxData, 'docx', 0, 800);
+        const preview = await converter.renderPage(docxData, { inputFormat: 'docx' }, 0, 800);
 
         expect(preview.page).toBe(0);
         expect(preview.data).toBeInstanceOf(Uint8Array);
@@ -404,7 +403,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPdfPath)) return;
 
         const pdfData = fs.readFileSync(testPdfPath);
-        const preview = await converter.renderPage(pdfData, 'pdf', 0, 1024);
+        const preview = await converter.renderPage(pdfData, { inputFormat: 'pdf' }, 0, 1024);
 
         expect(preview.page).toBe(0);
         expect(preview.data).toBeInstanceOf(Uint8Array);
@@ -415,7 +414,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const preview = await converter.renderPage(docxData, 'docx', 0, 800, 600);
+        const preview = await converter.renderPage(docxData, { inputFormat: 'docx' }, 0, 800, 600);
 
         expect(preview.data).toBeInstanceOf(Uint8Array);
         expect(preview.width).toBeGreaterThan(0);
@@ -428,7 +427,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const previews = await converter.renderPagePreviews(docxData, 'docx', {
+        const previews = await converter.renderPagePreviews(docxData, { inputFormat: 'docx' }, {
           width: 400,
         });
 
@@ -446,10 +445,10 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
-        const pageCount = await converter.getPageCount(pptxData, 'pptx');
+        const pageCount = await converter.getPageCount(pptxData, { inputFormat: 'pptx' });
 
         if (pageCount >= 2) {
-          const previews = await converter.renderPagePreviews(pptxData, 'pptx', {
+          const previews = await converter.renderPagePreviews(pptxData, { inputFormat: 'pptx' }, {
             width: 400,
             pageIndices: [0, 1],
           });
@@ -464,7 +463,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const previews = await converter.renderPagePreviews(docxData, 'docx');
+        const previews = await converter.renderPagePreviews(docxData, { inputFormat: 'docx' });
 
         expect(Array.isArray(previews)).toBe(true);
         expect(previews.length).toBeGreaterThanOrEqual(1);
@@ -517,7 +516,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const session = await converter.openDocument(docxData, 'docx');
+        const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
         expect(session.sessionId).toBeDefined();
         expect(typeof session.sessionId).toBe('string');
@@ -532,7 +531,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const session = await converter.openDocument(docxData, 'docx');
+        const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
         try {
           const result = await converter.editorOperation(
@@ -551,7 +550,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const session = await converter.openDocument(docxData, 'docx');
+        const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
         try {
           const result = await converter.editorOperation(
@@ -570,7 +569,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
-        const session = await converter.openDocument(docxData, 'docx');
+        const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
         const modifiedData = await converter.closeDocument(session.sessionId);
 
@@ -584,7 +583,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
         const xlsxData = fs.readFileSync(testXlsxPath);
-        const session = await converter.openDocument(xlsxData, 'xlsx');
+        const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
         expect(session.sessionId).toBeDefined();
         expect(session.documentType).toBe('calc');
@@ -596,7 +595,7 @@ describe('WorkerConverter', () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
-        const session = await converter.openDocument(pptxData, 'pptx');
+        const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
         expect(session.sessionId).toBeDefined();
         expect(session.documentType).toBe('impress');
@@ -611,8 +610,8 @@ describe('WorkerConverter', () => {
         const docxData = fs.readFileSync(testDocxPath);
         const xlsxData = fs.readFileSync(testXlsxPath);
 
-        const session1 = await converter.openDocument(docxData, 'docx');
-        const session2 = await converter.openDocument(xlsxData, 'xlsx');
+        const session1 = await converter.openDocument(docxData, { inputFormat: 'docx' });
+        const session2 = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
         expect(session1.sessionId).not.toBe(session2.sessionId);
         expect(session1.documentType).toBe('writer');
@@ -628,13 +627,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
           const docxData = fs.readFileSync(testDocxPath);
-          const session = await converter.openDocument(docxData, 'docx');
+          const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'getParagraph',
-              0
+              [0]
             );
 
             expect(result.success).toBe(true);
@@ -653,14 +652,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
           const docxData = fs.readFileSync(testDocxPath);
-          const session = await converter.openDocument(docxData, 'docx');
+          const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'getParagraphs',
-              0,
-              5
+              [0, 5]
             );
 
             expect(result.success).toBe(true);
@@ -677,7 +675,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
           const docxData = fs.readFileSync(testDocxPath);
-          const session = await converter.openDocument(docxData, 'docx');
+          const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
           try {
             // Get initial structure to know paragraph count
@@ -693,7 +691,7 @@ describe('WorkerConverter', () => {
             const result = await converter.editorOperation(
               session.sessionId,
               'insertParagraph',
-              insertText
+              [insertText]
             );
 
             expect(result.success).toBe(true);
@@ -718,15 +716,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
           const docxData = fs.readFileSync(testDocxPath);
-          const session = await converter.openDocument(docxData, 'docx');
+          const session = await converter.openDocument(docxData, { inputFormat: 'docx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'replaceText',
-              'old',
-              'new',
-              { all: false }
+              ['old', 'new', { all: false }]
             );
 
             expect(result.success).toBe(true);
@@ -742,7 +738,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             const result = await converter.editorOperation(
@@ -765,7 +761,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             const result = await converter.editorOperation(
@@ -788,13 +784,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'getCell',
-              'A1'
+              ['A1']
             );
 
             expect(result.success).toBe(true);
@@ -811,7 +807,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             const testValue = 'Test Value ' + Date.now();
@@ -820,8 +816,7 @@ describe('WorkerConverter', () => {
             const result = await converter.editorOperation(
               session.sessionId,
               'setCellValue',
-              'Z99',  // Use a cell unlikely to have existing data
-              testValue
+              ['Z99', testValue]  // Use a cell unlikely to have existing data
             );
 
             expect(result.success).toBe(true);
@@ -834,7 +829,7 @@ describe('WorkerConverter', () => {
             const readResult = await converter.editorOperation(
               session.sessionId,
               'getCell',
-              'Z99'
+              ['Z99']
             );
 
             expect(readResult.success).toBe(true);
@@ -852,14 +847,14 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             // Insert row after row 0
             const insertResult = await converter.editorOperation(
               session.sessionId,
               'insertRow',
-              0
+              [0]
             );
             expect(insertResult.success).toBe(true);
 
@@ -867,7 +862,7 @@ describe('WorkerConverter', () => {
             const deleteResult = await converter.editorOperation(
               session.sessionId,
               'deleteRow',
-              1
+              [1]
             );
             expect(deleteResult.success).toBe(true);
           } finally {
@@ -879,22 +874,21 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
-          const session = await converter.openDocument(xlsxData, 'xlsx');
+          const session = await converter.openDocument(xlsxData, { inputFormat: 'xlsx' });
 
           try {
             // First set a value
             await converter.editorOperation(
               session.sessionId,
               'setCellValue',
-              'Y98',
-              'Temp Value To Clear'
+              ['Y98', 'Temp Value To Clear']
             );
 
             // Verify the value was set
             const beforeClear = await converter.editorOperation(
               session.sessionId,
               'getCell',
-              'Y98'
+              ['Y98']
             );
             expect((beforeClear.data as { value: unknown }).value).toBe('Temp Value To Clear');
 
@@ -902,7 +896,7 @@ describe('WorkerConverter', () => {
             const result = await converter.editorOperation(
               session.sessionId,
               'clearCell',
-              'Y98'
+              ['Y98']
             );
 
             expect(result.success).toBe(true);
@@ -911,7 +905,7 @@ describe('WorkerConverter', () => {
             const afterClear = await converter.editorOperation(
               session.sessionId,
               'getCell',
-              'Y98'
+              ['Y98']
             );
             expect(afterClear.success).toBe(true);
             // After clearing, value should be null or empty
@@ -929,7 +923,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
-          const session = await converter.openDocument(pptxData, 'pptx');
+          const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
           try {
             const result = await converter.editorOperation(
@@ -953,7 +947,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
-          const session = await converter.openDocument(pptxData, 'pptx');
+          const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
           try {
             const result = await converter.editorOperation(
@@ -975,13 +969,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
-          const session = await converter.openDocument(pptxData, 'pptx');
+          const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'getSlide',
-              0
+              [0]
             );
 
             expect(result.success).toBe(true);
@@ -999,7 +993,7 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
-          const session = await converter.openDocument(pptxData, 'pptx');
+          const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
           try {
             // Get initial slide count
@@ -1027,7 +1021,7 @@ describe('WorkerConverter', () => {
             const deleteResult = await converter.editorOperation(
               session.sessionId,
               'deleteSlide',
-              initialCount  // The new slide is at the end
+              [initialCount]  // The new slide is at the end
             );
             expect(deleteResult.success).toBe(true);
           } finally {
@@ -1039,13 +1033,13 @@ describe('WorkerConverter', () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
-          const session = await converter.openDocument(pptxData, 'pptx');
+          const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });
 
           try {
             const result = await converter.editorOperation(
               session.sessionId,
               'duplicateSlide',
-              0
+              [0]
             );
 
             expect(result.success).toBe(true);

@@ -110,8 +110,6 @@ describe('LibreOfficeConverter', () => {
 
       const converter = new LibreOfficeConverter({
         wasmPath: '/custom/path',
-        memoryLimit: 2 * 1024 * 1024 * 1024,
-        timeout: 600000,
         verbose: true,
         onProgress,
         onReady,
@@ -157,27 +155,6 @@ describe('LibreOfficeConverter', () => {
       expect(result.mimeType).toBe('application/pdf');
       expect(result.filename).toBe('test.pdf');
       expect(result.duration).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should handle batch conversion', async () => {
-      const documents = [
-        {
-          input: new TextEncoder().encode('Document 1'),
-          filename: 'doc1.txt',
-          options: { outputFormat: 'pdf' as const },
-        },
-        {
-          input: new TextEncoder().encode('Document 2'),
-          filename: 'doc2.txt',
-          options: { outputFormat: 'html' as const },
-        },
-      ];
-
-      const results = await converter.convertBatch(documents);
-
-      expect(results).toHaveLength(2);
-      expect(results[0]?.mimeType).toBe('application/pdf');
-      expect(results[1]?.mimeType).toBe('text/html');
     });
   });
 });
