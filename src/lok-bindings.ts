@@ -1657,9 +1657,9 @@ export class LOKBindings {
     // Click down and up to select
     this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONDOWN, x, y, 1, 1, 0);
     this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONUP, x, y, 1, 1, 0);
-    
+
     // Get selected text
-    return this.getTextSelection(docPtr, 'text/plain');
+    return this.getTextSelection(docPtr, 'text/plain;charset=utf-8');
   }
 
   /**
@@ -1673,9 +1673,9 @@ export class LOKBindings {
     // Double click to select word
     this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONDOWN, x, y, 2, 1, 0);
     this.postMouseEvent(docPtr, LOK_MOUSEEVENT_BUTTONUP, x, y, 2, 1, 0);
-    
+
     // Get selected text
-    return this.getTextSelection(docPtr, 'text/plain');
+    return this.getTextSelection(docPtr, 'text/plain;charset=utf-8');
   }
 
   /**
@@ -1694,7 +1694,7 @@ export class LOKBindings {
   getAllText(docPtr: number): string | null {
     this.log(`getAllText called with docPtr: ${docPtr}`);
     this.selectAll(docPtr);
-    const text = this.getTextSelection(docPtr, 'text/plain');
+    const text = this.getTextSelection(docPtr, 'text/plain;charset=utf-8');
     this.log(`getAllText: text="${text?.slice(0, 100)}..."`);
     this.resetSelection(docPtr);
     return text;
