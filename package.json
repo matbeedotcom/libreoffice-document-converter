@@ -57,6 +57,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "playwright test",
+    "test:browser:benchmark": "playwright test tests/browser/benchmark.spec.ts",
     "test:browser:ui": "playwright test --ui",
     "test:browser:headed": "playwright test --headed",
     "lint": "eslint src --ext .ts,.tsx",

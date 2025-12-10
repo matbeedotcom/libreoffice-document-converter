@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/browser',
+  testIgnore: ['**/benchmark.spec.ts'],
   timeout: 120 * 1000, // 120 seconds for WASM conversions
   expect: {
     timeout: 10 * 1000, // 10 seconds for assertions
