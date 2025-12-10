@@ -440,6 +440,7 @@ export interface EmscriptenFS {
   stat: (path: string) => { size: number; isDirectory: () => boolean };
   rmdir: (path: string) => void;
   rename: (oldPath: string, newPath: string) => void;
+  open: (path: string, flags: unknown, mode?: unknown) => unknown;
 }
 
 /**

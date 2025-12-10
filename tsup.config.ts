@@ -24,7 +24,6 @@ export default defineConfig([
     entry: {
       'node.worker': 'src/node.worker.ts',
       subprocess: 'src/subprocess.cts',
-      'isolate-worker': 'src/isolate-worker.ts',
       'fork-worker': 'src/fork-worker.cts',
       'subprocess.worker': 'src/subprocess.worker.cts',
     },

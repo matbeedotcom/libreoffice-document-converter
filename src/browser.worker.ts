@@ -399,7 +399,10 @@ function hashInput(data: Uint8Array): string {
   let hash = 0;
   const step = Math.max(1, Math.floor(data.length / 1000)); // Sample ~1000 bytes
   for (let i = 0; i < data.length; i += step) {
-    hash = ((hash << 5) - hash + data[i]) | 0;
+    const byte = data[i];
+    if (byte !== undefined) {
+      hash = ((hash << 5) - hash + byte) | 0;
+    }
   }
   return `${hash}_${data.length}`;
 }
