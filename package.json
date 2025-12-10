@@ -1,6 +1,6 @@
 {
   "name": "@libreoffice-wasm/converter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LibreOffice WASM document conversion toolkit - headless document format conversion",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
