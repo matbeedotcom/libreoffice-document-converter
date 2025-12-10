@@ -26,7 +26,7 @@ export default defineConfig([
       subprocess: 'src/subprocess.cts',
       'isolate-worker': 'src/isolate-worker.ts',
       'fork-worker': 'src/fork-worker.cts',
-      'subprocess-worker': 'src/subprocess-worker.cts',
+      'subprocess.worker': 'src/subprocess.worker.cts',
     },
     format: ['cjs'],
     dts: false,
@@ -39,7 +39,8 @@ export default defineConfig([
     minify: false,
     outDir: 'dist',
     external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads'],
-    noExternal: [],
+    // Bundle converter and editor into subprocess-worker so it's self-contained
+    noExternal: ['./converter.js', './editor/index.js'],
   },
   // Browser build
   {

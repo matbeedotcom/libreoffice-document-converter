@@ -35,27 +35,33 @@ const isNode =
   process.versions != null &&
   process.versions.node != null;
 
-// Node.js modules - only imported when running in Node.js
-// These are declared as any to avoid type issues in browser builds
-let pathModule: typeof import('path') | null = null;
-let urlModule: typeof import('url') | null = null;
-let fsModule: typeof import('fs') | null = null;
-let moduleModule: typeof import('module') | null = null;
+// Node.js modules - loaded dynamically when needed
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let pathModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let urlModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let fsModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let moduleModule: any = null;
+let nodeModulesLoaded = false;
 
-// Load Node.js modules synchronously at startup if in Node.js environment
-if (isNode) {
+// Load Node.js modules dynamically (works in both ESM and CJS)
+async function ensureNodeModules(): Promise<boolean> {
+  if (nodeModulesLoaded) return pathModule !== null;
+  if (!isNode) return false;
+
   try {
-    // Use require for synchronous loading in Node.js
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    pathModule = require('path');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    urlModule = require('url');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    fsModule = require('fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    moduleModule = require('module');
+    // Dynamic imports work in both ESM and CJS Node.js
+    pathModule = await import('path');
+    urlModule = await import('url');
+    fsModule = await import('fs');
+    moduleModule = await import('module');
+    nodeModulesLoaded = true;
+    return true;
   } catch {
-    // Ignore - not in Node.js environment
+    nodeModulesLoaded = true;
+    return false;
   }
 }
 
@@ -235,6 +241,9 @@ export class LibreOfficeConverter {
    * Load module in Node.js environment
    */
   private async loadNodeModule(wasmPath: string): Promise<EmscriptenModule> {
+    // Load Node.js modules dynamically
+    await ensureNodeModules();
+
     // Ensure Node.js modules are available
     if (!pathModule || !urlModule || !fsModule || !moduleModule) {
       throw new ConversionError(
@@ -1325,6 +1334,70 @@ export class LibreOfficeConverter {
       }
       this.lokBindings = null;
     }
+
+    // Terminate Emscripten pthread workers to allow process to exit
+    if (this.module) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mod = this.module as any;
+
+        // Try to terminate all pthread workers
+        if (mod.PThread?.terminateAllThreads) {
+          mod.PThread.terminateAllThreads();
+        }
+
+        // Unref any running workers to allow process to exit
+        if (mod.PThread?.runningWorkers) {
+          for (const worker of mod.PThread.runningWorkers) {
+            if (worker && typeof worker.unref === 'function') {
+              worker.unref();
+            }
+            if (worker && typeof worker.terminate === 'function') {
+              worker.terminate();
+            }
+          }
+          mod.PThread.runningWorkers = [];
+        }
+
+        // Also check unusedWorkers
+        if (mod.PThread?.unusedWorkers) {
+          for (const worker of mod.PThread.unusedWorkers) {
+            if (worker && typeof worker.unref === 'function') {
+              worker.unref();
+            }
+            if (worker && typeof worker.terminate === 'function') {
+              worker.terminate();
+            }
+          }
+          mod.PThread.unusedWorkers = [];
+        }
+      } catch {
+        // Ignore pthread cleanup errors
+      }
+    }
+
+    // In Node.js, unref any remaining handles to allow process exit
+    if (isNode && typeof process !== 'undefined') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const proc = process as any;
+        if (typeof proc._getActiveHandles === 'function') {
+          const handles = proc._getActiveHandles();
+          for (const handle of handles) {
+            // Only unref handles that look like worker-related (MessagePort, internal sockets)
+            if (handle && typeof handle.unref === 'function') {
+              const name = handle.constructor?.name || '';
+              if (name === 'MessagePort' || (name === 'Socket' && !handle.remoteAddress)) {
+                handle.unref();
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
     this.module = null;
     this.initialized = false;
   }

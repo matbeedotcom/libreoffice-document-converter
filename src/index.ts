@@ -10,7 +10,7 @@
 
 export { LibreOfficeConverter } from './converter.js';
 export { WorkerConverter, createWorkerConverter } from './node.worker-converter.js';
-export { SubprocessConverter, createSubprocessConverter } from './subprocess-converter.js';
+export { SubprocessConverter, createSubprocessConverter } from './subprocess.worker-converter.js';
 
 // Image encoding utilities (uses sharp when available, falls back to pure JS)
 export {
@@ -78,13 +78,18 @@ export {
 } from './lok-bindings.js';
 
 import { LibreOfficeConverter } from './converter.js';
-import { createWorkerConverter } from './node.worker-converter.js';
+import { createSubprocessConverter } from './subprocess.worker-converter.js';
 import type { ConversionOptions, ConversionResult, ImageOptions, LibreOfficeWasmOptions } from './types.js';
 
 /**
  * Image format options for exportAsImage
  */
 export type ImageFormat = 'png' | 'jpg' | 'svg';
+
+// Detect if running in Node.js
+const isNode = typeof process !== 'undefined' &&
+  process.versions != null &&
+  process.versions.node != null;
 
 /**
  * Create a configured LibreOffice converter instance
@@ -114,6 +119,9 @@ export async function createConverter(
 /**
  * Quick conversion utility - creates converter, converts, then destroys
  *
+ * In Node.js, uses SubprocessConverter for clean process exit.
+ * In browsers, uses LibreOfficeConverter directly.
+ *
  * @example
  * ```typescript
  * import { convertDocument } from '@matbee/libreoffice-converter';
@@ -129,7 +137,21 @@ export async function convertDocument(
   options: ConversionOptions,
   converterOptions?: LibreOfficeWasmOptions
 ): Promise<ConversionResult> {
-  const converter = await createWorkerConverter(converterOptions);
+  // In Node.js, use subprocess for clean exit (no hanging pthread workers)
+  // SubprocessConverter only supports basic conversions, not image/page options
+  const isBasicConversion = !options.image;
+
+  if (isNode && isBasicConversion) {
+    const converter = await createSubprocessConverter(converterOptions);
+    try {
+      return await converter.convert(input, options);
+    } finally {
+      await converter.destroy();
+    }
+  }
+
+  // Browser or advanced conversion: use LibreOfficeConverter
+  const converter = await createConverter(converterOptions);
   try {
     return await converter.convert(input, options);
   } finally {
@@ -177,7 +199,7 @@ export async function exportAsImage(
   if (pageArray.length === 0) {
     throw new Error('pages is required and must not be empty');
   }
-  const converter = await createWorkerConverter(converterOptions);
+  const converter = await createConverter(converterOptions);
   try {
     const results: ConversionResult[] = [];
     for (const pageIndex of pageArray) {
