@@ -59,7 +59,6 @@ async function main() {
   } catch (error) {
     console.error('Conversion failed:', error.message);
     await converter.destroy();
-    process.exit(1);
   }
 
   // Clean up - worker will exit automatically after destroy

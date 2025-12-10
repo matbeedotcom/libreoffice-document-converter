@@ -10,6 +10,6 @@
     "server": "node conversion-server.js"
   },
   "dependencies": {
-    "@matbee/libreoffice-converter": "^1.1.0"
+    "@matbee/libreoffice-converter": "^1.3.1"
   }
 }
