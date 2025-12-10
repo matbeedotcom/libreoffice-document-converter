@@ -88,7 +88,9 @@ const result = await convertDocument(
 - [Supported Formats](#supported-formats)
 - [Browser Usage](#browser-usage)
 - [WASM Loading Progress](#wasm-loading-progress)
-- [Document Preview API](#document-preview-api)
+- [Document Inspection & Rendering API](#document-inspection--rendering-api)
+- [Document Editing API](#document-editing-api)
+- [Browser Document Preview API](#browser-document-preview-api)
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [Troubleshooting](#troubleshooting)
@@ -663,11 +665,298 @@ progressText.textContent = 'Ready!';
 
 ---
 
-## Document Preview API
+## Document Inspection & Rendering API
 
-The browser converter provides APIs for rendering document page previews without full conversion. This is useful for building document viewers and editors.
+All converters (Node.js and Browser) provide APIs for inspecting documents and rendering page previews without full conversion. This is useful for building document viewers, thumbnail galleries, and editors.
 
-### Get Document Info
+### `converter.getDocumentInfo(input, inputFormat)`
+
+Get document metadata including type, page count, and valid output formats.
+
+```typescript
+// Node.js
+import { createWorkerConverter } from '@libreoffice-wasm/converter';
+
+const converter = await createWorkerConverter({ wasmPath: './wasm' });
+
+const docInfo = await converter.getDocumentInfo(fileBuffer, 'docx');
+console.log(docInfo);
+// {
+//   documentType: 0,           // 0=TEXT, 1=SPREADSHEET, 2=PRESENTATION, 3=DRAWING
+//   documentTypeName: 'Text Document',
+//   validOutputFormats: ['pdf', 'docx', 'odt', 'html', 'txt', 'png'],
+//   pageCount: 5
+// }
+```
+
+**Returns:** `Promise<DocumentInfo>`
+
+```typescript
+interface DocumentInfo {
+  documentType: number;           // LOK document type enum
+  documentTypeName: string;       // Human-readable type name
+  validOutputFormats: string[];   // Formats this document can be converted to
+  pageCount: number;              // Number of pages/slides/sheets
+}
+```
+
+### `converter.getPageCount(input, inputFormat)`
+
+Get just the page count for a document.
+
+```typescript
+const pageCount = await converter.getPageCount(docxBuffer, 'docx');
+console.log(`Document has ${pageCount} pages`);
+```
+
+**Returns:** `Promise<number>`
+
+### `converter.renderPage(input, inputFormat, pageIndex, width, height?)`
+
+Render a single page as a PNG image.
+
+```typescript
+// Render first page at 800px width (height auto-calculated to maintain aspect ratio)
+const preview = await converter.renderPage(pptxBuffer, 'pptx', 0, 800);
+
+// preview.data is a Uint8Array containing raw RGBA pixel data
+console.log(`Rendered: ${preview.width}x${preview.height} pixels`);
+
+// Save as PNG (Node.js)
+import { createCanvas } from 'canvas';
+const canvas = createCanvas(preview.width, preview.height);
+const ctx = canvas.getContext('2d');
+const imageData = ctx.createImageData(preview.width, preview.height);
+imageData.data.set(preview.data);
+ctx.putImageData(imageData, 0, 0);
+fs.writeFileSync('page-0.png', canvas.toBuffer('image/png'));
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `input` | `Uint8Array \| Buffer` | Document data |
+| `inputFormat` | `string` | Input format (e.g., 'docx', 'pptx') |
+| `pageIndex` | `number` | 0-based page index |
+| `width` | `number` | Target width in pixels |
+| `height` | `number` | Optional target height (0 = auto based on aspect ratio) |
+
+**Returns:** `Promise<PagePreview>`
+
+```typescript
+interface PagePreview {
+  page: number;      // Page index
+  data: Uint8Array;  // Raw RGBA pixel data
+  width: number;     // Actual rendered width
+  height: number;    // Actual rendered height
+}
+```
+
+### `converter.renderPagePreviews(input, inputFormat, options?)`
+
+Render multiple pages as thumbnails.
+
+```typescript
+// Render all pages at 400px width
+const previews = await converter.renderPagePreviews(pptxBuffer, 'pptx', {
+  width: 400,
+});
+
+console.log(`Rendered ${previews.length} pages`);
+previews.forEach(p => console.log(`Page ${p.page}: ${p.width}x${p.height}`));
+
+// Render only specific pages
+const selectedPreviews = await converter.renderPagePreviews(pptxBuffer, 'pptx', {
+  width: 800,
+  pageIndices: [0, 2, 4],  // Only pages 1, 3, and 5
+});
+```
+
+**Options:**
+
+```typescript
+interface RenderOptions {
+  /** Width of rendered image in pixels (default: 800) */
+  width?: number;
+  /** Height of rendered image in pixels (0 = auto based on aspect ratio) */
+  height?: number;
+  /** Specific page indices to render (0-based). If empty, renders all pages */
+  pageIndices?: number[];
+}
+```
+
+**Returns:** `Promise<PagePreview[]>`
+
+### `converter.getDocumentText(input, inputFormat)`
+
+Extract all text content from a document.
+
+```typescript
+const text = await converter.getDocumentText(docxBuffer, 'docx');
+if (text) {
+  console.log('Document text:', text);
+} else {
+  console.log('No text content found');
+}
+```
+
+**Returns:** `Promise<string | null>`
+
+### `converter.getPageNames(input, inputFormat)`
+
+Get slide names (for presentations) or sheet names (for spreadsheets).
+
+```typescript
+// For presentations - get slide names
+const slideNames = await converter.getPageNames(pptxBuffer, 'pptx');
+console.log('Slides:', slideNames);
+// ['Introduction', 'Overview', 'Conclusion']
+
+// For spreadsheets - get sheet names
+const sheetNames = await converter.getPageNames(xlsxBuffer, 'xlsx');
+console.log('Sheets:', sheetNames);
+// ['Sheet1', 'Data', 'Summary']
+```
+
+**Returns:** `Promise<string[]>`
+
+### Document Types
+
+| Type | Value | Description |
+|------|-------|-------------|
+| TEXT | 0 | Writer documents (doc, docx, odt, rtf, txt) |
+| SPREADSHEET | 1 | Calc documents (xls, xlsx, ods, csv) |
+| PRESENTATION | 2 | Impress documents (ppt, pptx, odp) |
+| DRAWING | 3 | Draw documents (odg, pdf) |
+
+---
+
+## Document Editing API
+
+The converters support opening documents for editing, making modifications, and saving the results.
+
+### `converter.openDocument(input, inputFormat)`
+
+Open a document for editing. Returns a session that can be used for subsequent operations.
+
+```typescript
+const session = await converter.openDocument(docxBuffer, 'docx');
+console.log(session);
+// {
+//   sessionId: 'edit_session_0_1234567890',
+//   documentType: 'writer',  // 'writer', 'calc', or 'impress'
+//   pageCount: 5
+// }
+```
+
+**Returns:** `Promise<EditorSession>`
+
+```typescript
+interface EditorSession {
+  sessionId: string;      // Unique session ID for this document
+  documentType: string;   // 'writer', 'calc', or 'impress'
+  pageCount: number;      // Number of pages/slides/sheets
+}
+```
+
+### `converter.editorOperation(sessionId, method, ...args)`
+
+Execute an editing operation on an open document.
+
+```typescript
+// Get document structure
+const structure = await converter.editorOperation(session.sessionId, 'getStructure');
+console.log(structure.data);
+
+// Get document type
+const docType = await converter.editorOperation(session.sessionId, 'getDocumentType');
+console.log(docType.data);  // 'writer', 'calc', or 'impress'
+
+// Insert text (Writer documents)
+const result = await converter.editorOperation(
+  session.sessionId,
+  'insertText',
+  'Hello, World!'
+);
+
+// Set cell value (Calc documents)
+const cellResult = await converter.editorOperation(
+  session.sessionId,
+  'setCellValue',
+  'A1',
+  42
+);
+```
+
+**Returns:** `Promise<EditorOperationResult<T>>`
+
+```typescript
+interface EditorOperationResult<T = unknown> {
+  success: boolean;      // Whether the operation succeeded
+  verified?: boolean;    // Whether the result was verified
+  data?: T;              // Operation result data
+  error?: string;        // Error message if failed
+  suggestion?: string;   // Suggested fix if failed
+}
+```
+
+### `converter.closeDocument(sessionId)`
+
+Close an editing session and get the modified document.
+
+```typescript
+// Close and get modified document
+const modifiedData = await converter.closeDocument(session.sessionId);
+
+if (modifiedData) {
+  fs.writeFileSync('modified.docx', modifiedData);
+  console.log('Document saved!');
+} else {
+  console.log('No changes or save failed');
+}
+```
+
+**Returns:** `Promise<Uint8Array | undefined>`
+
+### Complete Editing Example
+
+```typescript
+import { createWorkerConverter } from '@libreoffice-wasm/converter';
+import fs from 'fs';
+
+const converter = await createWorkerConverter({ wasmPath: './wasm' });
+
+// Read document
+const docx = fs.readFileSync('template.docx');
+
+// Open for editing
+const session = await converter.openDocument(docx, 'docx');
+console.log(`Opened ${session.documentType} document with ${session.pageCount} pages`);
+
+// Get current structure
+const structure = await converter.editorOperation(session.sessionId, 'getStructure');
+console.log('Structure:', structure.data);
+
+// Make modifications...
+// (specific operations depend on document type)
+
+// Close and save
+const modified = await converter.closeDocument(session.sessionId);
+if (modified) {
+  fs.writeFileSync('output.docx', modified);
+}
+
+await converter.destroy();
+```
+
+---
+
+## Browser Document Preview API
+
+The browser converter provides additional convenience methods for rendering.
+
+### Get Document Info (Browser)
 
 ```typescript
 import { WorkerBrowserConverter, createWasmPaths } from '@libreoffice-wasm/converter/browser';
@@ -678,40 +967,7 @@ const converter = new WorkerBrowserConverter({
 });
 await converter.initialize();
 
-// Load a document and get its metadata
 const docInfo = await converter.getDocumentInfo(fileBuffer, 'document.docx');
-console.log(docInfo);
-// {
-//   pageCount: 5,
-//   documentType: 0,  // 0=TEXT, 1=SPREADSHEET, 2=PRESENTATION, 3=DRAWING
-//   documentTypeName: 'TEXT'
-// }
-```
-
-### Render Single Page
-
-```typescript
-// Render page 1 at 150 DPI
-const pageImage = await converter.renderSinglePage(fileBuffer, 'document.docx', {
-  pageIndex: 0,  // 0-based page index
-  dpi: 150,
-});
-
-// pageImage is a Uint8Array containing PNG data
-const blob = new Blob([pageImage], { type: 'image/png' });
-const url = URL.createObjectURL(blob);
-document.getElementById('preview').src = url;
-```
-
-### RenderPageOptions
-
-```typescript
-interface RenderPageOptions {
-  /** 0-based page index to render */
-  pageIndex: number;
-  /** DPI for rendering (default: 150) */
-  dpi?: number;
-}
 ```
 
 ### Get LibreOffice Info
@@ -753,15 +1009,6 @@ async function renderThumbnails(fileBuffer: Uint8Array, filename: string) {
   return thumbnails;
 }
 ```
-
-### Document Types
-
-| Type | Value | Description |
-|------|-------|-------------|
-| TEXT | 0 | Writer documents (doc, docx, odt, rtf, txt) |
-| SPREADSHEET | 1 | Calc documents (xls, xlsx, ods, csv) |
-| PRESENTATION | 2 | Impress documents (ppt, pptx, odp) |
-| DRAWING | 3 | Draw documents (odg, pdf) |
 
 ---
 
