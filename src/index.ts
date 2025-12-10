@@ -78,7 +78,12 @@ export {
 } from './lok-bindings.js';
 
 import { LibreOfficeConverter } from './converter.js';
-import type { ConversionOptions, ConversionResult, LibreOfficeWasmOptions } from './types.js';
+import type { ConversionOptions, ConversionResult, ImageOptions, LibreOfficeWasmOptions } from './types.js';
+
+/**
+ * Image format options for exportAsImage
+ */
+export type ImageFormat = 'png' | 'jpg' | 'svg';
 
 /**
  * Create a configured LibreOffice converter instance
@@ -126,6 +131,43 @@ export async function convertDocument(
   const converter = await createConverter(converterOptions);
   try {
     return await converter.convert(input, options);
+  } finally {
+    await converter.destroy();
+  }
+}
+
+/**
+ * Quick image export utility - creates converter, exports to image, then destroys
+ *
+ * @example
+ * ```typescript
+ * import { exportAsImage } from '@matbee/libreoffice-converter';
+ *
+ * // Export DOCX to PNG
+ * const pngData = await exportAsImage(docxBuffer, 'png');
+ *
+ * // Export with options
+ * const highResPng = await exportAsImage(docxBuffer, 'png', {
+ *   dpi: 300,
+ *   width: 1920
+ * });
+ *
+ * // Export presentation to SVG
+ * const svgData = await exportAsImage(pptxBuffer, 'svg');
+ * ```
+ */
+export async function exportAsImage(
+  input: Uint8Array | ArrayBuffer | Buffer,
+  format: ImageFormat = 'png',
+  imageOptions?: ImageOptions,
+  converterOptions?: LibreOfficeWasmOptions
+): Promise<ConversionResult> {
+  const converter = await createConverter(converterOptions);
+  try {
+    return await converter.convert(input, {
+      outputFormat: format,
+      image: imageOptions,
+    });
   } finally {
     await converter.destroy();
   }
