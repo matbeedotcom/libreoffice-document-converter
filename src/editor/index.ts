@@ -139,3 +139,34 @@ export { WriterEditor } from './writer.js';
 export { CalcEditor } from './calc.js';
 export { ImpressEditor } from './impress.js';
 export { DrawEditor } from './draw.js';
+
+// Export LLM tool definitions
+export {
+  // Tool collections
+  allTools,
+  toolsByName,
+  commonTools,
+  writerTools,
+  calcTools,
+  impressTools,
+  drawTools,
+  documentTools,
+  // Utility functions
+  getToolsForDocumentType,
+  toOpenAIFunction,
+  toAnthropicTool,
+  getOpenAIFunctions,
+  getAnthropicTools,
+} from './tools.js';
+
+export type {
+  ToolDefinition,
+  CommonToolName,
+  WriterToolName,
+  CalcToolName,
+  ImpressToolName,
+  DrawToolName,
+  DocumentToolName,
+  AllToolName,
+  ToolParameters,
+} from './tools.js';

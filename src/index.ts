@@ -202,6 +202,20 @@ export {
   CalcEditor,
   ImpressEditor,
   DrawEditor,
+  // LLM tool definitions
+  allTools,
+  toolsByName,
+  commonTools,
+  writerTools,
+  calcTools,
+  impressTools,
+  drawTools,
+  documentTools,
+  getToolsForDocumentType,
+  toOpenAIFunction,
+  toAnthropicTool,
+  getOpenAIFunctions,
+  getAnthropicTools,
 } from './editor/index.js';
 
 export type {
@@ -246,4 +260,14 @@ export type {
   DocumentType,
   SelectionRange,
   FindOptions,
+  // LLM tool types
+  ToolDefinition,
+  CommonToolName,
+  WriterToolName,
+  CalcToolName,
+  ImpressToolName,
+  DrawToolName,
+  DocumentToolName,
+  AllToolName,
+  ToolParameters,
 } from './editor/index.js';
