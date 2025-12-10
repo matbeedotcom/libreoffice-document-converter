@@ -64,3 +64,5 @@ docs/plans/
 build/ccache
 build/tarballs
 build/workdir
+
+tests/output/

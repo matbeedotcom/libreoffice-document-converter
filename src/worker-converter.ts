@@ -77,7 +77,7 @@ export interface EditorOperationResult<T = unknown> {
  */
 export class WorkerConverter {
   private worker: Worker | null = null;
-  private pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+  private pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }>();
   private options: LibreOfficeWasmOptions;
   private initialized = false;
   private initializing = false;
@@ -141,10 +141,12 @@ export class WorkerConverter {
         if ('type' in response && response.type === 'ready') {
           return; // Worker ready signal
         }
-        
+
         const res = response as WorkerResponse;
         const pending = this.pending.get(res.id);
         if (pending) {
+          // Clear the timeout to prevent it from keeping the process alive
+          clearTimeout(pending.timeout);
           this.pending.delete(res.id);
           if (res.success) {
             pending.resolve(res.data);
@@ -158,8 +160,9 @@ export class WorkerConverter {
       });
 
       this.worker.on('error', (error) => {
-        // Reject all pending operations
+        // Reject all pending operations and clear their timeouts
         for (const [, pending] of this.pending) {
+          clearTimeout(pending.timeout);
           pending.reject(error);
         }
         this.pending.clear();
@@ -212,20 +215,21 @@ export class WorkerConverter {
       }
 
       const id = randomUUID();
-      this.pending.set(id, { resolve, reject });
-
-      this.worker.postMessage({ type, id, payload });
 
       // Timeout after 5 minutes
-      setTimeout(() => {
-        if (this.pending.has(id)) {
+      const timeout = setTimeout(() => {
+        const pending = this.pending.get(id);
+        if (pending) {
           this.pending.delete(id);
-          reject(new ConversionError(
+          pending.reject(new ConversionError(
             ConversionErrorCode.CONVERSION_FAILED,
             'Worker operation timeout'
           ));
         }
       }, 300000);
+
+      this.pending.set(id, { resolve, reject, timeout });
+      this.worker.postMessage({ type, id, payload });
     });
   }
 
@@ -478,12 +482,27 @@ export class WorkerConverter {
    * Destroy the converter and terminate the worker
    */
   async destroy(): Promise<void> {
+    // Clear all pending timeouts first to allow process to exit
+    for (const [, pending] of this.pending) {
+      clearTimeout(pending.timeout);
+    }
+
     if (this.worker) {
       try {
         await this.sendMessage('destroy');
       } catch {
         // Ignore errors during cleanup
       }
+
+      // Clear any new timeouts from the destroy message
+      for (const [, pending] of this.pending) {
+        clearTimeout(pending.timeout);
+      }
+
+      // Remove all event listeners to prevent memory leaks
+      this.worker.removeAllListeners();
+
+      // Terminate the worker thread
       await this.worker.terminate();
       this.worker = null;
     }

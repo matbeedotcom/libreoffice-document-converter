@@ -134,7 +134,7 @@ async function handleRequest(req, res) {
         const format = url.searchParams.get('format') || 'pdf';
         console.log(`Converting ${filename} to ${format}...`);
 
-        const result = await converter.convert(inputBuffer, filename, format);
+        const result = await converter.convert(inputBuffer, { outputFormat: format }, filename);
 
         const mimeType = MIME_TYPES[format] || 'application/octet-stream';
         const outputFilename = filename.replace(/\.[^.]+$/, `.${format}`);
@@ -143,7 +143,7 @@ async function handleRequest(req, res) {
           'Content-Type': mimeType,
           'Content-Disposition': `attachment; filename="${outputFilename}"`,
         });
-        res.end(Buffer.from(result));
+        res.end(Buffer.from(result.data));
         console.log(`Converted: ${filename} -> ${outputFilename}`);
         break;
       }

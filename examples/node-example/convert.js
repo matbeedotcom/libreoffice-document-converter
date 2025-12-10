@@ -47,22 +47,23 @@ async function main() {
 
     // Convert the document
     console.log('Converting...');
-    const result = await converter.convert(inputBuffer, inputFilename, outputFormat);
+    const result = await converter.convert(inputBuffer, { outputFormat }, inputFilename);
 
     // Generate output filename
     const outputFilename = basename(inputFile, extname(inputFile)) + '.' + outputFormat;
 
     // Write output file
-    writeFileSync(outputFilename, Buffer.from(result));
-    console.log(`Saved: ${outputFilename}`);
+    writeFileSync(outputFilename, Buffer.from(result.data));
+    console.log(`Saved: ${outputFilename} (${result.duration}ms)`);
 
   } catch (error) {
     console.error('Conversion failed:', error.message);
-    process.exit(1);
-  } finally {
-    // Clean up
     await converter.destroy();
+    process.exit(1);
   }
+
+  // Clean up - worker will exit automatically after destroy
+  await converter.destroy();
 }
 
 main();
