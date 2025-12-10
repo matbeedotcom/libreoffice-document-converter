@@ -256,7 +256,7 @@ describe('WorkerConverter', () => {
         verbose: false,
       });
       await converter.initialize();
-    }, 30000); // 120s timeout for WASM initialization
+    }, 120000); // 120s timeout for WASM initialization
 
     afterAll(async () => {
       if (converter?.isReady()) {
