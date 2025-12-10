@@ -66,3 +66,4 @@ build/tarballs
 build/workdir
 
 tests/output/
+CLAUDE.md
