@@ -102,12 +102,15 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/node": "^20.10.0",
     "@types/sharp": "^0.31.1",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.54.0",
     "playwright": "^1.57.0",
+    "semantic-release": "^25.0.2",
     "sharp": "^0.33.5",
     "tsup": "^8.0.1",
     "tsx": "^4.6.0",
@@ -116,5 +119,19 @@
   },
   "dependencies": {
     "zod": "^4.1.13"
+  },
+  "release": {
+    "branches": ["main"],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      "@semantic-release/npm",
+      ["@semantic-release/git", {
+        "assets": ["package.json", "CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }],
+      "@semantic-release/github"
+    ]
   }
 }
