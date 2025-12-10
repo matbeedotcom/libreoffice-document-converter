@@ -7,10 +7,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# WASM build outputs (large files)
-wasm/*.wasm
-wasm/*.data
-wasm/*.js
+# WASM build outputs (tracked via Git LFS)
+# wasm/*.wasm - tracked by LFS
+# wasm/*.data - tracked by LFS
+wasm/*.js.metadata
 !wasm/.gitkeep
 
 # IDE
