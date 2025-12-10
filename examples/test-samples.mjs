@@ -9,10 +9,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Note: XLSX loading is extremely slow in WASM - use ODS instead
 const testFiles = [
   // Writer conversions - fast and reliable
-  { path: 'tests/sample_test_2.docx', format: 'pdf', type: 'Writer' },
-  { path: 'tests/sample_test_3.docx', format: 'pdf', type: 'Writer' },
-  { path: 'tests/sample_test_2.docx', format: 'odt', type: 'Writer' },
-  { path: 'tests/sample_test_2.docx', format: 'txt', type: 'Writer' },
+  { path: 'tests/sample_2_page.docx', format: 'pdf', type: 'Writer' },
+  { path: 'tests/sample_2_page.docx', format: 'pdf', type: 'Writer' },
+  { path: 'tests/sample_2_page.docx', format: 'odt', type: 'Writer' },
+  { path: 'tests/sample_2_page.docx', format: 'txt', type: 'Writer' },
   // Calc conversions - ODS is fast, XLSX is slow
   { path: 'tests/sample_test_4.ods', format: 'pdf', type: 'Calc' },
   { path: 'tests/sample_test_4.ods', format: 'xlsx', type: 'Calc' },

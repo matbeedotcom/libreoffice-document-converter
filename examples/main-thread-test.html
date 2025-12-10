@@ -136,7 +136,7 @@
 
       try {
         console.log('Fetching test file...');
-        const res = await fetch('../tests/sample_test_3.docx');
+        const res = await fetch('../tests/sample_2_page.docx');
         if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
         const buffer = await res.arrayBuffer();
         console.log('File loaded:', buffer.byteLength, 'bytes');

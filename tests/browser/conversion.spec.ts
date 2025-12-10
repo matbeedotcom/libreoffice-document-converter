@@ -7,17 +7,6 @@ const __dirname = path.dirname(__filename);
 
 test.describe('Browser Document Conversion', () => {
   test.beforeEach(async ({ page }) => {
-    // Enable verbose console logging
-    page.on('console', msg => {
-      const type = msg.type();
-      const text = msg.text();
-      if (type === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[Worker') || text.includes('[Browser') || text.includes('LOK')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-
     // Log page errors
     page.on('pageerror', error => {
       console.error(`[Page Error] ${error.message}`);
@@ -47,7 +36,7 @@ test.describe('Browser Document Conversion', () => {
     await page.goto('/examples/browser-demo.html');
 
     // Get the test file path
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
 
     // Upload file via file input
     const fileInput = page.locator('#fileInput');
@@ -55,7 +44,7 @@ test.describe('Browser Document Conversion', () => {
 
     // Verify file is selected
     await expect(page.locator('#fileInfo')).toBeVisible();
-    await expect(page.locator('#fileName')).toContainText('sample_test_2.docx');
+    await expect(page.locator('#fileName')).toContainText('sample_2_page.docx');
 
     // Convert button should be enabled
     await expect(page.locator('#convertBtn')).toBeEnabled();
@@ -235,7 +224,7 @@ test.describe('WorkerBrowserConverter Initialization', () => {
     await page.goto('/examples/browser-demo.html');
 
     // Upload a small file
-    const testFilePath = path.join(__dirname, '..', 'sample_test_3.docx'); // Use smaller file
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx'); // Use smaller file
     const fileInput = page.locator('#fileInput');
     await fileInput.setInputFiles(testFilePath);
 

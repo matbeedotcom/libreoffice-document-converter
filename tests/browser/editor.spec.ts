@@ -7,17 +7,6 @@ const __dirname = path.dirname(__filename);
 
 test.describe('Browser Editor API', () => {
   test.beforeEach(async ({ page }) => {
-    // Enable verbose console logging
-    page.on('console', msg => {
-      const type = msg.type();
-      const text = msg.text();
-      if (type === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Progress') || text.includes('Structure') || text.includes('Document info') || text.includes('LOK info') || text.includes('Testing file')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-
     // Log page errors
     page.on('pageerror', error => {
       console.error(`[Page Error] ${error.message}`);
@@ -43,14 +32,14 @@ test.describe('Browser Editor API', () => {
     await page.goto('/examples/editor-test.html');
 
     // Get the test file path
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
 
     // Upload file via file input
     const fileInput = page.locator('#fileInput');
     await fileInput.setInputFiles(testFilePath);
 
     // Verify file is selected
-    await expect(page.locator('#fileName')).toContainText('sample_test_2.docx');
+    await expect(page.locator('#fileName')).toContainText('sample_2_page.docx');
     await expect(page.locator('#runTests')).toBeEnabled();
 
     // Click run tests (120s timeout for WASM init)
@@ -136,7 +125,7 @@ test.describe('Browser Editor API', () => {
     await page.goto('/examples/editor-test.html');
 
     // Load test file
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     const fileInput = page.locator('#fileInput');
     await fileInput.setInputFiles(testFilePath);
 
@@ -195,7 +184,7 @@ test.describe('Browser Editor API', () => {
   test('should verify text content actually changed after insertion', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
 
-    const testFilePath = path.join(__dirname, '..', 'large_sample_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_large.docx');
     const fileInput = page.locator('#fileInput');
     await fileInput.setInputFiles(testFilePath);
     await expect(page.locator('#runTests')).toBeEnabled();
@@ -265,7 +254,7 @@ test.describe('Browser Editor API', () => {
   test('should test LOK operations (SelectAll, Delete, Undo, Redo, Bold, Italic)', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
 
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     const fileInput = page.locator('#fileInput');
     await fileInput.setInputFiles(testFilePath);
     await expect(page.locator('#runTests')).toBeEnabled();

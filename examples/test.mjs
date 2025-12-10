@@ -16,7 +16,7 @@ async function test() {
   console.log('\n=== Converter Ready ===\n');
 
   // Read test files
-  const docx = readFileSync(path.resolve(__dirname, 'tests/sample_test_3.docx'));
+  const docx = readFileSync(path.resolve(__dirname, 'tests/sample_2_page.docx'));
   const pptx = readFileSync(path.resolve(__dirname, 'tests/sample_test_1.pptx'));
   
   // Check if ODP exists

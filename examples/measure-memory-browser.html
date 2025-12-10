@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibreOffice WASM Memory Measurement</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { margin-top: 0; }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .success { color: #4caf50; }
+    .warning { color: #ff9800; }
+    .info { color: #2196f3; }
+    button {
+      background: #2196f3;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    button:hover { background: #1976d2; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .progress {
+      background: #e0e0e0;
+      border-radius: 4px;
+      height: 24px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, #2196f3, #4caf50);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    th { background: #f5f5f5; }
+    .metric-value { font-family: monospace; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LibreOffice WASM Memory Measurement</h1>
+    <p>Measure actual memory usage in the browser. Open DevTools (F12) → Memory tab for detailed heap snapshots.</p>
+  </div>
+
+  <div class="card">
+    <h2>Controls</h2>
+    <button id="btnMeasureBaseline">1. Measure Baseline</button>
+    <button id="btnInitialize" disabled>2. Initialize WASM</button>
+    <button id="btnConvert" disabled>3. Test Conversion</button>
+    <button id="btnDestroy" disabled>4. Destroy</button>
+    <button id="btnReset">Reset</button>
+
+    <div class="progress">
+      <div class="progress-bar" id="progressBar">0%</div>
+    </div>
+    <p id="status">Click "Measure Baseline" to start</p>
+  </div>
+
+  <div class="card">
+    <h2>Memory Measurements</h2>
+    <table id="memoryTable">
+      <thead>
+        <tr>
+          <th>Stage</th>
+          <th>JS Heap Used</th>
+          <th>JS Heap Total</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody id="memoryBody">
+      </tbody>
+    </table>
+    <p class="info">Note: Browser memory APIs have limitations. For accurate WASM memory, check DevTools → Memory tab.</p>
+  </div>
+
+  <div class="card">
+    <h2>Console Log</h2>
+    <pre id="log"></pre>
+  </div>
+
+  <script type="module">
+    import { WorkerBrowserConverter, createWasmPaths } from '/dist/browser.js';
+
+    let converter = null;
+    let measurements = [];
+
+    const log = document.getElementById('log');
+    const status = document.getElementById('status');
+    const progressBar = document.getElementById('progressBar');
+    const memoryBody = document.getElementById('memoryBody');
+
+    function appendLog(msg, type = '') {
+      const line = document.createElement('span');
+      line.className = type;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === undefined || bytes === null) return 'N/A';
+      return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
+    function getMemoryInfo() {
+      // performance.memory is Chrome-only and requires --enable-precise-memory-info flag
+      const mem = performance.memory;
+      if (mem) {
+        return {
+          usedJSHeapSize: mem.usedJSHeapSize,
+          totalJSHeapSize: mem.totalJSHeapSize,
+          jsHeapSizeLimit: mem.jsHeapSizeLimit,
+        };
+      }
+      return { usedJSHeapSize: null, totalJSHeapSize: null };
+    }
+
+    function recordMeasurement(stage) {
+      const mem = getMemoryInfo();
+      const row = {
+        stage,
+        usedJSHeapSize: mem.usedJSHeapSize,
+        totalJSHeapSize: mem.totalJSHeapSize,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      measurements.push(row);
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${stage}</td>
+        <td class="metric-value">${formatBytes(row.usedJSHeapSize)}</td>
+        <td class="metric-value">${formatBytes(row.totalJSHeapSize)}</td>
+        <td>${row.timestamp}</td>
+      `;
+      memoryBody.appendChild(tr);
+
+      appendLog(`${stage}: Heap Used = ${formatBytes(row.usedJSHeapSize)}, Total = ${formatBytes(row.totalJSHeapSize)}`, 'info');
+    }
+
+    // Button handlers
+    document.getElementById('btnMeasureBaseline').onclick = () => {
+      recordMeasurement('Baseline');
+      document.getElementById('btnInitialize').disabled = false;
+      status.textContent = 'Baseline recorded. Click "Initialize WASM" to load LibreOffice.';
+    };
+
+    document.getElementById('btnInitialize').onclick = async () => {
+      try {
+        status.textContent = 'Initializing WASM (downloading ~240MB)...';
+        appendLog('Starting WASM initialization...', 'info');
+
+        const startTime = Date.now();
+
+        converter = new WorkerBrowserConverter({
+          ...createWasmPaths('/wasm/'),
+          browserWorkerJs: '/dist/browser.worker.global.js',
+          onProgress: (info) => {
+            progressBar.style.width = `${info.percent}%`;
+            progressBar.textContent = `${info.percent}%`;
+            status.textContent = info.message;
+          },
+        });
+
+        await converter.initialize();
+
+        const elapsed = Date.now() - startTime;
+        appendLog(`Initialization complete in ${elapsed}ms`, 'success');
+        recordMeasurement('After WASM Init');
+
+        document.getElementById('btnConvert').disabled = false;
+        document.getElementById('btnDestroy').disabled = false;
+        status.textContent = 'WASM loaded! Try a conversion or destroy.';
+        progressBar.style.width = '100%';
+        progressBar.textContent = 'Ready';
+      } catch (err) {
+        appendLog(`Error: ${err.message}`, 'warning');
+        status.textContent = 'Error: ' + err.message;
+      }
+    };
+
+    document.getElementById('btnConvert').onclick = async () => {
+      if (!converter) return;
+
+      try {
+        status.textContent = 'Creating test document...';
+
+        // Create a simple test document (RTF is easiest to generate)
+        const testContent = `{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times New Roman;}}
+\\f0\\fs24 Hello World! This is a test document for memory measurement.
+\\par This document was created at ${new Date().toISOString()}.
+\\par Lorem ipsum dolor sit amet, consectetur adipiscing elit.}`;
+
+        const encoder = new TextEncoder();
+        const testData = encoder.encode(testContent);
+
+        status.textContent = 'Converting RTF to PDF...';
+        appendLog('Starting test conversion (RTF → PDF)...', 'info');
+
+        const startTime = Date.now();
+        const result = await converter.convert(testData, { outputFormat: 'pdf' }, 'test.rtf');
+        const elapsed = Date.now() - startTime;
+
+        appendLog(`Conversion complete in ${elapsed}ms, output size: ${formatBytes(result.data.length)}`, 'success');
+        recordMeasurement('After Conversion');
+
+        status.textContent = `Conversion done in ${elapsed}ms`;
+      } catch (err) {
+        appendLog(`Conversion error: ${err.message}`, 'warning');
+        status.textContent = 'Error: ' + err.message;
+      }
+    };
+
+    document.getElementById('btnDestroy').onclick = async () => {
+      if (!converter) return;
+
+      try {
+        status.textContent = 'Destroying converter...';
+        await converter.destroy();
+        converter = null;
+
+        // Give GC a chance
+        await new Promise(r => setTimeout(r, 500));
+
+        recordMeasurement('After Destroy');
+        appendLog('Converter destroyed', 'success');
+
+        document.getElementById('btnConvert').disabled = true;
+        document.getElementById('btnDestroy').disabled = true;
+        status.textContent = 'Converter destroyed. Check memory measurements.';
+      } catch (err) {
+        appendLog(`Error: ${err.message}`, 'warning');
+      }
+    };
+
+    document.getElementById('btnReset').onclick = () => {
+      if (converter) {
+        converter.destroy().catch(() => {});
+        converter = null;
+      }
+      measurements = [];
+      memoryBody.innerHTML = '';
+      log.innerHTML = '';
+      progressBar.style.width = '0%';
+      progressBar.textContent = '0%';
+      status.textContent = 'Reset. Click "Measure Baseline" to start.';
+      document.getElementById('btnInitialize').disabled = true;
+      document.getElementById('btnConvert').disabled = true;
+      document.getElementById('btnDestroy').disabled = true;
+    };
+
+    // Check for memory API availability
+    if (!performance.memory) {
+      appendLog('WARNING: performance.memory not available. For accurate measurements:', 'warning');
+      appendLog('  Chrome: Launch with --enable-precise-memory-info flag', 'warning');
+      appendLog('  Or use DevTools → Memory tab for heap snapshots', 'warning');
+    } else {
+      appendLog('performance.memory API available', 'success');
+    }
+  </script>
+</body>
+</html>

@@ -32,20 +32,9 @@ const getFileData = `
 `;
 
 test.describe('Editor API - WriterEditor', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Editor')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should open document and get correct document type', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -86,7 +75,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should get document structure', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -121,7 +110,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should get text formatting via callback mechanism', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -155,7 +144,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should get paragraphs or handle empty document', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'large_sample_2.docx'); // Use larger file with more content
+    const testFilePath = path.join(__dirname, '..', 'sample_large.docx'); // Use larger file with more content
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -203,7 +192,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should insert paragraph and save document', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -244,7 +233,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should perform undo and redo operations', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -286,7 +275,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should execute find operation', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -327,7 +316,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should execute replace text operation', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -368,7 +357,7 @@ test.describe('Editor API - WriterEditor', () => {
 
   test('should get selection format via callback mechanism', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -407,17 +396,6 @@ test.describe('Editor API - WriterEditor', () => {
 });
 
 test.describe('Editor API - CalcEditor', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Editor')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should open spreadsheet and get correct document type', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
     const testFilePath = path.join(__dirname, '..', 'sample_test_5.xlsx');
@@ -496,17 +474,6 @@ test.describe('Editor API - ImpressEditor', () => {
   // ImpressEditor tests need longer timeout as pptx loading is slower
   test.setTimeout(300000);
 
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Editor')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should open presentation and get correct document type', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
     const testFilePath = path.join(__dirname, '..', 'sample_test_1.pptx');
@@ -582,17 +549,6 @@ test.describe('Editor API - ImpressEditor', () => {
 });
 
 test.describe('Editor API - DrawEditor (PDF)', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Editor')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should open PDF and get correct document type', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
     const testFilePath = path.join(__dirname, '..', 'sample.pdf');
@@ -668,22 +624,11 @@ test.describe('Editor API - DrawEditor (PDF)', () => {
 });
 
 test.describe('Editor API - Session Management', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('Editor') || text.includes('session')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should manage multiple document sessions', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
 
     // Load first file
-    const testFilePath1 = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath1 = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath1);
 
     const result = await page.evaluate(async () => {
@@ -733,7 +678,7 @@ test.describe('Editor API - Session Management', () => {
 
   test('should throw error when using closed session', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -771,18 +716,9 @@ test.describe('Editor API - Session Management', () => {
 });
 
 test.describe('Editor API - Error Handling', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      }
-    });
-  });
-
   test('should handle invalid paragraph index gracefully', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     const result = await page.evaluate(async () => {
@@ -818,20 +754,9 @@ test.describe('Editor API - Error Handling', () => {
 });
 
 test.describe('Editor API - Document Modification & Save', () => {
-  test.beforeEach(async ({ page }) => {
-    page.on('console', msg => {
-      const text = msg.text();
-      if (msg.type() === 'error') {
-        console.error(`[Browser Error] ${text}`);
-      } else if (text.includes('[LOK]') || text.includes('modified')) {
-        console.log(`[Browser] ${text}`);
-      }
-    });
-  });
-
   test('should save modified document and verify changes persist', async ({ page }) => {
     await page.goto('/examples/editor-test.html');
-    const testFilePath = path.join(__dirname, '..', 'sample_test_2.docx');
+    const testFilePath = path.join(__dirname, '..', 'sample_2_page.docx');
     await page.locator('#fileInput').setInputFiles(testFilePath);
 
     // Wait for file input to be populated

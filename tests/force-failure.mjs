@@ -11,8 +11,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Test files
-const DOCX_SMALL = fs.readFileSync(path.join(__dirname, 'sample_test_3.docx'));
-const DOCX_LARGE = fs.readFileSync(path.join(__dirname, 'sample_test_2.docx'));
+const DOCX_SMALL = fs.readFileSync(path.join(__dirname, 'sample_2_page.docx'));
+const DOCX_LARGE = fs.readFileSync(path.join(__dirname, 'sample_2_page.docx'));
 const ODS_FILE = fs.readFileSync(path.join(__dirname, 'sample_test_4.ods'));
 
 let converter = null;

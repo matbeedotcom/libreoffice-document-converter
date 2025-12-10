@@ -21,7 +21,7 @@ const ITERATIONS = 5;  // Number of conversion iterations per format
 
 // Test files
 const TEST_FILES = {
-  docx: 'tests/sample_test_3.docx',  // Smaller DOCX for consistent benchmarks
+  docx: 'tests/sample_2_page.docx',  // Smaller DOCX for consistent benchmarks
   xlsx: 'tests/sample_test_5.xlsx',
   pptx: 'tests/sample_test_1.pptx',
 };

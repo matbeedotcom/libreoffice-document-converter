@@ -9,13 +9,6 @@ test.describe('Browser Benchmarks', () => {
   test.setTimeout(300000); // 5 minutes for full benchmark
 
   test('benchmark DOCX, XLSX, PPTX conversions', async ({ page }) => {
-    // Collect console output for timing
-    const logs: string[] = [];
-    page.on('console', msg => {
-      logs.push(msg.text());
-      console.log(`[Browser] ${msg.text()}`);
-    });
-
     await page.goto('/examples/browser-demo.html');
 
     // Wait for page to load
@@ -30,7 +23,7 @@ test.describe('Browser Benchmarks', () => {
 
     // Test files
     const testFiles = [
-      { path: path.join(__dirname, '..', 'sample_test_3.docx'), type: 'docx', iterations: 3 },
+      { path: path.join(__dirname, '..', 'sample_2_page.docx'), type: 'docx', iterations: 3 },
       { path: path.join(__dirname, '..', 'sample_test_5.xlsx'), type: 'xlsx', iterations: 3 },
       { path: path.join(__dirname, '..', 'sample_test_1.pptx'), type: 'pptx', iterations: 3 },
     ];

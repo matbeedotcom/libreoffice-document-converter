@@ -11,7 +11,7 @@ async function main() {
   try {
     // Test 1: Get page count for DOCX
     console.log('\n=== Test 1: Get page count for DOCX ===');
-    const docx = readFileSync('tests/sample_test_3.docx');
+    const docx = readFileSync('tests/sample_2_page.docx');
     const docxPageCount = await converter.getPageCount(docx, { inputFormat: 'docx' });
     console.log(`DOCX page count: ${docxPageCount}`);
 

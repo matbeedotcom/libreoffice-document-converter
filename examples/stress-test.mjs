@@ -6,10 +6,10 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const testFiles = [
-  { path: 'tests/sample_test_2.docx', format: 'pdf' },
-  { path: 'tests/sample_test_3.docx', format: 'pdf' },
-  { path: 'tests/sample_test_2.docx', format: 'odt' },
-  { path: 'tests/sample_test_2.docx', format: 'txt' },
+  { path: 'tests/sample_2_page.docx', format: 'pdf' },
+  { path: 'tests/sample_2_page.docx', format: 'pdf' },
+  { path: 'tests/sample_2_page.docx', format: 'odt' },
+  { path: 'tests/sample_2_page.docx', format: 'txt' },
   { path: 'tests/sample_test_4.ods', format: 'pdf' },
   { path: 'tests/sample_test_4.ods', format: 'xlsx' },
 ];
