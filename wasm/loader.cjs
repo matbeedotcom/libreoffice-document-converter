@@ -38,9 +38,19 @@ global.Worker = Worker;
 let cachedWasmModule = null;
 let cachedWasmBinary = null;
 
-// Change to wasm directory for relative path resolution
+// Change to wasm directory for relative path resolution (if supported)
+// Note: process.chdir() is not available in worker threads
 const origCwd = process.cwd();
-process.chdir(wasmDir);
+let changedDir = false;
+try {
+  process.chdir(wasmDir);
+  changedDir = true;
+} catch (err) {
+  // In worker threads, chdir is not supported - we'll use absolute paths instead
+  if (err.code !== 'ERR_WORKER_UNSUPPORTED_OPERATION') {
+    throw err;
+  }
+}
 
 // File sizes for progress calculation (approximate)
 const FILE_SIZES = {
@@ -217,8 +227,10 @@ function createModule(config = {}) {
           console.log('[WASM] Runtime initialized');
         }
         
-        // Restore original cwd
-        process.chdir(origCwd);
+        // Restore original cwd if we changed it
+        if (changedDir) {
+          process.chdir(origCwd);
+        }
         
         // Clear progress callback (but keep cache)
         currentProgressCallback = null;
@@ -248,7 +260,9 @@ function createModule(config = {}) {
       // This is a patched version that uses global.Module
       require('./soffice.cjs');
     } catch (err) {
-      process.chdir(origCwd);
+      if (changedDir) {
+        process.chdir(origCwd);
+      }
       currentProgressCallback = null;
       reject(err);
     }

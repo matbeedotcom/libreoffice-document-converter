@@ -7,8 +7,9 @@
 
 import { Worker } from 'worker_threads';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
 import {
   ConversionError,
   ConversionErrorCode,
@@ -109,11 +110,27 @@ export class WorkerConverter {
     try {
       // Find the worker script path
       let workerPath: string;
-      try {
-        const currentDir = dirname(fileURLToPath(import.meta.url));
-        workerPath = join(currentDir, 'worker.cjs');
-      } catch {
-        workerPath = join(__dirname, 'worker.cjs');
+
+      if (this.options.workerPath) {
+        // Use explicit worker path if provided
+        workerPath = resolve(this.options.workerPath);
+      } else {
+        // Auto-detect worker path
+        try {
+          const currentDir = dirname(fileURLToPath(import.meta.url));
+          workerPath = join(currentDir, 'worker.cjs');
+        } catch {
+          workerPath = join(__dirname, 'worker.cjs');
+        }
+
+        // If worker doesn't exist at computed path, try dist/ relative to cwd
+        // (handles vitest running source files directly)
+        if (!existsSync(workerPath)) {
+          const distWorkerPath = resolve(process.cwd(), 'dist', 'worker.cjs');
+          if (existsSync(distWorkerPath)) {
+            workerPath = distWorkerPath;
+          }
+        }
       }
 
       // Create the worker

@@ -155,6 +155,12 @@ export interface LibreOfficeWasmOptions {
   wasmPath?: string;
 
   /**
+   * Path to the worker script (for WorkerConverter)
+   * When not specified, auto-detected based on module location
+   */
+  workerPath?: string;
+
+  /**
    * Enable verbose logging
    * @default false
    */
