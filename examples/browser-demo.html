@@ -846,7 +846,7 @@
 
         cachedConverter = new WorkerBrowserConverter({
           ...createWasmPaths(baseUrl + 'wasm/'),
-          browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
+          browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
           verbose: false,
           onProgress: (p) => {
             updateProgress(p.percent, p.message);

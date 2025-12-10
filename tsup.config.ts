@@ -22,7 +22,7 @@ export default defineConfig([
   // Worker thread (separate build, no DTS)
   {
     entry: {
-      worker: 'src/worker.ts',
+      'node.worker': 'src/node.worker.ts',
       subprocess: 'src/subprocess.cts',
       'isolate-worker': 'src/isolate-worker.ts',
       'fork-worker': 'src/fork-worker.cts',
@@ -63,7 +63,7 @@ export default defineConfig([
   // Browser Web Worker build (classic worker, IIFE format)
   {
     entry: {
-      'browser-worker': 'src/browser-worker.ts',
+      'browser.worker': 'src/browser.worker.ts',
     },
     format: ['iife'],
     dts: false,

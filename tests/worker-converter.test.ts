@@ -17,7 +17,7 @@ import {
   DocumentInfo,
   EditorSession,
   EditorOperationResult,
-} from '../src/worker-converter.js';
+} from '../src/node.worker-converter.js';
 import { ConversionError } from '../src/types.js';
 import * as fs from 'fs';
 import * as path from 'path';

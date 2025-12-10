@@ -238,7 +238,7 @@ export interface BrowserConverterOptions {
  * All WASM paths are optional and default to /wasm/ via createWasmPaths()
  */
 export interface WorkerBrowserConverterOptions extends BrowserConverterOptions {
-  /** URL to browser-worker.js - defaults to /dist/browser-worker.global.js */
+  /** URL to browser.worker.js - defaults to /dist/browser.worker.global.js */
   browserWorkerJs?: string;
 }
 
@@ -275,13 +275,13 @@ export const DEFAULT_WASM_BASE_URL = '/wasm/';
  * // Use default /wasm/ path (same-origin)
  * const converter = new WorkerBrowserConverter({
  *   ...createWasmPaths(),
- *   browserWorkerJs: '/dist/browser-worker.js',
+ *   browserWorkerJs: '/dist/browser.worker.js',
  * });
  *
  * // Or use your own CDN
  * const converter = new WorkerBrowserConverter({
  *   ...createWasmPaths('https://cdn.example.com/wasm/'),
- *   browserWorkerJs: '/dist/browser-worker.js',
+ *   browserWorkerJs: '/dist/browser.worker.js',
  * });
  * ```
  */

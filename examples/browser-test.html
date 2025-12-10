@@ -147,7 +147,7 @@
 
       converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
-        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
+        browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
         verbose: true,
         onProgress: (p) => {
           console.log(`Progress: ${p.percent}% - ${p.message}`);

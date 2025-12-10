@@ -9,7 +9,7 @@
  */
 
 export { LibreOfficeConverter } from './converter.js';
-export { WorkerConverter, createWorkerConverter } from './worker-converter.js';
+export { WorkerConverter, createWorkerConverter } from './node.worker-converter.js';
 export { SubprocessConverter, createSubprocessConverter } from './subprocess-converter.js';
 
 // Image encoding utilities (uses sharp when available, falls back to pure JS)

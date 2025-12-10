@@ -137,7 +137,7 @@
       const baseUrl = new URL('..', window.location.href).href;
       converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
-        browserWorkerJs: baseUrl + 'dist/browser-worker.global.js',
+        browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
         verbose: true,
         onProgress: (info) => {
           status.textContent = `Loading: ${info.phase} (${info.percent}%)`;

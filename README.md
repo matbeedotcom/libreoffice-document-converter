@@ -493,7 +493,7 @@ import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-con
 // Create converter - serves WASM from /wasm/ by default
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths(), // Defaults to /wasm/
-  browserWorkerJs: '/dist/browser-worker.js',
+  browserWorkerJs: '/dist/browser.worker.js',
   onProgress: (info) => {
     progressBar.style.width = `${info.percent}%`;
     statusText.textContent = info.message;
@@ -560,7 +560,7 @@ const converter = new WorkerBrowserConverter({
   sofficeWasm: 'https://cdn.example.com/wasm/soffice.wasm',
   sofficeData: 'https://cdn.example.com/wasm/soffice.data',
   sofficeWorkerJs: 'https://cdn.example.com/wasm/soffice.worker.js',
-  browserWorkerJs: '/workers/browser-worker.js',
+  browserWorkerJs: '/workers/browser.worker.js',
 });
 ```
 
@@ -588,7 +588,7 @@ import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-con
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
-  browserWorkerJs: '/dist/browser-worker.js',
+  browserWorkerJs: '/dist/browser.worker.js',
   onProgress: (progress) => {
     // progress is a WasmLoadProgress object
     console.log(`Phase: ${progress.phase}`);
@@ -658,7 +658,7 @@ const progressBytes = document.getElementById('progress-bytes');
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
-  browserWorkerJs: '/dist/browser-worker.js',
+  browserWorkerJs: '/dist/browser.worker.js',
   onProgress: (progress) => {
     progressBar.style.width = `${progress.percent}%`;
     progressText.textContent = progress.message;
@@ -978,7 +978,7 @@ import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-con
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
-  browserWorkerJs: '/dist/browser-worker.js',
+  browserWorkerJs: '/dist/browser.worker.js',
 });
 await converter.initialize();
 
@@ -1003,7 +1003,7 @@ import { WorkerBrowserConverter, createWasmPaths } from '@matbee/libreoffice-con
 
 const converter = new WorkerBrowserConverter({
   ...createWasmPaths('/wasm/'),
-  browserWorkerJs: '/dist/browser-worker.js',
+  browserWorkerJs: '/dist/browser.worker.js',
 });
 await converter.initialize();
 
@@ -1172,7 +1172,7 @@ function DocumentConverter() {
     const init = async () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths('/wasm/'),
-        browserWorkerJs: '/dist/browser-worker.js',
+        browserWorkerJs: '/dist/browser.worker.js',
         onProgress: (info) => {
           setProgress(info.percent);
           setStatus(info.message);

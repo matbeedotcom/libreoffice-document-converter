@@ -12,7 +12,7 @@ npm install
 mkdir -p public/wasm public/dist
 cp ../../wasm/soffice.* public/wasm/
 cp ../../wasm/loader.cjs public/wasm/
-cp ../../dist/browser-worker.global.js public/dist/
+cp ../../dist/browser.worker.global.js public/dist/
 
 # Start development server
 npm run dev
@@ -33,7 +33,7 @@ import { WorkerBrowserConverter } from '@matbee/libreoffice-converter/browser';
 
 const converter = new WorkerBrowserConverter({
   wasmPath: '/wasm',
-  workerPath: '/dist/browser-worker.global.js',
+  workerPath: '/dist/browser.worker.global.js',
 });
 
 await converter.initialize();
@@ -57,7 +57,7 @@ function useConverter() {
 
     const converter = new WorkerBrowserConverter({
       wasmPath: '/wasm',
-      workerPath: '/dist/browser-worker.global.js',
+      workerPath: '/dist/browser.worker.global.js',
     });
 
     await converter.initialize();

@@ -68,7 +68,7 @@ export default function App() {
 
     const converter = new WorkerBrowserConverter({
       ...createWasmPaths('/wasm/'),
-      browserWorkerJs: '/dist/browser-worker.global.js',
+      browserWorkerJs: '/dist/browser.worker.global.js',
       verbose: false,
       onProgress: (p) => setProgress({ percent: p.percent, message: p.message }),
     });

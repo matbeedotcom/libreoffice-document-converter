@@ -474,7 +474,7 @@ export class WorkerBrowserConverter {
     const defaultPaths = createWasmPaths();
     this.options = {
       verbose: false,
-      browserWorkerJs: '/dist/browser-worker.global.js',
+      browserWorkerJs: '/dist/browser.worker.global.js',
       ...defaultPaths,
       ...options,
     };
