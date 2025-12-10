@@ -38,7 +38,7 @@ describe('SubprocessConverter', () => {
 
       const converter = new SubprocessConverter({
         wasmPath: '/custom/path',
-        verbose: true,
+        verbose: false,
         onProgress,
         onReady,
         onError,

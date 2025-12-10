@@ -18,7 +18,7 @@ const initConverter = `
   const converter = new WorkerBrowserConverter({
     ...createWasmPaths(baseUrl + 'wasm/'),
     browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-    verbose: true,
+    verbose: false,
   });
   await converter.initialize();
 `;
@@ -44,7 +44,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -85,7 +85,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -120,7 +120,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -154,7 +154,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -202,7 +202,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -243,7 +243,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -285,7 +285,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -326,7 +326,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -367,7 +367,7 @@ test.describe('Editor API - WriterEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -408,7 +408,7 @@ test.describe('Editor API - CalcEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -445,7 +445,7 @@ test.describe('Editor API - CalcEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -486,7 +486,7 @@ test.describe('Editor API - ImpressEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -523,7 +523,7 @@ test.describe('Editor API - ImpressEditor', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -561,7 +561,7 @@ test.describe('Editor API - DrawEditor (PDF)', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -598,7 +598,7 @@ test.describe('Editor API - DrawEditor (PDF)', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -638,7 +638,7 @@ test.describe('Editor API - Session Management', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -688,7 +688,7 @@ test.describe('Editor API - Session Management', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -728,7 +728,7 @@ test.describe('Editor API - Error Handling', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 
@@ -772,7 +772,7 @@ test.describe('Editor API - Document Modification & Save', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
 

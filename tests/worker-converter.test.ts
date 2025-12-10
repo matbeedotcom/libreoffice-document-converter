@@ -38,7 +38,7 @@ describe('WorkerConverter', () => {
 
       const converter = new WorkerConverter({
         wasmPath: '/custom/path',
-        verbose: true,
+        verbose: false,
         onProgress,
         onReady,
         onError,

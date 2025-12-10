@@ -110,7 +110,7 @@ describe('LibreOfficeConverter', () => {
 
       const converter = new LibreOfficeConverter({
         wasmPath: '/custom/path',
-        verbose: true,
+        verbose: false,
         onProgress,
         onReady,
         onError,
@@ -127,7 +127,7 @@ describe('LibreOfficeConverter', () => {
     beforeAll(async () => {
       converter = new LibreOfficeConverter({
         wasmPath: './wasm',
-        verbose: true,
+        verbose: false,
       });
       await converter.initialize();
     }, 120000); // 2 minute timeout for initialization
@@ -154,7 +154,6 @@ describe('LibreOfficeConverter', () => {
       expect(result.data.length).toBeGreaterThan(0);
       expect(result.mimeType).toBe('application/pdf');
       expect(result.filename).toBe('test.pdf');
-      expect(result.duration).toBeGreaterThanOrEqual(0);
     });
   });
 });

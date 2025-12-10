@@ -141,7 +141,7 @@ test.describe('Browser Editor API', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
 
       await converter.initialize();
@@ -197,7 +197,7 @@ test.describe('Browser Editor API', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
 
       await converter.initialize();
@@ -267,7 +267,7 @@ test.describe('Browser Editor API', () => {
       const converter = new WorkerBrowserConverter({
         ...createWasmPaths(baseUrl + 'wasm/'),
         browserWorkerJs: baseUrl + 'dist/browser.worker.global.js',
-        verbose: true,
+        verbose: false,
       });
 
       await converter.initialize();
