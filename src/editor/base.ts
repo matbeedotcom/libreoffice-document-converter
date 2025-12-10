@@ -69,7 +69,7 @@ export abstract class OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:Save');
       return this.createResult({ path: this.inputPath });
     } catch (error) {
-      return this.createErrorResult(`Save failed: ${error}`);
+      return this.createErrorResult(`Save failed: ${String(error)}`);
     }
   }
 
@@ -78,7 +78,7 @@ export abstract class OfficeEditor {
       this.lok.documentSaveAs(this.docPtr, path, format, '');
       return this.createResult({ path });
     } catch (error) {
-      return this.createErrorResult(`SaveAs failed: ${error}`);
+      return this.createErrorResult(`SaveAs failed: ${String(error)}`);
     }
   }
 
@@ -88,7 +88,7 @@ export abstract class OfficeEditor {
       this.docPtr = 0;
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Close failed: ${error}`);
+      return this.createErrorResult(`Close failed: ${String(error)}`);
     }
   }
 
@@ -122,7 +122,7 @@ export abstract class OfficeEditor {
         data: { editMode: afterMode },
       };
     } catch (error) {
-      return this.createErrorResult(`Failed to enable edit mode: ${error}`);
+      return this.createErrorResult(`Failed to enable edit mode: ${String(error)}`);
     }
   }
 
@@ -135,7 +135,7 @@ export abstract class OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:Undo');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Undo failed: ${error}`);
+      return this.createErrorResult(`Undo failed: ${String(error)}`);
     }
   }
 
@@ -144,7 +144,7 @@ export abstract class OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:Redo');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Redo failed: ${error}`);
+      return this.createErrorResult(`Redo failed: ${String(error)}`);
     }
   }
 
@@ -173,7 +173,7 @@ export abstract class OfficeEditor {
         firstMatch: hasMatch ? { x: 0, y: 0 } : undefined,
       });
     } catch (error) {
-      return this.createErrorResult(`Find failed: ${error}`);
+      return this.createErrorResult(`Find failed: ${String(error)}`);
     }
   }
 
@@ -192,7 +192,7 @@ export abstract class OfficeEditor {
       // LOK doesn't return replacement count, we assume success
       return this.createResult({ replacements: -1 }); // -1 indicates unknown count
     } catch (error) {
-      return this.createErrorResult(`Replace failed: ${error}`);
+      return this.createErrorResult(`Replace failed: ${String(error)}`);
     }
   }
 
@@ -220,7 +220,7 @@ export abstract class OfficeEditor {
       const states = this.lok.pollStateChanges();
       return this.createResult(states);
     } catch (error) {
-      return this.createErrorResult(`Failed to poll state changes: ${error}`);
+      return this.createErrorResult(`Failed to poll state changes: ${String(error)}`);
     }
   }
 
@@ -236,7 +236,7 @@ export abstract class OfficeEditor {
       const states = this.lok.pollStateChanges();
       return this.createResult(states);
     } catch (error) {
-      return this.createErrorResult(`Failed to flush and poll state: ${error}`);
+      return this.createErrorResult(`Failed to flush and poll state: ${String(error)}`);
     }
   }
 
@@ -259,7 +259,7 @@ export abstract class OfficeEditor {
       const text = this.lok.getTextSelection(this.docPtr, 'text/plain');
       return this.createResult({ selected: text || '' });
     } catch (error) {
-      return this.createErrorResult(`Select failed: ${error}`);
+      return this.createErrorResult(`Select failed: ${String(error)}`);
     }
   }
 
@@ -271,7 +271,7 @@ export abstract class OfficeEditor {
         range: { type: 'text', start: { paragraph: 0, character: 0 } },
       });
     } catch (error) {
-      return this.createErrorResult(`GetSelection failed: ${error}`);
+      return this.createErrorResult(`GetSelection failed: ${String(error)}`);
     }
   }
 
@@ -280,7 +280,7 @@ export abstract class OfficeEditor {
       this.lok.resetSelection(this.docPtr);
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`ClearSelection failed: ${error}`);
+      return this.createErrorResult(`ClearSelection failed: ${String(error)}`);
     }
   }
 

@@ -72,7 +72,7 @@ class NodeXHR {
 // Import converter and editor - these will be bundled by tsup
 import { LibreOfficeConverter } from './converter.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions } from './types.js';
+import type { ConversionOptions, InputFormatOptions } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
 // Converter state
@@ -210,13 +210,12 @@ async function handleRenderPage(payload: RenderPagePayload): Promise<{
   const inputData = new Uint8Array(payload.inputData);
   const previews = await converter.renderPagePreviews(
     inputData,
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
     {
-      inputFormat: payload.inputFormat,
-      outputFormat: 'pdf',
-    } as ConversionOptions,
-    payload.width,
-    payload.height || 0,
-    [payload.pageIndex]
+      width: payload.width,
+      height: payload.height || 0,
+      pageIndices: [payload.pageIndex],
+    }
   );
 
   if (previews.length === 0) {
@@ -247,16 +246,15 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
   const inputData = new Uint8Array(payload.inputData);
   const previews = await converter.renderPagePreviews(
     inputData,
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
     {
-      inputFormat: payload.inputFormat,
-      outputFormat: 'pdf',
-    } as ConversionOptions,
-    payload.width,
-    payload.height || 0,
-    payload.pageIndices
+      width: payload.width,
+      height: payload.height || 0,
+      pageIndices: payload.pageIndices,
+    }
   );
 
-  return previews.map((preview: any) => ({
+  return previews.map((preview: { page: number; data: Uint8Array; width: number; height: number }) => ({
     page: preview.page,
     data: Array.from(preview.data),
     width: preview.width,
@@ -326,7 +324,7 @@ async function handleOpenDocument(payload: OpenDocumentPayload): Promise<{
   if (docPtr === 0) {
     const error = lokBindings.getError();
     module.FS.unlink(filePath);
-    throw new Error(`Failed to load document: ${error}`);
+    throw new Error(`Failed to load document: ${String(error)}`);
   }
 
   // Initialize for rendering/editing

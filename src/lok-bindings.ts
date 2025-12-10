@@ -310,6 +310,7 @@ export class LOKBindings {
     const pathPtr = this.allocString(installPath);
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       const hook = (this.module as any)._libreofficekit_hook as
         | ((pathPtr: number) => number)
         | undefined;

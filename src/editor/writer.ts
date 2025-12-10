@@ -55,7 +55,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult(structure);
     } catch (error) {
-      return this.createErrorResult(`Failed to get structure: ${error}`);
+      return this.createErrorResult(`Failed to get structure: ${String(error)}`);
     }
   }
 
@@ -78,7 +78,7 @@ export class WriterEditor extends OfficeEditor {
         charCount: text.length,
       });
     } catch (error) {
-      return this.createErrorResult(`Failed to get paragraph: ${error}`);
+      return this.createErrorResult(`Failed to get paragraph: ${String(error)}`);
     }
   }
 
@@ -103,7 +103,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult(result);
     } catch (error) {
-      return this.createErrorResult(`Failed to get paragraphs: ${error}`);
+      return this.createErrorResult(`Failed to get paragraphs: ${String(error)}`);
     }
   }
 
@@ -163,7 +163,7 @@ export class WriterEditor extends OfficeEditor {
         data: { index: insertIndex },
       };
     } catch (error) {
-      return this.createErrorResult(`Failed to insert paragraph: ${error}`);
+      return this.createErrorResult(`Failed to insert paragraph: ${String(error)}`);
     }
   }
 
@@ -194,7 +194,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult({ oldText });
     } catch (error) {
-      return this.createErrorResult(`Failed to replace paragraph: ${error}`);
+      return this.createErrorResult(`Failed to replace paragraph: ${String(error)}`);
     }
   }
 
@@ -219,7 +219,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult({ deletedText });
     } catch (error) {
-      return this.createErrorResult(`Failed to delete paragraph: ${error}`);
+      return this.createErrorResult(`Failed to delete paragraph: ${String(error)}`);
     }
   }
 
@@ -234,7 +234,7 @@ export class WriterEditor extends OfficeEditor {
       this.cachedParagraphs = null;
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to insert text: ${error}`);
+      return this.createErrorResult(`Failed to insert text: ${String(error)}`);
     }
   }
 
@@ -250,7 +250,7 @@ export class WriterEditor extends OfficeEditor {
       this.cachedParagraphs = null;
       return this.createResult({ deleted: selection || '' });
     } catch (error) {
-      return this.createErrorResult(`Failed to delete text: ${error}`);
+      return this.createErrorResult(`Failed to delete text: ${String(error)}`);
     }
   }
 
@@ -274,7 +274,7 @@ export class WriterEditor extends OfficeEditor {
       // LOK doesn't return count, we indicate success
       return this.createResult({ replacements: -1 });
     } catch (error) {
-      return this.createErrorResult(`Failed to replace text: ${error}`);
+      return this.createErrorResult(`Failed to replace text: ${String(error)}`);
     }
   }
 
@@ -306,7 +306,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to format text: ${error}`);
+      return this.createErrorResult(`Failed to format text: ${String(error)}`);
     }
   }
 
@@ -372,7 +372,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult(format);
     } catch (error) {
-      return this.createErrorResult(`Failed to get format: ${error}`);
+      return this.createErrorResult(`Failed to get format: ${String(error)}`);
     }
   }
 
@@ -399,7 +399,7 @@ export class WriterEditor extends OfficeEditor {
 
       return this.createResult(existingStates);
     } catch (error) {
-      return this.createErrorResult(`Failed to get selection format: ${error}`);
+      return this.createErrorResult(`Failed to get selection format: ${String(error)}`);
     }
   }
 

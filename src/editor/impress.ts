@@ -35,7 +35,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(structure);
     } catch (error) {
-      return this.createErrorResult(`Failed to get structure: ${error}`);
+      return this.createErrorResult(`Failed to get structure: ${String(error)}`);
     }
   }
 
@@ -67,7 +67,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(slideData);
     } catch (error) {
-      return this.createErrorResult(`Failed to get slide: ${error}`);
+      return this.createErrorResult(`Failed to get slide: ${String(error)}`);
     }
   }
 
@@ -76,7 +76,7 @@ export class ImpressEditor extends OfficeEditor {
       const count = this.lok.documentGetParts(this.docPtr);
       return this.createResult(count);
     } catch (error) {
-      return this.createErrorResult(`Failed to get slide count: ${error}`);
+      return this.createErrorResult(`Failed to get slide count: ${String(error)}`);
     }
   }
 
@@ -118,7 +118,7 @@ export class ImpressEditor extends OfficeEditor {
         data: { index: newIndex },
       };
     } catch (error) {
-      return this.createErrorResult(`Failed to add slide: ${error}`);
+      return this.createErrorResult(`Failed to add slide: ${String(error)}`);
     }
   }
 
@@ -145,7 +145,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete slide: ${error}`);
+      return this.createErrorResult(`Failed to delete slide: ${String(error)}`);
     }
   }
 
@@ -165,7 +165,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult({ newIndex: index + 1 });
     } catch (error) {
-      return this.createErrorResult(`Failed to duplicate slide: ${error}`);
+      return this.createErrorResult(`Failed to duplicate slide: ${String(error)}`);
     }
   }
 
@@ -197,7 +197,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to move slide: ${error}`);
+      return this.createErrorResult(`Failed to move slide: ${String(error)}`);
     }
   }
 
@@ -231,7 +231,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult({ oldTitle });
     } catch (error) {
-      return this.createErrorResult(`Failed to set slide title: ${error}`);
+      return this.createErrorResult(`Failed to set slide title: ${String(error)}`);
     }
   }
 
@@ -261,7 +261,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult({ oldBody });
     } catch (error) {
-      return this.createErrorResult(`Failed to set slide body: ${error}`);
+      return this.createErrorResult(`Failed to set slide body: ${String(error)}`);
     }
   }
 
@@ -288,7 +288,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to set slide notes: ${error}`);
+      return this.createErrorResult(`Failed to set slide notes: ${String(error)}`);
     }
   }
 
@@ -309,7 +309,7 @@ export class ImpressEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to set slide layout: ${error}`);
+      return this.createErrorResult(`Failed to set slide layout: ${String(error)}`);
     }
   }
 

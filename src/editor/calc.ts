@@ -48,7 +48,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult(structure);
     } catch (error) {
-      return this.createErrorResult(`Failed to get structure: ${error}`);
+      return this.createErrorResult(`Failed to get structure: ${String(error)}`);
     }
   }
 
@@ -64,7 +64,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult(names);
     } catch (error) {
-      return this.createErrorResult(`Failed to get sheet names: ${error}`);
+      return this.createErrorResult(`Failed to get sheet names: ${String(error)}`);
     }
   }
 
@@ -91,7 +91,7 @@ export class CalcEditor extends OfficeEditor {
         formula: formula || undefined,
       });
     } catch (error) {
-      return this.createErrorResult(`Failed to get cell: ${error}`);
+      return this.createErrorResult(`Failed to get cell: ${String(error)}`);
     }
   }
 
@@ -142,7 +142,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult(cells);
     } catch (error) {
-      return this.createErrorResult(`Failed to get cells: ${error}`);
+      return this.createErrorResult(`Failed to get cells: ${String(error)}`);
     }
   }
 
@@ -181,7 +181,7 @@ export class CalcEditor extends OfficeEditor {
         data: { oldValue, newValue },
       };
     } catch (error) {
-      return this.createErrorResult(`Failed to set cell value: ${error}`);
+      return this.createErrorResult(`Failed to set cell value: ${String(error)}`);
     }
   }
 
@@ -206,7 +206,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult({ calculatedValue });
     } catch (error) {
-      return this.createErrorResult(`Failed to set formula: ${error}`);
+      return this.createErrorResult(`Failed to set formula: ${String(error)}`);
     }
   }
 
@@ -240,7 +240,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult({ cellsUpdated });
     } catch (error) {
-      return this.createErrorResult(`Failed to set cells: ${error}`);
+      return this.createErrorResult(`Failed to set cells: ${String(error)}`);
     }
   }
 
@@ -261,7 +261,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult({ oldValue });
     } catch (error) {
-      return this.createErrorResult(`Failed to clear cell: ${error}`);
+      return this.createErrorResult(`Failed to clear cell: ${String(error)}`);
     }
   }
 
@@ -280,7 +280,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult({ cellsCleared });
     } catch (error) {
-      return this.createErrorResult(`Failed to clear range: ${error}`);
+      return this.createErrorResult(`Failed to clear range: ${String(error)}`);
     }
   }
 
@@ -295,7 +295,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:InsertRows');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to insert row: ${error}`);
+      return this.createErrorResult(`Failed to insert row: ${String(error)}`);
     }
   }
 
@@ -310,7 +310,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:InsertColumns');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to insert column: ${error}`);
+      return this.createErrorResult(`Failed to insert column: ${String(error)}`);
     }
   }
 
@@ -321,7 +321,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:DeleteRows');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete row: ${error}`);
+      return this.createErrorResult(`Failed to delete row: ${String(error)}`);
     }
   }
 
@@ -336,7 +336,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:DeleteColumns');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete column: ${error}`);
+      return this.createErrorResult(`Failed to delete column: ${String(error)}`);
     }
   }
 
@@ -368,7 +368,7 @@ export class CalcEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to format cells: ${error}`);
+      return this.createErrorResult(`Failed to format cells: ${String(error)}`);
     }
   }
 
@@ -386,7 +386,7 @@ export class CalcEditor extends OfficeEditor {
       const numSheets = this.lok.documentGetParts(this.docPtr);
       return this.createResult({ index: numSheets - 1 });
     } catch (error) {
-      return this.createErrorResult(`Failed to add sheet: ${error}`);
+      return this.createErrorResult(`Failed to add sheet: ${String(error)}`);
     }
   }
 
@@ -399,7 +399,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:RenameTable', args);
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to rename sheet: ${error}`);
+      return this.createErrorResult(`Failed to rename sheet: ${String(error)}`);
     }
   }
 
@@ -409,7 +409,7 @@ export class CalcEditor extends OfficeEditor {
       this.lok.postUnoCommand(this.docPtr, '.uno:Remove');
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete sheet: ${error}`);
+      return this.createErrorResult(`Failed to delete sheet: ${String(error)}`);
     }
   }
 
@@ -468,8 +468,8 @@ export class CalcEditor extends OfficeEditor {
     if (!result) return null;
 
     try {
-      const parsed = JSON.parse(result);
-      return parsed.value || null;
+      const parsed = JSON.parse(result) as { value?: string };
+      return parsed.value ?? null;
     } catch {
       return null;
     }

@@ -15,24 +15,21 @@ import {
   ConversionErrorCode,
   ConversionOptions,
   ConversionResult,
+  DocumentInfo,
+  EditorOperationResult,
+  EditorSession,
   FORMAT_MIME_TYPES,
+  ILibreOfficeConverter,
+  InputFormatOptions,
   LibreOfficeWasmOptions,
   LOKDocumentType,
   OutputFormat,
+  PagePreview,
+  RenderOptions,
 } from './types.js';
 
 // Re-export types used by consumers
-export type { LOKDocumentType, OutputFormat };
-
-/** Options for rendering page previews */
-export interface RenderOptions {
-  /** Width of rendered image in pixels */
-  width?: number;
-  /** Height of rendered image in pixels (0 = auto based on aspect ratio) */
-  height?: number;
-  /** Specific page indices to render (0-based). If empty, renders all pages */
-  pageIndices?: number[];
-}
+export type { LOKDocumentType, OutputFormat, PagePreview, DocumentInfo, EditorSession, RenderOptions };
 
 interface WorkerResponse {
   id: string;
@@ -41,41 +38,25 @@ interface WorkerResponse {
   data?: unknown;
 }
 
-export interface PagePreview {
+/** Worker message for ready/error notifications */
+interface WorkerMessage {
+  type: 'ready' | 'error';
+  error?: string;
+}
+
+/** Raw preview data from worker */
+interface RawPreviewData {
   page: number;
-  data: Uint8Array;
+  data: ArrayBuffer | Uint8Array;
   width: number;
   height: number;
-}
-
-export interface DocumentInfo {
-  documentType: LOKDocumentType;
-  documentTypeName: string;
-  validOutputFormats: OutputFormat[];
-  pageCount: number;
-}
-
-/** Editor session returned from openDocument */
-export interface EditorSession {
-  sessionId: string;
-  documentType: string;
-  pageCount: number;
-}
-
-/** Result from an editor operation */
-export interface EditorOperationResult<T = unknown> {
-  success: boolean;
-  verified?: boolean;
-  data?: T;
-  error?: string;
-  suggestion?: string;
 }
 
 /**
  * Worker-based LibreOffice Converter
  * Uses a separate thread to avoid blocking the main event loop
  */
-export class WorkerConverter {
+export class WorkerConverter implements ILibreOfficeConverter {
   private worker: Worker | null = null;
   private pending = new Map<string, { resolve: (value: any) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }>();
   private options: LibreOfficeWasmOptions;
@@ -170,7 +151,7 @@ export class WorkerConverter {
 
       // Wait for ready signal
       await new Promise<void>((resolve) => {
-        const handler = (msg: any) => {
+        const handler = (msg: WorkerMessage) => {
           if (msg.type === 'ready') {
             this.worker?.off('message', handler);
             resolve();
@@ -192,7 +173,7 @@ export class WorkerConverter {
         ? error
         : new ConversionError(
             ConversionErrorCode.WASM_NOT_INITIALIZED,
-            `Failed to initialize worker: ${error}`
+            `Failed to initialize worker: ${String(error)}`
           );
       this.options.onError?.(convError);
       throw convError;
@@ -284,7 +265,7 @@ export class WorkerConverter {
    */
   async getPageCount(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<number> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(
@@ -294,6 +275,7 @@ export class WorkerConverter {
     }
 
     const inputData = this.normalizeInput(input);
+    const inputFormat = options.inputFormat || 'docx';
     return this.sendMessage('getPageCount', { inputData, inputFormat });
   }
 
@@ -302,7 +284,7 @@ export class WorkerConverter {
    */
   async getDocumentInfo(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<DocumentInfo> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(
@@ -312,6 +294,7 @@ export class WorkerConverter {
     }
 
     const inputData = this.normalizeInput(input);
+    const inputFormat = options.inputFormat || 'docx';
     return this.sendMessage('getDocumentInfo', { inputData, inputFormat });
   }
 
@@ -320,7 +303,7 @@ export class WorkerConverter {
    */
   async renderPage(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string,
+    options: InputFormatOptions,
     pageIndex: number,
     width: number,
     height = 0
@@ -333,6 +316,7 @@ export class WorkerConverter {
     }
 
     const inputData = this.normalizeInput(input);
+    const inputFormat = options.inputFormat || 'docx';
     const result = await this.sendMessage('renderPage', {
       inputData,
       inputFormat,
@@ -341,11 +325,12 @@ export class WorkerConverter {
       height,
     });
 
+    const preview = result as RawPreviewData;
     return {
       page: pageIndex,
-      data: new Uint8Array(result.data),
-      width: result.width,
-      height: result.height,
+      data: new Uint8Array(preview.data),
+      width: preview.width,
+      height: preview.height,
     };
   }
 
@@ -354,8 +339,8 @@ export class WorkerConverter {
    */
   async renderPagePreviews(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string,
-    options: RenderOptions = {}
+    options: InputFormatOptions,
+    renderOptions: RenderOptions = {}
   ): Promise<PagePreview[]> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(
@@ -365,15 +350,16 @@ export class WorkerConverter {
     }
 
     const inputData = this.normalizeInput(input);
-    const result = await this.sendMessage('renderPagePreviews', {
+    const inputFormat = options.inputFormat || 'docx';
+    const rawPreviews = await this.sendMessage('renderPagePreviews', {
       inputData,
       inputFormat,
-      width: options.width || 800,
-      height: options.height || 0,
-      pageIndices: options.pageIndices,
-    });
+      width: renderOptions.width || 800,
+      height: renderOptions.height || 0,
+      pageIndices: renderOptions.pageIndices,
+    }) as RawPreviewData[];
 
-    return result.map((preview: any) => ({
+    return rawPreviews.map((preview) => ({
       page: preview.page,
       data: new Uint8Array(preview.data),
       width: preview.width,
@@ -427,7 +413,7 @@ export class WorkerConverter {
    */
   async openDocument(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<EditorSession> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(
@@ -437,6 +423,7 @@ export class WorkerConverter {
     }
 
     const inputData = this.normalizeInput(input);
+    const inputFormat = options.inputFormat || 'docx';
     return this.sendMessage('openDocument', { inputData, inputFormat });
   }
 
@@ -449,7 +436,7 @@ export class WorkerConverter {
   async editorOperation<T = unknown>(
     sessionId: string,
     method: string,
-    ...args: unknown[]
+    args?: unknown[]
   ): Promise<EditorOperationResult<T>> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(
@@ -458,7 +445,7 @@ export class WorkerConverter {
       );
     }
 
-    return this.sendMessage('editorOperation', { sessionId, method, args });
+    return this.sendMessage('editorOperation', { sessionId, method, args: args ?? [] });
   }
 
   /**

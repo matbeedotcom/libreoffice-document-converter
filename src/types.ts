@@ -244,7 +244,7 @@ export interface BrowserConverterOptions {
   /**
    * Called with progress updates during initialization
    */
-  onProgress?: (progress: ProgressInfo) => void;
+  onProgress?: (progress: WasmLoadProgress) => void;
 }
 
 /**
@@ -320,7 +320,7 @@ export type WasmLoadPhase =
   | 'compile'          // WebAssembly compilation
   | 'filesystem'       // Emscripten filesystem setup
   | 'lok-init'         // LibreOfficeKit initialization
-  | 'ready';           // Complete
+  | 'ready' | 'starting' | 'loading' | 'initializing' | 'converting' | 'complete';           // Complete
 
 /**
  * Extended progress information with download details
@@ -529,7 +529,7 @@ export function getFilterForDocType(outputFormat: OutputFormat, docType: LOKDocu
   // Check if there's a document-type-specific filter
   const docTypeFilters = DOC_TYPE_FILTERS[docType as LOKDocumentType];
   if (docTypeFilters && docTypeFilters[outputFormat]) {
-    return docTypeFilters[outputFormat]!;
+    return docTypeFilters[outputFormat];
   }
   
   // Fall back to the default filter
@@ -772,4 +772,154 @@ export function getConversionErrorMessage(
   }
   
   return `Cannot convert ${input.toUpperCase()} to ${output.toUpperCase()}. ${reason}Valid output formats for ${input.toUpperCase()}: ${validOutputs.join(', ')}`;
+}
+
+// ============================================
+// Shared Converter Interface
+// ============================================
+
+/**
+ * Page preview data returned by renderPage/renderPagePreviews
+ */
+export interface PagePreview {
+  page: number;
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Document information returned by getDocumentInfo
+ */
+export interface DocumentInfo {
+  documentType: LOKDocumentType | number;
+  documentTypeName: string;
+  validOutputFormats: OutputFormat[];
+  pageCount: number;
+}
+
+/**
+ * Options for rendering page previews
+ */
+export interface RenderOptions {
+  /** Width of rendered image in pixels */
+  width?: number;
+  /** Height of rendered image in pixels (0 = auto based on aspect ratio) */
+  height?: number;
+  /** Specific page indices to render (0-based). If empty, renders all pages */
+  pageIndices?: number[];
+}
+
+/**
+ * Editor session returned from openDocument
+ */
+export interface EditorSession {
+  sessionId: string;
+  documentType: string;
+  pageCount: number;
+}
+
+/**
+ * Result from editor operations
+ */
+export interface EditorOperationResult<T = unknown> {
+  success: boolean;
+  verified?: boolean;
+  data?: T;
+  error?: string;
+  suggestion?: string;
+}
+
+/**
+ * Options containing input format for document operations.
+ */
+export type InputFormatOptions = Pick<ConversionOptions, 'inputFormat'>;
+
+/**
+ * Common interface for all LibreOffice converter implementations.
+ * Ensures consistent API across different threading models (main thread, workers, child processes).
+ *
+ * All methods returning Promise are async in the interface to allow implementations
+ * flexibility in whether they need actual async operations.
+ */
+export interface ILibreOfficeConverter {
+  // ============================================
+  // Lifecycle
+  // ============================================
+
+  /** Initialize the converter. Must be called before any other operations. */
+  initialize(): Promise<void>;
+
+  /** Destroy the converter and release all resources. */
+  destroy(): Promise<void>;
+
+  /** Check if the converter is ready for operations. */
+  isReady(): boolean;
+
+  // ============================================
+  // Core Conversion
+  // ============================================
+
+  /** Convert a document to a different format. */
+  convert(
+    input: Uint8Array | ArrayBuffer,
+    options: ConversionOptions,
+    filename?: string
+  ): Promise<ConversionResult>;
+
+  // ============================================
+  // Document Inspection
+  // ============================================
+
+  /** Get the number of pages in a document. */
+  getPageCount(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions
+  ): Promise<number>;
+
+  /** Get document information including type and valid output formats. */
+  getDocumentInfo(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions
+  ): Promise<DocumentInfo>;
+
+  // ============================================
+  // Page Rendering
+  // ============================================
+
+  /** Render a single page as an image. */
+  renderPage(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    width: number,
+    height?: number
+  ): Promise<PagePreview>;
+
+  /** Render multiple pages as images. */
+  renderPagePreviews(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    renderOptions?: RenderOptions
+  ): Promise<PagePreview[]>;
+
+  // ============================================
+  // Editor Operations
+  // ============================================
+
+  /** Open a document for editing and return a session. */
+  openDocument(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions
+  ): Promise<EditorSession>;
+
+  /** Execute an editor operation on an open document. */
+  editorOperation<T = unknown>(
+    sessionId: string,
+    method: string,
+    args?: unknown[]
+  ): Promise<EditorOperationResult<T>>;
+
+  /** Close an editor session and optionally get the modified document. */
+  closeDocument(sessionId: string): Promise<Uint8Array | undefined>;
 }

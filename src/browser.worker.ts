@@ -5,7 +5,7 @@
  * Communication is via postMessage.
  */
 
-import type { EmscriptenModule, WasmLoadPhase, WasmLoadProgress } from './types.js';
+import type { EditorOperationResult, EmscriptenModule, WasmLoadPhase, WasmLoadProgress } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
@@ -35,6 +35,11 @@ const PHASE_WEIGHTS: Record<WasmLoadPhase, number> = {
   'filesystem': 7,
   'lok-init': 7,
   'ready': 1,
+  'starting': 0,
+  'loading': 0,
+  'initializing': 0,
+  'converting': 0,
+  'complete': 0,
 };
 
 /** Track completed progress for each phase */
@@ -45,6 +50,11 @@ const phaseProgress: Record<WasmLoadPhase, number> = {
   'filesystem': 0,
   'lok-init': 0,
   'ready': 0,
+  'starting': 0,
+  'loading': 0,
+  'initializing': 0,
+  'converting': 0,
+  'complete': 0,
 };
 
 /** Current request ID for progress messages */
@@ -117,7 +127,7 @@ function installProgressInterceptors() {
 
   // Intercept fetch for progress tracking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (self as any).fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  (self).fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
     // Identify which file is being downloaded
@@ -163,7 +173,7 @@ function installProgressInterceptors() {
           }
 
           loaded += value.length;
-          emitDownloadProgress(phase!, loaded, total);
+          emitDownloadProgress(phase, loaded, total);
           controller.enqueue(value);
         }
       }
@@ -187,15 +197,14 @@ function installProgressInterceptors() {
     let requestUrl = '';
 
     const originalOpen = xhr.open.bind(xhr);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (xhr as any).open = function(method: string, url: string | URL, ...args: any[]) {
+    (xhr).open = function(method: string, url: string | URL, async?: boolean, username?: string | null, password?: string | null) {
       requestUrl = String(url);
-      return originalOpen(method, url, ...args);
+      return originalOpen(method, url, async ?? true, username, password);
     };
 
     const originalSend = xhr.send.bind(xhr);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (xhr as any).send = function(body?: any) {
+    (xhr).send = function(body?: any) {
       let phase: WasmLoadPhase | null = null;
       if (requestUrl.includes('soffice.wasm')) {
         phase = 'download-wasm';
@@ -229,7 +238,7 @@ function installProgressInterceptors() {
     writable: false,
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
   (self as any).XMLHttpRequest = ProgressXMLHttpRequest;
 
   console.log('[Worker] Installed progress-tracking XHR interceptor');
@@ -338,14 +347,6 @@ interface EditorSessionInfo {
   pageCount: number;
 }
 
-// Editor operation result
-interface EditorOperationResult {
-  success: boolean;
-  verified?: boolean;
-  data?: unknown;
-  error?: string;
-  suggestion?: string;
-}
 
 interface WorkerResponse {
   type: 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'singlePagePreview' | 'documentInfo' | 'lokInfo' | 'editResult' | 'pageRectangles' | 'testLokOperations' | 'editorSession' | 'editorOperationResult' | 'documentClosed';
@@ -365,8 +366,23 @@ interface WorkerResponse {
   editorOperationResult?: EditorOperationResult;
 }
 
+/** Web Worker global scope with Module property */
+/** Extended EmscriptenModule with pthread worker config */
+interface EmscriptenModuleConfig extends Partial<EmscriptenModule> {
+  mainScriptUrlOrBlob?: string;
+}
+
+interface WorkerGlobalScopeWithModule {
+  Module?: EmscriptenModuleConfig;
+  XMLHttpRequest: typeof XMLHttpRequest;
+  fetch: typeof fetch;
+  postMessage: (message: unknown, transfer?: Transferable[]) => void;
+  onmessage: ((event: MessageEvent) => void) | null;
+  close: () => void;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const self: any;
+declare const self: WorkerGlobalScopeWithModule & Record<string, any>;
 declare function importScripts(...urls: string[]): void;
 
 let module: EmscriptenModule | null = null;
@@ -525,7 +541,7 @@ async function handleInit(msg: WorkerMessage) {
     self.Module = {
       // Tell pthread workers where to load the main module from
       mainScriptUrlOrBlob: sofficeJs,
-      locateFile: (path: string, scriptDir: string) => {
+      locateFile: (path: string, _scriptDir?: string) => {
         let result: string;
         if (path.endsWith('.wasm')) result = sofficeWasm;
         else if (path.endsWith('.data')) result = sofficeData;
@@ -536,7 +552,7 @@ async function handleInit(msg: WorkerMessage) {
           const baseUrl = sofficeJs.substring(0, sofficeJs.lastIndexOf('/') + 1);
           result = `${baseUrl}${path}`;
         }
-        console.log('[Worker] locateFile called:', path, 'scriptDir:', scriptDir, '-> result:', result);
+        console.log('[Worker] locateFile called:', path, 'scriptDir:', _scriptDir, '-> result:', result);
         return result;
       },
       // Always print LibreOffice output to console for debugging
@@ -556,14 +572,14 @@ async function handleInit(msg: WorkerMessage) {
       const checkReady = () => {
         if (self.Module && self.Module.calledRun) {
           resolve();
-        } else if (self.Module && self.Module.onRuntimeInitialized) {
+        } else if (self.Module?.onRuntimeInitialized) {
           // Already has a callback, chain it
           const orig = self.Module.onRuntimeInitialized;
           self.Module.onRuntimeInitialized = () => {
-            orig();
+            orig?.();
             resolve();
           };
-        } else {
+        } else if (self.Module) {
           self.Module.onRuntimeInitialized = resolve;
         }
 
@@ -656,7 +672,7 @@ async function handleInit(msg: WorkerMessage) {
 // Image formats that need multi-page handling
 const IMAGE_FORMATS = ['png', 'jpg', 'jpeg', 'svg'];
 
-async function handleConvert(msg: WorkerMessage) {
+function handleConvert(msg: WorkerMessage) {
   if (!initialized || !module || !lokBindings) {
     postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
     return;
@@ -1455,7 +1471,7 @@ async function handleEditText(msg: WorkerMessage) {
         console.log(`[LOK Worker] ${operationResult}`);
       } catch (searchErr) {
         console.error(`[LOK Worker] ExecuteSearch threw:`, searchErr);
-        operationResult = `ExecuteSearch failed: ${searchErr}`;
+        operationResult = `ExecuteSearch failed: ${String(searchErr)}`;
       }
     } else if (insertText) {
       // Insert text at cursor
@@ -1579,7 +1595,7 @@ async function handleEditText(msg: WorkerMessage) {
       const editResult: EditResult = {
         success: false,
         editMode,
-        message: operationResult + ` | Save failed: ${saveError}`,
+        message: operationResult + ` | Save failed: ${String(saveError)}`,
       };
 
       postResponse({ type: 'editResult', id: msg.id, editResult });
@@ -2198,7 +2214,7 @@ async function handleOpenDocument(msg: WorkerMessage) {
     if (docPtr === 0) {
       const error = lokBindings.getError();
       module.FS.unlink(filePath);
-      postResponse({ type: 'error', id: msg.id, error: `Failed to load document: ${error}` });
+      postResponse({ type: 'error', id: msg.id, error: `Failed to load document: ${String(error)}` });
       return;
     }
 
@@ -2271,9 +2287,9 @@ async function handleEditorOperation(msg: WorkerMessage) {
     const { editor } = session;
     const args = editorArgs || [];
 
-    // Call the method on the editor
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const method = (editor as any)[editorMethod];
+    // Call the method on the editor (dynamic dispatch requires any cast)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    const method = (editor as any)[editorMethod] as ((...methodArgs: unknown[]) => OperationResult<unknown>) | undefined;
     if (typeof method !== 'function') {
       postResponse({
         type: 'error',
@@ -2284,8 +2300,7 @@ async function handleEditorOperation(msg: WorkerMessage) {
     }
 
     // Execute the method
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = method.apply(editor, args) as OperationResult<any>;
+    const result = method.apply(editor, args);
 
     // Convert Map to object for serialization if needed
     let serializedData = result.data;

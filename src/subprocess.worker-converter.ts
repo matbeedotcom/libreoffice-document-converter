@@ -14,26 +14,23 @@ import {
   ConversionErrorCode,
   ConversionOptions,
   ConversionResult,
+  DocumentInfo,
+  EditorOperationResult,
+  EditorSession,
   FORMAT_MIME_TYPES,
   OUTPUT_FORMAT_TO_LOK,
   FORMAT_FILTER_OPTIONS,
+  ILibreOfficeConverter,
+  InputFormatOptions,
   LibreOfficeWasmOptions,
   LOKDocumentType,
   OutputFormat,
+  PagePreview,
+  RenderOptions,
 } from './types.js';
 
 // Re-export types used by consumers
-export type { LOKDocumentType, OutputFormat };
-
-/** Options for rendering page previews */
-export interface RenderOptions {
-  /** Width of rendered image in pixels */
-  width?: number;
-  /** Height of rendered image in pixels (0 = auto based on aspect ratio) */
-  height?: number;
-  /** Specific page indices to render (0-based). If empty, renders all pages */
-  pageIndices?: number[];
-}
+export type { LOKDocumentType, OutputFormat, PagePreview, DocumentInfo, EditorSession, RenderOptions };
 
 interface WorkerMessage {
   type: 'ready' | 'error' | 'response';
@@ -41,36 +38,6 @@ interface WorkerMessage {
   success?: boolean;
   error?: string;
   data?: unknown;
-}
-
-export interface PagePreview {
-  page: number;
-  data: Uint8Array;
-  width: number;
-  height: number;
-}
-
-export interface DocumentInfo {
-  documentType: LOKDocumentType;
-  documentTypeName: string;
-  validOutputFormats: OutputFormat[];
-  pageCount: number;
-}
-
-/** Editor session returned from openDocument */
-export interface EditorSession {
-  sessionId: string;
-  documentType: string;
-  pageCount: number;
-}
-
-/** Result from an editor operation */
-export interface EditorOperationResult<T = unknown> {
-  success: boolean;
-  verified?: boolean;
-  data?: T;
-  error?: string;
-  suggestion?: string;
 }
 
 interface SubprocessConverterOptions extends LibreOfficeWasmOptions {
@@ -82,7 +49,7 @@ interface SubprocessConverterOptions extends LibreOfficeWasmOptions {
   restartOnMemoryError?: boolean;
 }
 
-export class SubprocessConverter {
+export class SubprocessConverter implements ILibreOfficeConverter {
   private child: ChildProcess | null = null;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private options: SubprocessConverterOptions;
@@ -175,7 +142,7 @@ export class SubprocessConverter {
     await this.send('init', undefined, 180000); // 3 minute timeout for WASM init
   }
 
-  private async killWorker(): Promise<void> {
+  private killWorker(): void {
     if (this.child) {
       try { this.child.kill('SIGKILL'); } catch {}
       this.child = null;
@@ -313,7 +280,7 @@ export class SubprocessConverter {
    */
   async getPageCount(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<number> {
     if (!this.initialized || !this.child) {
       throw new ConversionError(
@@ -325,7 +292,7 @@ export class SubprocessConverter {
     const inputData = this.normalizeInput(input);
     return this.send('getPageCount', {
       inputData: Array.from(inputData),
-      inputFormat
+      inputFormat: options.inputFormat
     }) as Promise<number>;
   }
 
@@ -334,7 +301,7 @@ export class SubprocessConverter {
    */
   async getDocumentInfo(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<DocumentInfo> {
     if (!this.initialized || !this.child) {
       throw new ConversionError(
@@ -346,7 +313,7 @@ export class SubprocessConverter {
     const inputData = this.normalizeInput(input);
     return this.send('getDocumentInfo', {
       inputData: Array.from(inputData),
-      inputFormat
+      inputFormat: options.inputFormat
     }) as Promise<DocumentInfo>;
   }
 
@@ -355,7 +322,7 @@ export class SubprocessConverter {
    */
   async renderPage(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string,
+    options: InputFormatOptions,
     pageIndex: number,
     width: number,
     height = 0
@@ -370,7 +337,7 @@ export class SubprocessConverter {
     const inputData = this.normalizeInput(input);
     const result = await this.send('renderPage', {
       inputData: Array.from(inputData),
-      inputFormat,
+      inputFormat: options.inputFormat,
       pageIndex,
       width,
       height,
@@ -389,8 +356,8 @@ export class SubprocessConverter {
    */
   async renderPagePreviews(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string,
-    options: RenderOptions = {}
+    options: InputFormatOptions,
+    renderOptions: RenderOptions = {}
   ): Promise<PagePreview[]> {
     if (!this.initialized || !this.child) {
       throw new ConversionError(
@@ -402,10 +369,10 @@ export class SubprocessConverter {
     const inputData = this.normalizeInput(input);
     const result = await this.send('renderPagePreviews', {
       inputData: Array.from(inputData),
-      inputFormat,
-      width: options.width || 800,
-      height: options.height || 0,
-      pageIndices: options.pageIndices,
+      inputFormat: options.inputFormat,
+      width: renderOptions.width || 800,
+      height: renderOptions.height || 0,
+      pageIndices: renderOptions.pageIndices,
     }) as Array<{ page: number; data: number[]; width: number; height: number }>;
 
     return result.map((preview) => ({
@@ -468,7 +435,7 @@ export class SubprocessConverter {
    */
   async openDocument(
     input: Uint8Array | ArrayBuffer | Buffer,
-    inputFormat: string
+    options: InputFormatOptions
   ): Promise<EditorSession> {
     if (!this.initialized || !this.child) {
       throw new ConversionError(
@@ -480,7 +447,7 @@ export class SubprocessConverter {
     const inputData = this.normalizeInput(input);
     return this.send('openDocument', {
       inputData: Array.from(inputData),
-      inputFormat
+      inputFormat: options.inputFormat
     }) as Promise<EditorSession>;
   }
 
@@ -493,7 +460,7 @@ export class SubprocessConverter {
   async editorOperation<T = unknown>(
     sessionId: string,
     method: string,
-    ...args: unknown[]
+    args?: unknown[]
   ): Promise<EditorOperationResult<T>> {
     if (!this.initialized || !this.child) {
       throw new ConversionError(
@@ -502,7 +469,7 @@ export class SubprocessConverter {
       );
     }
 
-    return this.send('editorOperation', { sessionId, method, args }) as Promise<EditorOperationResult<T>>;
+    return this.send('editorOperation', { sessionId, method, args: args ?? [] }) as Promise<EditorOperationResult<T>>;
   }
 
   /**

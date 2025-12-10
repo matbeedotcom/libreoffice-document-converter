@@ -46,7 +46,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(structure);
     } catch (error) {
-      return this.createErrorResult(`Failed to get structure: ${error}`);
+      return this.createErrorResult(`Failed to get structure: ${String(error)}`);
     }
   }
 
@@ -77,7 +77,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(pageData);
     } catch (error) {
-      return this.createErrorResult(`Failed to get page: ${error}`);
+      return this.createErrorResult(`Failed to get page: ${String(error)}`);
     }
   }
 
@@ -86,7 +86,7 @@ export class DrawEditor extends OfficeEditor {
       const count = this.lok.documentGetParts(this.docPtr);
       return this.createResult(count);
     } catch (error) {
-      return this.createErrorResult(`Failed to get page count: ${error}`);
+      return this.createErrorResult(`Failed to get page count: ${String(error)}`);
     }
   }
 
@@ -114,7 +114,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult({ index: newIndex });
     } catch (error) {
-      return this.createErrorResult(`Failed to add page: ${error}`);
+      return this.createErrorResult(`Failed to add page: ${String(error)}`);
     }
   }
 
@@ -141,7 +141,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete page: ${error}`);
+      return this.createErrorResult(`Failed to delete page: ${String(error)}`);
     }
   }
 
@@ -161,7 +161,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult({ newIndex: index + 1 });
     } catch (error) {
-      return this.createErrorResult(`Failed to duplicate page: ${error}`);
+      return this.createErrorResult(`Failed to duplicate page: ${String(error)}`);
     }
   }
 
@@ -222,7 +222,7 @@ export class DrawEditor extends OfficeEditor {
       // Return approximate index (would need LOK API to get actual)
       return this.createResult({ shapeIndex: 0 });
     } catch (error) {
-      return this.createErrorResult(`Failed to add shape: ${error}`);
+      return this.createErrorResult(`Failed to add shape: ${String(error)}`);
     }
   }
 
@@ -266,7 +266,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult({ shapeIndex: 0 });
     } catch (error) {
-      return this.createErrorResult(`Failed to add line: ${error}`);
+      return this.createErrorResult(`Failed to add line: ${String(error)}`);
     }
   }
 
@@ -280,7 +280,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to delete shape: ${error}`);
+      return this.createErrorResult(`Failed to delete shape: ${String(error)}`);
     }
   }
 
@@ -304,7 +304,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to set shape text: ${error}`);
+      return this.createErrorResult(`Failed to set shape text: ${String(error)}`);
     }
   }
 
@@ -321,7 +321,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to move shape: ${error}`);
+      return this.createErrorResult(`Failed to move shape: ${String(error)}`);
     }
   }
 
@@ -338,7 +338,7 @@ export class DrawEditor extends OfficeEditor {
 
       return this.createResult(undefined);
     } catch (error) {
-      return this.createErrorResult(`Failed to resize shape: ${error}`);
+      return this.createErrorResult(`Failed to resize shape: ${String(error)}`);
     }
   }
 

@@ -11,7 +11,7 @@
 import { parentPort } from 'worker_threads';
 import { LibreOfficeConverter } from './converter.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions } from './types.js';
+import type { ConversionOptions, InputFormatOptions } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
 interface WorkerMessage {
@@ -167,17 +167,14 @@ async function handleRenderPage(payload: RenderPagePayload): Promise<{
     throw new Error('Worker not initialized');
   }
 
-  const options: ConversionOptions = {
-    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
-    outputFormat: 'pdf', // Required but not used for rendering
-  };
-
   const previews = await converter.renderPagePreviews(
     payload.inputData,
-    options,
-    payload.width,
-    payload.height,
-    [payload.pageIndex]
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
+    {
+      width: payload.width,
+      height: payload.height,
+      pageIndices: [payload.pageIndex],
+    }
   );
 
   if (previews.length === 0) {
@@ -205,17 +202,14 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
     throw new Error('Worker not initialized');
   }
 
-  const options: ConversionOptions = {
-    inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
-    outputFormat: 'pdf', // Required but not used for rendering
-  };
-
   return converter.renderPagePreviews(
     payload.inputData,
-    options,
-    payload.width,
-    payload.height,
-    payload.pageIndices
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
+    {
+      width: payload.width,
+      height: payload.height,
+      pageIndices: payload.pageIndices,
+    }
   );
 }
 
@@ -282,7 +276,7 @@ async function handleOpenDocument(payload: OpenDocumentPayload): Promise<{
   if (docPtr === 0) {
     const error = lokBindings.getError();
     module.FS.unlink(filePath);
-    throw new Error(`Failed to load document: ${error}`);
+    throw new Error(`Failed to load document: ${String(error)}`);
   }
 
   // Initialize for rendering/editing
@@ -331,16 +325,15 @@ async function handleEditorOperation(payload: EditorOperationPayload): Promise<O
   const { editor } = session;
   const args = payload.args || [];
 
-  // Call the method on the editor
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const method = (editor as any)[payload.method];
+  // Call the method on the editor (dynamic dispatch requires any cast)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+  const method = (editor as any)[payload.method] as ((...methodArgs: unknown[]) => OperationResult<unknown>) | undefined;
   if (typeof method !== 'function') {
     throw new Error(`Unknown editor method: ${payload.method}`);
   }
 
   // Execute the method
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = method.apply(editor, args) as OperationResult<any>;
+  const result = method.apply(editor, args);
 
   // Convert Map to object for serialization if needed
   let serializedData = result.data;

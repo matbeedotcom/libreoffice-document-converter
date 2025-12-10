@@ -77,14 +77,69 @@ import {
   OutputFormat,
   ProgressInfo,
   createWasmPaths,
+  ILibreOfficeConverter,
+  InputFormatOptions,
+  PagePreview,
+  DocumentInfo,
+  RenderOptions,
+  EditorSession,
+  EditorOperationResult,
+  WasmLoadProgress,
+  WasmLoadPhase,
 } from './types.js';
 
 import { LOKBindings } from './lok-bindings.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OpenDocumentOptions } from './editor/types.js';
 
+/** Window with Module property for Emscripten */
+interface EmscriptenWindow extends Window {
+  Module?: Partial<EmscriptenModule> & {
+    locateFile?: (path: string) => string;
+    print?: (...args: unknown[]) => void;
+    printErr?: (...args: unknown[]) => void;
+    onRuntimeInitialized?: () => void;
+    onAbort?: (what: string) => void;
+  };
+}
+
+/** Internal LOK bindings with lokPtr - use unknown cast for private property access */
+interface LOKBindingsInternal {
+  lokPtr?: number;
+}
+
+/** Editor session info (internal worker type) */
+interface EditorSessionInfo {
+  sessionId: string;
+  documentType: 'writer' | 'calc' | 'impress' | 'draw';
+  pageCount: number;
+}
+
+/** Worker response message types */
+interface WorkerResponse {
+  type: 'loaded' | 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'singlePagePreview' | 'documentInfo' | 'lokInfo' | 'editResult' | 'pageRectangles' | 'testLokOperations' | 'editorSession' | 'editorOperationResult' | 'documentClosed';
+  id: number;
+  data?: Uint8Array;
+  error?: string;
+  progress?: { percent: number; message: string };
+  pageCount?: number;
+  previews?: PagePreview[];
+  preview?: PagePreview;
+  documentInfo?: DocumentInfo;
+  lokInfo?: unknown;
+  editResult?: unknown;
+  pageRectangles?: unknown[];
+  testLokOperationsResult?: unknown;
+  editorSession?: EditorSessionInfo;
+  editorOperationResult?: unknown;
+}
+
 /**
  * Browser-only LibreOffice WASM Converter
+ *
+ * Note: This class has a different API than ILibreOfficeConverter because it runs
+ * on the main thread and can return editor objects directly. Use WorkerBrowserConverter
+ * for the standard session-based API.
  */
 export class BrowserConverter {
   private module: EmscriptenModule | null = null;
@@ -124,7 +179,7 @@ export class BrowserConverter {
       this.module = await this.loadModule();
       this.emitProgress('initializing', 50, 'Initializing...');
       this.setupFileSystem();
-      await this.initLOK();
+      this.initLOK();
       this.initialized = true;
       this.emitProgress('complete', 100, 'Ready');
       this.options.onReady?.();
@@ -141,8 +196,7 @@ export class BrowserConverter {
   private async loadModule(): Promise<EmscriptenModule> {
     const { sofficeJs, sofficeWasm, sofficeData, sofficeWorkerJs } = this.options;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const win = window as any;
+    const win = window as EmscriptenWindow;
 
     // Create a promise that resolves when the module is ready
     return new Promise((resolve, reject) => {
@@ -189,7 +243,7 @@ export class BrowserConverter {
     try { fs.mkdir('/tmp/output'); } catch { /* exists */ }
   }
 
-  private async initLOK(): Promise<void> {
+  private initLOK(): void {
     if (!this.module) throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'No module');
 
     // Create LOKBindings and initialize
@@ -197,7 +251,7 @@ export class BrowserConverter {
     this.lokBindings.initialize('/instdir/program');
 
     // Store the LOK instance pointer for backwards compatibility
-    this._lokInstance = (this.lokBindings as any).lokPtr || 1;
+    this._lokInstance = (this.lokBindings as unknown as LOKBindingsInternal).lokPtr ?? 1;
   }
 
   /**
@@ -396,7 +450,7 @@ export class BrowserConverter {
    */
   download(result: ConversionResult, filename?: string): void {
     // Copy to ensure we have a standard ArrayBuffer
-    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const buffer = new Uint8Array(result.data).buffer;
     const blob = new Blob([buffer], { type: result.mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -410,7 +464,7 @@ export class BrowserConverter {
    * Create Blob URL
    */
   createBlobUrl(result: ConversionResult): string {
-    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const buffer = new Uint8Array(result.data).buffer;
     const blob = new Blob([buffer], { type: result.mimeType });
     return URL.createObjectURL(blob);
   }
@@ -450,7 +504,7 @@ export class BrowserConverter {
     return parts.length > 1 ? parts.pop()?.toLowerCase() || null : null;
   }
 
-  private emitProgress(phase: ProgressInfo['phase'], percent: number, message: string): void {
+  private emitProgress(phase: WasmLoadPhase, percent: number, message: string): void {
     this.options.onProgress?.({ phase, percent, message });
   }
 }
@@ -459,9 +513,9 @@ export class BrowserConverter {
  * Worker-based LibreOffice WASM Converter
  *
  * Runs WASM module in a Web Worker to avoid blocking the main thread.
- * Provides the same API as BrowserConverter.
+ * Implements ILibreOfficeConverter for consistent API across platforms.
  */
-export class WorkerBrowserConverter {
+export class WorkerBrowserConverter implements ILibreOfficeConverter {
   private worker: Worker | null = null;
   private initialized = false;
   private initializing = false;
@@ -501,7 +555,7 @@ export class WorkerBrowserConverter {
       this.worker = new Worker(this.options.browserWorkerJs);
 
       // Set up message handling
-      this.worker.onmessage = (event) => this.handleWorkerMessage(event);
+      this.worker.onmessage = (event) => this.handleWorkerMessage(event as MessageEvent<WorkerResponse>);
       this.worker.onerror = (error) => {
         console.error('[WorkerConverter] Worker error:', error);
         this.options.onError?.(new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, error.message));
@@ -510,13 +564,14 @@ export class WorkerBrowserConverter {
       // Wait for worker to load
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Worker load timeout')), 10000);
-        const handler = (event: MessageEvent) => {
+        const handler = (event: MessageEvent<WorkerResponse>) => {
           if (event.data.type === 'loaded') {
             clearTimeout(timeout);
             this.worker?.removeEventListener('message', handler);
             resolve();
           }
         };
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         this.worker!.addEventListener('message', handler);
       });
 
@@ -542,11 +597,14 @@ export class WorkerBrowserConverter {
     }
   }
 
-  private handleWorkerMessage(event: MessageEvent) {
+  private handleWorkerMessage(event: MessageEvent<WorkerResponse>) {
     const msg = event.data;
 
     if (msg.type === 'progress') {
-      this.emitProgress('converting', msg.progress.percent, msg.progress.message);
+      const progress = msg.progress;
+      if (progress) {
+        this.emitProgress('converting', progress.percent, progress.message);
+      }
       return;
     }
 
@@ -556,7 +614,7 @@ export class WorkerBrowserConverter {
     this.pendingRequests.delete(msg.id);
 
     if (msg.type === 'error') {
-      pending.reject(new ConversionError(ConversionErrorCode.CONVERSION_FAILED, msg.error));
+      pending.reject(new ConversionError(ConversionErrorCode.CONVERSION_FAILED, msg.error ?? 'Unknown error'));
     } else if (msg.type === 'result') {
       pending.resolve(msg.data);
     } else if (msg.type === 'ready') {
@@ -711,7 +769,7 @@ export class WorkerBrowserConverter {
    * Download converted document
    */
   download(result: ConversionResult, filename?: string): void {
-    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const buffer = new Uint8Array(result.data).buffer;
     const blob = new Blob([buffer], { type: result.mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -725,7 +783,7 @@ export class WorkerBrowserConverter {
    * Create Blob URL
    */
   createBlobUrl(result: ConversionResult): string {
-    const buffer = new Uint8Array(result.data).buffer as ArrayBuffer;
+    const buffer = new Uint8Array(result.data).buffer;
     const blob = new Blob([buffer], { type: result.mimeType });
     return URL.createObjectURL(blob);
   }
@@ -859,13 +917,8 @@ export class WorkerBrowserConverter {
    */
   async getDocumentInfo(
     input: Uint8Array | ArrayBuffer,
-    options: Pick<ConversionOptions, 'inputFormat'>
-  ): Promise<{
-    documentType: number;
-    documentTypeName: string;
-    validOutputFormats: string[];
-    pageCount: number;
-  }> {
+    options: InputFormatOptions
+  ): Promise<DocumentInfo> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
     }
@@ -878,12 +931,7 @@ export class WorkerBrowserConverter {
       inputExt: ext,
     });
 
-    return result as {
-      documentType: number;
-      documentTypeName: string;
-      validOutputFormats: string[];
-      pageCount: number;
-    };
+    return result as DocumentInfo;
   }
 
   /**
@@ -1109,8 +1157,8 @@ export class WorkerBrowserConverter {
    */
   async openDocument(
     input: Uint8Array | ArrayBuffer,
-    options: Pick<ConversionOptions, 'inputFormat'>
-  ): Promise<BrowserEditorProxy> {
+    options: InputFormatOptions
+  ): Promise<EditorSession> {
     if (!this.initialized || !this.worker) {
       throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
     }
@@ -1152,6 +1200,75 @@ export class WorkerBrowserConverter {
     return result as Uint8Array | undefined;
   }
 
+  // ============================================
+  // ILibreOfficeConverter Interface Methods
+  // ============================================
+
+  /**
+   * Render a single page as an image (ILibreOfficeConverter interface)
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param width Target width for rendered page
+   * @param height Optional target height (scales proportionally if not provided)
+   * @returns Page preview with RGBA data
+   */
+  async renderPage(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    width: number,
+    height?: number
+  ): Promise<PagePreview> {
+    // Use the existing renderSinglePage implementation, adapting the signature
+    // height is ignored - renderSinglePage scales proportionally based on maxWidth
+    void height; // Acknowledge unused parameter
+    return this.renderSinglePage(input, options, pageIndex, width);
+  }
+
+  /**
+   * Render multiple pages as images (ILibreOfficeConverter interface)
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param renderOptions Optional render settings (maxWidth, pages)
+   * @returns Array of page previews with RGBA data
+   */
+  async renderPagePreviews(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    renderOptions?: RenderOptions
+  ): Promise<PagePreview[]> {
+    const width = renderOptions?.width ?? 256;
+    // Note: renderOptions.pageIndices is not currently used by the underlying implementation
+    // which renders all pages. This could be enhanced in the future.
+    return this.renderPreviews(input, options, width);
+  }
+
+  /**
+   * Execute an editor operation on an open document (ILibreOfficeConverter interface)
+   * @param sessionId The editor session ID
+   * @param method The editor method to call
+   * @param args Arguments to pass to the method
+   * @returns Operation result
+   */
+  async editorOperation<T = unknown>(
+    sessionId: string,
+    method: string,
+    args?: unknown[]
+  ): Promise<EditorOperationResult<T>> {
+    const result = await this._sendEditorOperation(sessionId, method, args ?? []);
+    return result as EditorOperationResult<T>;
+  }
+
+  /**
+   * Close an editor session and optionally get the modified document (ILibreOfficeConverter interface)
+   * @param sessionId The editor session ID
+   * @returns The modified document data, or undefined if no changes
+   */
+  async closeDocument(sessionId: string): Promise<Uint8Array | undefined> {
+    return this._closeDocument(sessionId);
+  }
+
   /**
    * Cleanup
    */
@@ -1186,23 +1303,12 @@ export class WorkerBrowserConverter {
 }
 
 /**
- * Result type for editor operations via the browser proxy
- */
-export interface EditorOperationResult {
-  success: boolean;
-  verified?: boolean;
-  data?: unknown;
-  error?: string;
-  suggestion?: string;
-}
-
-/**
  * Proxy class for editing documents in the browser via Web Worker
  *
  * This class provides a clean API that mirrors the server-side editor classes
  * but communicates through the worker message protocol.
  */
-export class BrowserEditorProxy {
+export class BrowserEditorProxy implements EditorSession {
   private converter: WorkerBrowserConverter;
   private _sessionId: string;
   private _documentType: 'writer' | 'calc' | 'impress' | 'draw';
@@ -1392,11 +1498,11 @@ export function createDropZone(
 
   let converter: BrowserConverter | null = null;
 
-  const handleDrop = async (e: DragEvent) => {
+  const handleDrop = async (e: DragEvent): Promise<void> => {
     e.preventDefault();
     el.classList.remove('dragover');
     const files = e.dataTransfer?.files;
-    if (!files?.length) return;
+    if (!files?.length) return Promise.resolve();
 
     try {
       if (!converter) {
@@ -1405,7 +1511,7 @@ export function createDropZone(
           sofficeWasm: options.sofficeWasm,
           sofficeData: options.sofficeData,
           sofficeWorkerJs: options.sofficeWorkerJs,
-          onProgress: options.onProgress ? (p: ProgressInfo) => options.onProgress!({ percent: p.percent, message: p.message }) : undefined,
+          onProgress: options.onProgress ? (p: WasmLoadProgress) => options.onProgress!({ percent: p.percent, message: p.message }) : undefined,
         });
         await converter.initialize();
       }

@@ -897,7 +897,7 @@ export function getToolsForDocumentType(docType: 'writer' | 'calc' | 'impress' |
 function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   const jsonSchema = z.toJSONSchema(schema, { target: 'draft-7' });
   // Remove the $schema property as it's not needed for LLM tools
-  const { $schema, ...rest } = jsonSchema as Record<string, unknown>;
+  const { $schema: _schema, ...rest } = jsonSchema as Record<string, unknown>;
   return rest;
 }
 
