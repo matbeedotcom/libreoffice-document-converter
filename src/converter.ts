@@ -635,6 +635,17 @@ export class LibreOfficeConverter {
         }
       }
 
+      // Add page selection for image exports (png, jpg, svg)
+      if (['png', 'jpg', 'svg'].includes(options.outputFormat) && options.image?.pageIndex !== undefined) {
+        // PageRange is 1-indexed
+        const pageNum = options.image.pageIndex + 1;
+        if (filterOptions) {
+          filterOptions += `;PageRange=${pageNum}-${pageNum}`;
+        } else {
+          filterOptions = `PageRange=${pageNum}-${pageNum}`;
+        }
+      }
+
       this.emitProgress('converting', 70, 'Saving document...');
 
       // Save the document in the new format

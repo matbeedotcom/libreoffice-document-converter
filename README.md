@@ -34,12 +34,16 @@ fs.writeFileSync('document.pdf', result.data);
 import { exportAsImage } from '@matbee/libreoffice-converter';
 import fs from 'fs';
 
-// Export document to PNG
-const png = await exportAsImage(fs.readFileSync('document.docx'), 'png');
-fs.writeFileSync('document.png', png.data);
+// Export single page (0-indexed)
+const [cover] = await exportAsImage(docxBuffer, 0, 'png');
+fs.writeFileSync('cover.png', cover.data);
 
-// With options
-const highRes = await exportAsImage(docxBuffer, 'png', { dpi: 300, width: 1920 });
+// Export multiple pages
+const slides = await exportAsImage(pptxBuffer, [0, 1, 2], 'png');
+slides.forEach((img, i) => fs.writeFileSync(`slide-${i}.png`, img.data));
+
+// Export with options
+const highRes = await exportAsImage(pptxBuffer, [0, 1, 2], 'png', { dpi: 300, width: 1920 });
 ```
 
 ### Server Usage (Recommended)

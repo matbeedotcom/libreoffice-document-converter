@@ -78,6 +78,7 @@ export {
 } from './lok-bindings.js';
 
 import { LibreOfficeConverter } from './converter.js';
+import { createWorkerConverter } from './node.worker-converter.js';
 import type { ConversionOptions, ConversionResult, ImageOptions, LibreOfficeWasmOptions } from './types.js';
 
 /**
@@ -128,7 +129,7 @@ export async function convertDocument(
   options: ConversionOptions,
   converterOptions?: LibreOfficeWasmOptions
 ): Promise<ConversionResult> {
-  const converter = await createConverter(converterOptions);
+  const converter = await createWorkerConverter(converterOptions);
   try {
     return await converter.convert(input, options);
   } finally {
@@ -137,37 +138,56 @@ export async function convertDocument(
 }
 
 /**
- * Quick image export utility - creates converter, exports to image, then destroys
+ * Export document pages as images - creates converter, exports specified pages, then destroys
+ *
+ * @param input - Document buffer
+ * @param pages - Page index or array of page indices to export (0-indexed)
+ * @param format - Output format: 'png', 'jpg', or 'svg'
+ * @param imageOptions - Image options (width, height, dpi)
+ * @param converterOptions - Converter options (wasmPath, etc.)
+ * @returns Array of ConversionResult, one per page
  *
  * @example
  * ```typescript
  * import { exportAsImage } from '@matbee/libreoffice-converter';
  *
- * // Export DOCX to PNG
- * const pngData = await exportAsImage(docxBuffer, 'png');
+ * // Export single page (0-indexed)
+ * const [cover] = await exportAsImage(docxBuffer, 0, 'png');
+ * fs.writeFileSync('cover.png', cover.data);
+ *
+ * // Export multiple pages
+ * const slides = await exportAsImage(pptxBuffer, [0, 1, 2], 'png');
+ * slides.forEach((img, i) => fs.writeFileSync(`slide-${i}.png`, img.data));
  *
  * // Export with options
- * const highResPng = await exportAsImage(docxBuffer, 'png', {
+ * const highRes = await exportAsImage(pptxBuffer, [0, 1, 2], 'png', {
  *   dpi: 300,
  *   width: 1920
  * });
- *
- * // Export presentation to SVG
- * const svgData = await exportAsImage(pptxBuffer, 'svg');
  * ```
  */
 export async function exportAsImage(
   input: Uint8Array | ArrayBuffer | Buffer,
+  pages: number | number[],
   format: ImageFormat = 'png',
-  imageOptions?: ImageOptions,
+  imageOptions?: Omit<ImageOptions, 'pageIndex' | 'pages'>,
   converterOptions?: LibreOfficeWasmOptions
-): Promise<ConversionResult> {
-  const converter = await createConverter(converterOptions);
+): Promise<ConversionResult[]> {
+  const pageArray = Array.isArray(pages) ? pages : [pages];
+  if (pageArray.length === 0) {
+    throw new Error('pages is required and must not be empty');
+  }
+  const converter = await createWorkerConverter(converterOptions);
   try {
-    return await converter.convert(input, {
-      outputFormat: format,
-      image: imageOptions,
-    });
+    const results: ConversionResult[] = [];
+    for (const pageIndex of pageArray) {
+      const result = await converter.convert(input, {
+        outputFormat: format,
+        image: { ...imageOptions, pageIndex },
+      });
+      results.push(result);
+    }
+    return results;
   } finally {
     await converter.destroy();
   }

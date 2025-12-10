@@ -117,6 +117,20 @@ export interface ImageOptions {
    * @default 150
    */
   dpi?: number;
+
+  /**
+   * Page index to export (0-based). Only exports this single page.
+   * If not specified, exports the first page (page 0).
+   * Cannot be used together with `pages`.
+   */
+  pageIndex?: number;
+
+  /**
+   * Array of page indices to export (0-based).
+   * If specified, returns an array of results (one per page).
+   * Cannot be used together with `pageIndex`.
+   */
+  pages?: number[];
 }
 
 /**
