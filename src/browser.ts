@@ -82,6 +82,8 @@ import {
   PagePreview,
   DocumentInfo,
   RenderOptions,
+  FullQualityRenderOptions,
+  FullQualityPagePreview,
   EditorSession,
   EditorOperationResult,
   WasmLoadProgress,
@@ -117,7 +119,7 @@ interface EditorSessionInfo {
 
 /** Worker response message types */
 interface WorkerResponse {
-  type: 'loaded' | 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'singlePagePreview' | 'documentInfo' | 'lokInfo' | 'editResult' | 'pageRectangles' | 'testLokOperations' | 'editorSession' | 'editorOperationResult' | 'documentClosed';
+  type: 'loaded' | 'ready' | 'progress' | 'result' | 'error' | 'pageCount' | 'previews' | 'singlePagePreview' | 'fullQualityPagePreview' | 'documentInfo' | 'lokInfo' | 'editResult' | 'pageRectangles' | 'testLokOperations' | 'editorSession' | 'editorOperationResult' | 'documentClosed';
   id: number;
   data?: Uint8Array;
   error?: string;
@@ -125,6 +127,7 @@ interface WorkerResponse {
   pageCount?: number;
   previews?: PagePreview[];
   preview?: PagePreview;
+  fullQualityPreview?: FullQualityPagePreview;
   documentInfo?: DocumentInfo;
   lokInfo?: unknown;
   editResult?: unknown;
@@ -624,6 +627,8 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
     } else if (msg.type === 'previews') {
       pending.resolve(msg.previews);
     } else if (msg.type === 'singlePagePreview') {
+      pending.resolve(msg.preview);
+    } else if (msg.type === 'fullQualityPagePreview') {
       pending.resolve(msg.preview);
     } else if (msg.type === 'documentInfo') {
       pending.resolve(msg.documentInfo);
@@ -1242,6 +1247,39 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
     // Note: renderOptions.pageIndices is not currently used by the underlying implementation
     // which renders all pages. This could be enhanced in the future.
     return this.renderPreviews(input, options, width);
+  }
+
+  /**
+   * Render a page at full quality (native resolution based on DPI)
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param renderOptions DPI and max dimension settings
+   * @returns Full quality page preview with RGBA data and DPI info
+   */
+  async renderPageFullQuality(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    renderOptions?: FullQualityRenderOptions
+  ): Promise<FullQualityPagePreview> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'Not initialized');
+    }
+
+    const inputData = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const ext = options.inputFormat || 'docx';
+
+    const result = await this.sendMessage('renderPageFullQuality', {
+      inputData,
+      inputExt: ext,
+      pageIndex,
+      dpi: renderOptions?.dpi ?? 150,
+      maxDimension: renderOptions?.maxDimension,
+      editMode: renderOptions?.editMode ?? false,
+    });
+
+    return result as FullQualityPagePreview;
   }
 
   /**

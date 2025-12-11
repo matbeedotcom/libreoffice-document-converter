@@ -808,6 +808,34 @@ export interface RenderOptions {
   height?: number;
   /** Specific page indices to render (0-based). If empty, renders all pages */
   pageIndices?: number[];
+  /**
+   * Render in edit mode (shows text input boxes, cursors, etc.)
+   * Default is false - presentations render in view/read mode for clean output
+   */
+  editMode?: boolean;
+}
+
+/**
+ * Options for full quality page rendering
+ */
+export interface FullQualityRenderOptions {
+  /** DPI for rendering (default 150, use 300 for print quality) */
+  dpi?: number;
+  /** Maximum dimension (width or height) to prevent memory issues */
+  maxDimension?: number;
+  /**
+   * Render in edit mode (shows text input boxes, cursors, etc.)
+   * Default is false - presentations render in view/read mode for clean output
+   */
+  editMode?: boolean;
+}
+
+/**
+ * Full quality page preview with DPI information
+ */
+export interface FullQualityPagePreview extends PagePreview {
+  /** Effective DPI (may differ from requested if capped) */
+  dpi: number;
 }
 
 /**
@@ -902,6 +930,18 @@ export interface ILibreOfficeConverter {
     options: InputFormatOptions,
     renderOptions?: RenderOptions
   ): Promise<PagePreview[]>;
+
+  /**
+   * Render a page at full quality (native resolution based on DPI).
+   * Unlike renderPage which scales to a fixed width, this renders at the
+   * document's native resolution converted to pixels at the specified DPI.
+   */
+  renderPageFullQuality(
+    input: Uint8Array | ArrayBuffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    renderOptions?: FullQualityRenderOptions
+  ): Promise<FullQualityPagePreview>;
 
   // ============================================
   // Editor Operations

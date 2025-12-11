@@ -19,6 +19,8 @@ import {
   EditorOperationResult,
   EditorSession,
   FORMAT_MIME_TYPES,
+  FullQualityPagePreview,
+  FullQualityRenderOptions,
   ILibreOfficeConverter,
   InputFormatOptions,
   LibreOfficeWasmOptions,
@@ -365,6 +367,47 @@ export class WorkerConverter implements ILibreOfficeConverter {
       width: preview.width,
       height: preview.height,
     }));
+  }
+
+  /**
+   * Render a page at full quality (native resolution based on DPI)
+   * @param input Document data
+   * @param options Must include inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param renderOptions DPI and max dimension settings
+   * @returns Full quality page preview with RGBA data and DPI info
+   */
+  async renderPageFullQuality(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    renderOptions: FullQualityRenderOptions = {}
+  ): Promise<FullQualityPagePreview> {
+    if (!this.initialized || !this.worker) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    const inputData = this.normalizeInput(input);
+    const inputFormat = options.inputFormat || 'docx';
+    const rawPreview = await this.sendMessage('renderPageFullQuality', {
+      inputData,
+      inputFormat,
+      pageIndex,
+      dpi: renderOptions.dpi ?? 150,
+      maxDimension: renderOptions.maxDimension,
+      editMode: renderOptions.editMode ?? false,
+    }) as RawPreviewData & { dpi: number };
+
+    return {
+      page: rawPreview.page,
+      data: new Uint8Array(rawPreview.data),
+      width: rawPreview.width,
+      height: rawPreview.height,
+      dpi: rawPreview.dpi,
+    };
   }
 
   /**

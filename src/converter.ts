@@ -16,6 +16,8 @@ import {
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
   FORMAT_FILTER_OPTIONS,
+  FullQualityPagePreview,
+  FullQualityRenderOptions,
   ILibreOfficeConverter,
   InputFormatOptions,
   LibreOfficeWasmOptions,
@@ -823,13 +825,14 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
         const results: PagePreview[] = [];
 
-        // Render each page
+        // Render each page (editMode defaults to false for clean presentation rendering)
+        const editMode = renderOptions.editMode ?? false;
         for (const pageIndex of pagesToRender) {
           if (this.options.verbose) {
             console.log(`[Preview] Rendering page ${pageIndex + 1}/${numParts}`);
           }
 
-          const preview = this.lokBindings.renderPage(docPtr, pageIndex, width, height);
+          const preview = this.lokBindings.renderPage(docPtr, pageIndex, width, height, editMode);
           results.push({
             page: pageIndex,
             data: preview.data,
@@ -852,6 +855,100 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
       try {
         fs.rmdir('/tmp/preview');
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  /**
+   * Render a page at full quality (native resolution based on DPI)
+   * @param input Document data
+   * @param options Options with inputFormat
+   * @param pageIndex Zero-based page index to render
+   * @param renderOptions DPI and max dimension settings
+   * @returns Full quality page preview with RGBA data and DPI info
+   */
+  async renderPageFullQuality(
+    input: Uint8Array | ArrayBuffer | Buffer,
+    options: InputFormatOptions,
+    pageIndex: number,
+    renderOptions: FullQualityRenderOptions = {}
+  ): Promise<FullQualityPagePreview> {
+    if (!this.initialized || !this.module || !this.lokBindings) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized'
+      );
+    }
+
+    const data = this.normalizeInput(input);
+    const inputFormat = (options.inputFormat || 'docx').toLowerCase();
+    const dpi = renderOptions.dpi ?? 150;
+    const maxDimension = renderOptions.maxDimension;
+
+    // Write input file to virtual FS
+    const inputPath = `/tmp/fullquality/doc.${inputFormat}`;
+    const fs = this.module.FS;
+
+    try {
+      // Create directory
+      try {
+        fs.mkdir('/tmp/fullquality');
+      } catch {
+        // Directory might exist
+      }
+
+      // Write file
+      fs.writeFile(inputPath, data);
+
+      // Load document
+      const docPtr = this.lokBindings.documentLoad(inputPath);
+      if (docPtr === 0) {
+        throw new ConversionError(
+          ConversionErrorCode.LOAD_FAILED,
+          'Failed to load document for full quality render'
+        );
+      }
+
+      try {
+        // Validate page index
+        const numParts = this.lokBindings.documentGetParts(docPtr);
+        if (pageIndex < 0 || pageIndex >= numParts) {
+          throw new ConversionError(
+            ConversionErrorCode.CONVERSION_FAILED,
+            `Page index ${pageIndex} out of range (0-${numParts - 1})`
+          );
+        }
+
+        if (this.options.verbose) {
+          console.log(`[FullQuality] Rendering page ${pageIndex + 1}/${numParts} at ${dpi} DPI`);
+        }
+
+        // Render at full quality (editMode defaults to false for clean presentation rendering)
+        const editMode = renderOptions.editMode ?? false;
+        const preview = this.lokBindings.renderPageFullQuality(docPtr, pageIndex, dpi, maxDimension, editMode);
+
+        return {
+          page: pageIndex,
+          data: preview.data,
+          width: preview.width,
+          height: preview.height,
+          dpi: preview.dpi,
+        };
+      } finally {
+        // Clean up document
+        this.lokBindings.documentDestroy(docPtr);
+      }
+    } finally {
+      // Clean up input file
+      try {
+        fs.unlink(inputPath);
+      } catch {
+        // Ignore
+      }
+      try {
+        fs.rmdir('/tmp/fullquality');
       } catch {
         // Ignore
       }

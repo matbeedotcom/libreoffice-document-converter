@@ -776,14 +776,15 @@ export class LOKBindings {
     docPtr: number,
     pageIndex: number,
     width: number,
-    height: number = 0
+    height: number = 0,
+    editMode: boolean = false
   ): { data: Uint8Array; width: number; height: number } {
     // Initialize for rendering if not already done
     this.documentInitializeForRendering(docPtr);
 
     // Get document type to determine rendering strategy
     const docType = this.documentGetDocumentType(docPtr);
-    
+
     // For presentations and drawings, use setPart to select the slide/page
     // For text documents, we need to use page rectangles
     if (docType === 2 || docType === 3) { // PRESENTATION or DRAWING
@@ -791,6 +792,13 @@ export class LOKBindings {
       this.documentSetPart(docPtr, pageIndex);
       const currentPart = this.documentGetPart(docPtr);
       console.log(`[LOK] Current part after setPart: ${currentPart}`);
+
+      // Set view mode (0) for presentations to avoid showing edit UI elements
+      // unless explicitly requested
+      if (!editMode) {
+        this.setEditMode(docPtr, 0);
+        console.log(`[LOK] Set edit mode to 0 (view mode) for presentation rendering`);
+      }
     }
 
     // Get document/page size in twips
@@ -843,6 +851,116 @@ export class LOKBindings {
 
     console.log(`[LOK] paintTile returned ${data.length} bytes`);
     return { data, width: outputWidth, height: outputHeight };
+  }
+
+  /**
+   * Render a page/slide at full quality (native resolution based on DPI)
+   *
+   * Unlike renderPage which scales to a fixed width, this method renders
+   * at the document's native resolution converted to pixels at the specified DPI.
+   *
+   * @param docPtr Document pointer
+   * @param pageIndex Page/slide index (0-based)
+   * @param dpi Dots per inch for rendering (default 150, use 300 for print quality)
+   * @param maxDimension Optional maximum dimension (width or height) to prevent memory issues
+   * @returns RGBA pixel data and dimensions
+   *
+   * @example
+   * // Render at 150 DPI (good for screen)
+   * const preview = lokBindings.renderPageFullQuality(docPtr, 0, 150);
+   *
+   * // Render at 300 DPI (print quality)
+   * const highRes = lokBindings.renderPageFullQuality(docPtr, 0, 300);
+   *
+   * // Render with max dimension cap to prevent memory issues
+   * const capped = lokBindings.renderPageFullQuality(docPtr, 0, 300, 4096);
+   */
+  renderPageFullQuality(
+    docPtr: number,
+    pageIndex: number,
+    dpi: number = 150,
+    maxDimension?: number,
+    editMode: boolean = false
+  ): { data: Uint8Array; width: number; height: number; dpi: number } {
+    // Initialize for rendering if not already done
+    this.documentInitializeForRendering(docPtr);
+
+    // Get document type to determine rendering strategy
+    const docType = this.documentGetDocumentType(docPtr);
+
+    // For presentations and drawings, use setPart to select the slide/page
+    if (docType === 2 || docType === 3) { // PRESENTATION or DRAWING
+      this.log(`Setting part to ${pageIndex} for presentation/drawing`);
+      this.documentSetPart(docPtr, pageIndex);
+
+      // Set view mode (0) for presentations to avoid showing edit UI elements
+      // unless explicitly requested
+      if (!editMode) {
+        this.setEditMode(docPtr, 0);
+        this.log(`Set edit mode to 0 (view mode) for presentation rendering`);
+      }
+    }
+
+    // Get document/page size in twips
+    const docSize = this.documentGetDocumentSize(docPtr);
+    this.log('Document size (twips):', docSize);
+
+    if (docSize.width === 0 || docSize.height === 0) {
+      throw new Error('Failed to get document size');
+    }
+
+    // For text documents, get page rectangles to find the specific page
+    let tilePosX = 0;
+    let tilePosY = 0;
+    let tileWidth = docSize.width;
+    let tileHeight = docSize.height;
+
+    if (docType === 0 || docType === 1) { // TEXT or SPREADSHEET
+      const pageRectsStr = this.getPartPageRectangles(docPtr);
+      if (pageRectsStr) {
+        const pageRects = this.parsePageRectangles(pageRectsStr);
+        const pageRect = pageRects[pageIndex];
+        if (pageRect) {
+          tilePosX = pageRect.x;
+          tilePosY = pageRect.y;
+          tileWidth = pageRect.width;
+          tileHeight = pageRect.height;
+          this.log(`Page ${pageIndex} rectangle:`, pageRect);
+        }
+      }
+    }
+
+    // Convert twips to pixels at the specified DPI
+    // 1 inch = 1440 twips, so pixels = twips * dpi / 1440
+    const TWIPS_PER_INCH = 1440;
+    let outputWidth = Math.round(tileWidth * dpi / TWIPS_PER_INCH);
+    let outputHeight = Math.round(tileHeight * dpi / TWIPS_PER_INCH);
+    let effectiveDpi = dpi;
+
+    // Apply max dimension cap if specified
+    if (maxDimension && (outputWidth > maxDimension || outputHeight > maxDimension)) {
+      const scale = maxDimension / Math.max(outputWidth, outputHeight);
+      outputWidth = Math.round(outputWidth * scale);
+      outputHeight = Math.round(outputHeight * scale);
+      effectiveDpi = Math.round(dpi * scale);
+      this.log(`Capped dimensions to ${outputWidth}x${outputHeight} (effective DPI: ${effectiveDpi})`);
+    }
+
+    console.log(`[LOK] renderPageFullQuality: ${outputWidth}x${outputHeight} at ${effectiveDpi} DPI from tile (${tilePosX}, ${tilePosY}) size (${tileWidth}x${tileHeight}) twips`);
+
+    // Paint the tile
+    const data = this.documentPaintTile(
+      docPtr,
+      outputWidth,
+      outputHeight,
+      tilePosX,
+      tilePosY,
+      tileWidth,
+      tileHeight
+    );
+
+    console.log(`[LOK] renderPageFullQuality returned ${data.length} bytes`);
+    return { data, width: outputWidth, height: outputHeight, dpi: effectiveDpi };
   }
 
   // ==========================================

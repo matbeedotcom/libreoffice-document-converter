@@ -109,9 +109,9 @@ export default function App() {
     try {
       const converter = await getConverter();
       const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
-      const preview = await converter.renderSinglePage(
+      const preview = await converter.renderPageViaConvert(
         new Uint8Array(fileBuffer),
-        { inputFormat: ext },
+        { inputFormat: ext as InputFormat },
         pageIndex,
         300
       );
@@ -162,7 +162,7 @@ export default function App() {
       const ext = selectedFile.name.split('.').pop()?.toLowerCase() || 'docx';
 
       const result: ConversionResult = await converter.convertFile(selectedFile, {
-        inputFormat: ext,
+        inputFormat: ext as unknown as InputFormat,
         outputFormat,
       });
 

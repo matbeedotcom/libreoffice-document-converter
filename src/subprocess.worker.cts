@@ -123,6 +123,15 @@ interface RenderPagePreviewsPayload {
   pageIndices?: number[];
 }
 
+interface RenderPageFullQualityPayload {
+  inputData: number[];
+  inputFormat: string;
+  pageIndex: number;
+  dpi: number;
+  maxDimension?: number;
+  editMode?: boolean;
+}
+
 interface OpenDocumentPayload {
   inputData: number[];
   inputFormat: string;
@@ -260,6 +269,41 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
     width: preview.width,
     height: preview.height,
   }));
+}
+
+/**
+ * Handle renderPageFullQuality request
+ */
+async function handleRenderPageFullQuality(payload: RenderPageFullQualityPayload): Promise<{
+  page: number;
+  data: number[];
+  width: number;
+  height: number;
+  dpi: number;
+}> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const inputData = new Uint8Array(payload.inputData);
+  const preview = await converter.renderPageFullQuality(
+    inputData,
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
+    payload.pageIndex,
+    {
+      dpi: payload.dpi,
+      maxDimension: payload.maxDimension,
+      editMode: payload.editMode ?? false,
+    }
+  );
+
+  return {
+    page: preview.page,
+    data: Array.from(preview.data),
+    width: preview.width,
+    height: preview.height,
+    dpi: preview.dpi,
+  };
 }
 
 /**
@@ -514,6 +558,10 @@ process.on('message', async (msg: WorkerMessage) => {
 
       case 'renderPagePreviews':
         result = await handleRenderPagePreviews(msg.payload as RenderPagePreviewsPayload);
+        break;
+
+      case 'renderPageFullQuality':
+        result = await handleRenderPageFullQuality(msg.payload as RenderPageFullQualityPayload);
         break;
 
       case 'getDocumentText':

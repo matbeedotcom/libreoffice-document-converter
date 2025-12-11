@@ -49,6 +49,15 @@ interface RenderPagePreviewsPayload {
   pageIndices?: number[];
 }
 
+interface RenderPageFullQualityPayload {
+  inputData: Uint8Array;
+  inputFormat: string;
+  pageIndex: number;
+  dpi: number;
+  maxDimension?: number;
+  editMode?: boolean;
+}
+
 interface DocumentPayload {
   inputData: Uint8Array;
   inputFormat: string;
@@ -209,6 +218,32 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
       width: payload.width,
       height: payload.height,
       pageIndices: payload.pageIndices,
+    }
+  );
+}
+
+/**
+ * Render a page at full quality (native resolution based on DPI)
+ */
+async function handleRenderPageFullQuality(payload: RenderPageFullQualityPayload): Promise<{
+  page: number;
+  data: Uint8Array;
+  width: number;
+  height: number;
+  dpi: number;
+}> {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  return converter.renderPageFullQuality(
+    payload.inputData,
+    { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
+    payload.pageIndex,
+    {
+      dpi: payload.dpi,
+      maxDimension: payload.maxDimension,
+      editMode: payload.editMode ?? false,
     }
   );
 }
@@ -447,6 +482,10 @@ parentPort?.on('message', async (message: WorkerMessage) => {
 
       case 'renderPagePreviews':
         result = await handleRenderPagePreviews(message.payload as RenderPagePreviewsPayload);
+        break;
+
+      case 'renderPageFullQuality':
+        result = await handleRenderPageFullQuality(message.payload as RenderPageFullQualityPayload);
         break;
 
       case 'getDocumentText':

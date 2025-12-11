@@ -245,7 +245,7 @@ function installProgressInterceptors() {
 }
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument';
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'renderPageFullQuality' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument';
   id: number;
   // Explicit WASM file paths (required for init)
   sofficeJs?: string;
@@ -259,7 +259,11 @@ interface WorkerMessage {
   filterOptions?: string;
   password?: string;
   maxWidth?: number;
-  pageIndex?: number; // For renderSinglePage / renderPageViaConvert
+  pageIndex?: number; // For renderSinglePage / renderPageViaConvert / renderPageFullQuality
+  // Full quality rendering parameters
+  dpi?: number;           // DPI for renderPageFullQuality
+  maxDimension?: number;  // Max dimension cap for renderPageFullQuality
+  editMode?: boolean;     // Render in edit mode (shows placeholders, cursors) - default false
   // Text editing parameters
   findText?: string;      // Text to find for replacement
   replaceText?: string;   // Text to replace with
@@ -277,6 +281,10 @@ interface PagePreview {
   data: Uint8Array;
   width: number;
   height: number;
+}
+
+interface FullQualityPagePreview extends PagePreview {
+  dpi: number;
 }
 
 interface DocumentInfo {
@@ -1197,6 +1205,87 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
     });
     closeCachedDocument();
     try { module.FS.unlink(outPath); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Render a page at full quality (native resolution based on DPI)
+ * Uses paintTile for accurate rendering of all content including text
+ */
+async function handleRenderPageFullQuality(msg: WorkerMessage) {
+  if (!initialized || !module || !lokBindings) {
+    postResponse({ type: 'error', id: msg.id, error: 'Worker not initialized' });
+    return;
+  }
+
+  const { inputData, inputExt, pageIndex = 0, dpi = 150, maxDimension, editMode = false } = msg;
+
+  if (!inputData) {
+    postResponse({ type: 'error', id: msg.id, error: 'Missing input data' });
+    return;
+  }
+
+  let viewId = -1;
+  let docPtr = 0;
+
+  try {
+    // Get or reuse cached document
+    const result = getOrLoadDocument(inputData, inputExt || 'docx');
+    docPtr = result.docPtr;
+    const pageCount = result.pageCount;
+
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
+    }
+
+    // Create a view before rendering for all document types
+    const docType = lokBindings.documentGetDocumentType(docPtr);
+    const docTypeNames = ['TEXT', 'SPREADSHEET', 'PRESENTATION', 'DRAWING'];
+    console.log(`[Worker] handleRenderPageFullQuality: ${docTypeNames[docType] || 'UNKNOWN'} document at ${dpi} DPI, editMode=${editMode}`);
+
+    viewId = lokBindings.createView(docPtr);
+    if (viewId >= 0) {
+      lokBindings.setView(docPtr, viewId);
+      console.log(`[Worker] handleRenderPageFullQuality: Created and set view ${viewId}`);
+    }
+
+    // Render at full quality using the new method (editMode defaults to false for clean presentation rendering)
+    const rendered = lokBindings.renderPageFullQuality(docPtr, pageIndex, dpi, maxDimension, editMode);
+    console.log(`[Worker] handleRenderPageFullQuality: rendered ${rendered.data.length} bytes (${rendered.width}x${rendered.height} at ${rendered.dpi} DPI)`);
+
+    // Copy from SharedArrayBuffer to regular ArrayBuffer
+    const dataCopy = new Uint8Array(rendered.data.length);
+    dataCopy.set(rendered.data);
+
+    const preview: FullQualityPagePreview = {
+      page: pageIndex + 1,
+      data: dataCopy,
+      width: rendered.width,
+      height: rendered.height,
+      dpi: rendered.dpi
+    };
+
+    // Cleanup view
+    if (viewId >= 0 && docPtr !== 0) {
+      try { lokBindings.destroyView(docPtr, viewId); } catch { /* ignore */ }
+    }
+
+    // Transfer the buffer
+    self.postMessage({ type: 'fullQualityPagePreview', id: msg.id, preview }, [dataCopy.buffer]);
+
+  } catch (error) {
+    // Cleanup view on error
+    if (viewId >= 0 && docPtr !== 0) {
+      try { lokBindings.destroyView(docPtr, viewId); } catch { /* ignore */ }
+    }
+
+    const errorMsg = error instanceof Error ? String(error.message) : String(error);
+    postResponse({
+      type: 'error',
+      id: msg.id,
+      error: errorMsg
+    });
+    closeCachedDocument();
   }
 }
 
@@ -2458,6 +2547,9 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       break;
     case 'renderPageViaConvert':
       await handleRenderPageViaConvert(msg);
+      break;
+    case 'renderPageFullQuality':
+      await handleRenderPageFullQuality(msg);
       break;
     case 'getDocumentInfo':
       await handleGetDocumentInfo(msg);
