@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.5.0...v1.6.0) (2025-12-11)
+
+
+### Features
+
+* add script to update and patch WASM files for LibreOffice ([749a21a](https://github.com/matbeedotcom/libreoffice-document-converter/commit/749a21a4a16c557cf75b59d8bc5aa19c19e4b05b))
+
 # [1.5.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.4.0...v1.5.0) (2025-12-11)
 
 
