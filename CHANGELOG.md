@@ -1,3 +1,15 @@
+# [1.7.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.6.0...v1.7.0) (2025-12-11)
+
+
+### Bug Fixes
+
+* **tests:** update converter tests to include WASM loader ([744c25d](https://github.com/matbeedotcom/libreoffice-document-converter/commit/744c25dcaff6eed75b395e68dc06f60c4f08acae))
+
+
+### Features
+
+* enhance document conversion capabilities and add batch processing example ([ede9281](https://github.com/matbeedotcom/libreoffice-document-converter/commit/ede9281f4f0f36aa84bf96f1c31320e33a195765))
+
 # [1.6.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.5.0...v1.6.0) (2025-12-11)
 
 
