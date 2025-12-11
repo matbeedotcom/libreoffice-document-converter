@@ -1,6 +1,6 @@
 /**
  * LibreOffice Converter Tests
- * 
+ *
  * Note: These tests require the WASM build to be present.
  * Run `npm run build:wasm` first to build the WASM files.
  */
@@ -12,7 +12,12 @@ import {
   ConversionErrorCode,
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
+  WasmLoaderModule,
 } from '../src/types.js';
+
+// Import the WASM loader for tests
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
 
 describe('LibreOfficeConverter', () => {
   describe('Static methods', () => {
@@ -128,6 +133,7 @@ describe('LibreOfficeConverter', () => {
       converter = new LibreOfficeConverter({
         wasmPath: './wasm',
         verbose: false,
+        wasmLoader,
       });
       await converter.initialize();
     }, 120000); // 2 minute timeout for initialization
