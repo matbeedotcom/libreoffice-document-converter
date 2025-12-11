@@ -24,6 +24,15 @@
       "require": "./dist/server.cjs",
       "default": "./dist/server.js"
     },
+    "./types": {
+      "types": "./dist/types-entry.d.ts",
+      "import": "./dist/types-entry.js",
+      "default": "./dist/types-entry.js"
+    },
+    "./wasm/loader": {
+      "require": "./wasm/loader.cjs",
+      "default": "./wasm/loader.cjs"
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -33,6 +42,9 @@
       ],
       "server": [
         "./dist/server.d.ts"
+      ],
+      "types": [
+        "./dist/types-entry.d.ts"
       ]
     }
   },

@@ -9,10 +9,14 @@
  */
 
 import { parentPort } from 'worker_threads';
-import { LibreOfficeConverter } from './converter.js';
+import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions } from './types.js';
+import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
 import type { OperationResult } from './editor/types.js';
+
+// Import the WASM loader - path is relative to dist/ after build
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
 
 interface WorkerMessage {
   type: string;
@@ -105,6 +109,7 @@ async function handleInit(payload: InitPayload): Promise<void> {
   converter = new LibreOfficeConverter({
     wasmPath: payload.wasmPath,
     verbose: payload.verbose,
+    wasmLoader,
   });
 
   await converter.initialize();

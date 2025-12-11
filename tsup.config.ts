@@ -37,9 +37,9 @@ export default defineConfig([
     treeshake: true,
     minify: false,
     outDir: 'dist',
-    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads'],
+    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads', '../wasm/loader.cjs'],
     // Bundle converter and editor into subprocess-worker so it's self-contained
-    noExternal: ['./converter.js', './editor/index.js'],
+    noExternal: ['./converter-node.js', './editor/index.js'],
   },
   // Browser build
   {
@@ -59,6 +59,21 @@ export default defineConfig([
     define: {
       'process.versions': 'undefined',
     },
+  },
+  // Types-only entry (ESM only, no .d.cts - safe for Turbopack/bundlers)
+  {
+    entry: {
+      'types-entry': 'src/types-entry.ts',
+    },
+    format: ['esm'],
+    dts: true,
+    sourcemap: true,
+    target: 'es2022',
+    platform: 'neutral',
+    splitting: false,
+    treeshake: true,
+    minify: false,
+    outDir: 'dist',
   },
   // Browser Web Worker build (classic worker, IIFE format)
   {

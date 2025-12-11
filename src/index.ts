@@ -8,7 +8,7 @@
  * @packageDocumentation
  */
 
-export { LibreOfficeConverter } from './converter.js';
+export { LibreOfficeConverter } from './converter-node.js';
 export { WorkerConverter, createWorkerConverter } from './node.worker-converter.js';
 export { SubprocessConverter, createSubprocessConverter } from './subprocess.worker-converter.js';
 
@@ -77,7 +77,7 @@ export {
   LOK_DOCTYPE_OTHER,
 } from './lok-bindings.js';
 
-import { LibreOfficeConverter } from './converter.js';
+import { LibreOfficeConverter } from './converter-node.js';
 import { createSubprocessConverter } from './subprocess.worker-converter.js';
 import type { ConversionOptions, ConversionResult, ImageOptions, LibreOfficeWasmOptions } from './types.js';
 

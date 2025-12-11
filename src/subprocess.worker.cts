@@ -70,10 +70,14 @@ class NodeXHR {
 (global as any).Worker = Worker;
 
 // Import converter and editor - these will be bundled by tsup
-import { LibreOfficeConverter } from './converter.js';
+import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions } from './types.js';
+import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
 import type { OperationResult } from './editor/types.js';
+
+// Import the WASM loader - path is relative to dist/ after build
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
 
 // Converter state
 let converter: LibreOfficeConverter | null = null;
@@ -523,6 +527,7 @@ async function handleInit(): Promise<void> {
   converter = new LibreOfficeConverter({
     wasmPath: wasmDir,
     verbose,
+    wasmLoader,
   });
 
   log('Initializing converter...');

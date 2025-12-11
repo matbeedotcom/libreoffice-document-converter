@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { LibreOfficeConverter } from '../src/converter.js';
+import { LibreOfficeConverter } from '../src/converter-node.js';
 import {
   ConversionError,
   ConversionErrorCode,

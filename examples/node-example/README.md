@@ -68,7 +68,48 @@ Creates a folder with:
 - High-resolution page renders (1920x1080)
 - Thumbnail previews (300x400)
 
-### 4. Conversion Server
+### 4. Batch Conversion
+
+Convert all documents in a directory to a target format, output as a zip file:
+
+```bash
+# Convert all documents in ./documents to PDF
+node batch-convert.js ./documents pdf
+
+# Specify output filename
+node batch-convert.js ./reports docx output.zip
+
+# Use multiple workers for faster conversion
+node batch-convert.js ./large-batch pdf results.zip --workers 4
+```
+
+Features:
+- Recursively scans subdirectories
+- Preserves directory structure in zip output
+- Skips files already in target format
+- Continues on errors, reports failures at end
+- Configurable parallel workers (default: 1)
+
+Output:
+```
+Scanning ./documents for documents...
+Found 15 file(s) to convert, 3 already pdf
+Initializing 2 worker(s)...
+Workers initialized!
+[1/15] Converting reports/q1.docx...
+[2/15] Converting reports/q2.docx...
+...
+
+Batch conversion complete!
+  Converted: 14 files
+  Skipped:   3 files (already pdf)
+  Failed:    1 file
+    - data/corrupted.xlsx: Document load failed
+
+Output: documents.zip (2.4 MB)
+```
+
+### 5. Conversion Server
 
 Run an HTTP server for document conversion:
 

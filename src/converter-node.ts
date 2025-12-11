@@ -1,8 +1,8 @@
 /**
- * LibreOffice WASM Document Converter - Browser Version
+ * LibreOffice WASM Document Converter - Node.js Version
  *
- * This is the browser-specific version that doesn't include Node.js dependencies.
- * For Node.js usage, use converter-node.ts instead (imported via /server entry point).
+ * This is the Node.js-specific version that requires wasmLoader to be provided.
+ * For browser usage, use converter.ts instead.
  */
 
 import {
@@ -37,11 +37,9 @@ import {
 } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 
-// Declare the module factory type
-type ModuleFactory = (config: Partial<EmscriptenModule>) => Promise<EmscriptenModule>;
-
-/** Emscripten worker interface */
+/** Emscripten worker with Node.js-specific methods */
 interface EmscriptenWorker {
+  unref?: () => void;
   terminate?: () => void;
 }
 
@@ -57,12 +55,24 @@ interface EmscriptenModuleWithPThread extends EmscriptenModule {
   PThread?: EmscriptenPThread;
 }
 
+/** Node.js process handle */
+interface ProcessHandle {
+  unref?: () => void;
+  constructor?: { name?: string };
+  remoteAddress?: string;
+}
+
+/** Node.js process with internal methods */
+interface ProcessWithHandles {
+  _getActiveHandles?: () => ProcessHandle[];
+}
 
 /**
- * LibreOffice WASM Document Converter
+ * LibreOffice WASM Document Converter - Node.js Version
  *
  * A headless document conversion toolkit that uses LibreOffice
- * compiled to WebAssembly for browser and Node.js environments.
+ * compiled to WebAssembly. This version is optimized for Node.js
+ * with static imports that work with ESM bundlers.
  */
 export class LibreOfficeConverter implements ILibreOfficeConverter {
   private module: EmscriptenModule | null = null;
@@ -185,12 +195,12 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     try {
       // Load WASM module (progress 0-45% handled by loader)
       this.module = await this.loadModule();
-      
+
       this.emitProgress('initializing', 50, 'Setting up virtual filesystem...');
 
       // Create directories in virtual filesystem
       this.setupFileSystem();
-      
+
       this.emitProgress('initializing', 60, 'Initializing LibreOfficeKit...');
 
       // Initialize LibreOfficeKit
@@ -218,56 +228,34 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   }
 
   /**
-   * Load the Emscripten WASM module (browser only)
+   * Load the Emscripten WASM module (Node.js only)
+   * Requires wasmLoader option to be provided for bundler compatibility
    */
   private async loadModule(): Promise<EmscriptenModule> {
-    const wasmPath = this.options.wasmPath || './wasm';
-    const moduleUrl = `${wasmPath}/soffice.js`;
+    console.log('[LibreOfficeConverter] Loading WASM module...');
 
-    const config: Partial<EmscriptenModule> = {
-      locateFile: (path: string) => {
-        if (path.endsWith('.wasm')) {
-          return `${wasmPath}/soffice.wasm`;
-        }
-        if (path.endsWith('.data')) {
-          return `${wasmPath}/soffice.data`;
-        }
-        return `${wasmPath}/${path}`;
-      },
-      print: this.options.verbose ? console.log : () => {},
-      printErr: this.options.verbose ? console.error : () => {},
-    };
-
-    // Create a script element to load the module
-    const script = document.createElement('script');
-    script.src = moduleUrl;
-
-    await new Promise<void>((resolve, reject) => {
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load ${moduleUrl}`));
-      document.head.appendChild(script);
-    });
-
-    // The module factory should now be available globally
-    const createModule = (window as Window & { createSofficeModule?: ModuleFactory }).createSofficeModule;
-
-    if (!createModule) {
+    // wasmLoader must be provided - no dynamic require
+    if (!this.options.wasmLoader) {
       throw new ConversionError(
         ConversionErrorCode.WASM_NOT_INITIALIZED,
-        'WASM module factory not found. Make sure soffice.js is loaded.'
+        'wasmLoader option is required. Import the loader and pass it:\n' +
+        '  import wasmLoader from "@matbee/libreoffice-converter/wasm/loader.cjs";\n' +
+        '  new LibreOfficeConverter({ wasmLoader })'
       );
     }
 
-    return new Promise((resolve, reject) => {
-      const moduleWithCallback: Partial<EmscriptenModule> = {
-        ...config,
-        onRuntimeInitialized: () => {
-          resolve(moduleWithCallback as EmscriptenModule);
-        },
-      };
+    // Build loader config
+    const config = {
+      verbose: this.options.verbose,
+      print: this.options.verbose ? console.log : () => {},
+      printErr: this.options.verbose ? console.error : () => {},
+      onProgress: (_phase: string, percent: number, message: string) => {
+        // Map loader progress to our progress phases
+        this.emitProgress('loading', percent, message);
+      },
+    };
 
-      createModule(moduleWithCallback).catch(reject);
-    });
+    return await this.options.wasmLoader.createModule(config);
   }
 
   /**
@@ -281,11 +269,11 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       );
     }
 
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
-    const tryMkdir = (path: string) => {
+    const tryMkdir = (dirPath: string) => {
       try {
-        fs.mkdir(path);
+        emFs.mkdir(dirPath);
       } catch {
         // Directory may already exist
       }
@@ -309,7 +297,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
     // Debug filesystem contents before LOK init
     if (this.options.verbose && this.module.FS) {
-      const fs = this.module.FS as typeof this.module.FS & {
+      const emFs = this.module.FS as typeof this.module.FS & {
         trackingDelegate?: Record<string, unknown>;
         open: (...args: unknown[]) => unknown;
       };
@@ -317,37 +305,37 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       if (!this.fsTracked) {
         this.fsTracked = true;
 
-        if (!fs.trackingDelegate) {
-          fs.trackingDelegate = {
-            onOpen: (path: string) => {
-              console.log('[FS OPEN]', path);
+        if (!emFs.trackingDelegate) {
+          emFs.trackingDelegate = {
+            onOpen: (filePath: string) => {
+              console.log('[FS OPEN]', filePath);
             },
-            onOpenFile: (path: string) => {
-              console.log('[FS OPEN FILE]', path);
+            onOpenFile: (filePath: string) => {
+              console.log('[FS OPEN FILE]', filePath);
             },
           };
         }
 
-        if (typeof fs.open === 'function') {
-          const originalOpen = fs.open.bind(fs);
-          fs.open = ((path: string, flags?: unknown, mode?: unknown) => {
-            console.log('[FS OPEN CALL]', path);
+        if (typeof emFs.open === 'function') {
+          const originalOpen = emFs.open.bind(emFs);
+          emFs.open = ((filePath: string, flags?: unknown, mode?: unknown) => {
+            console.log('[FS OPEN CALL]', filePath);
             try {
-              return originalOpen(path, flags as never, mode as never);
+              return originalOpen(filePath, flags as never, mode as never);
             } catch (err) {
               const error = err as { code?: string; message?: string };
               if (error?.code === 'ENOENT') {
-                console.log('[FS ENOENT]', path);
+                console.log('[FS ENOENT]', filePath);
               }
               throw err;
             }
-          }) as typeof fs.open;
+          }) as typeof emFs.open;
         }
       }
 
-      const logDir = (label: string, path: string) => {
+      const logDir = (label: string, dirPath: string) => {
         try {
-          console.log(`[FS] ${label}:`, fs.readdir(path));
+          console.log(`[FS] ${label}:`, emFs.readdir(dirPath));
         } catch (e) {
           console.log(`[FS] ${label}: ERROR -`, (e as Error).message);
         }
@@ -502,8 +490,8 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
     try {
       // Build load options (e.g., for password-protected documents)
-      const loadOptions = options.password 
-        ? `,Password=${options.password}` 
+      const loadOptions = options.password
+        ? `,Password=${options.password}`
         : '';
 
       // Debug: verify file exists before LOK load
@@ -534,10 +522,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
       // Determine the output format string for LOK
       const lokFormat = OUTPUT_FORMAT_TO_LOK[options.outputFormat];
-      
+
       // Get filter options for the format
       let filterOptions = FORMAT_FILTER_OPTIONS[options.outputFormat] || '';
-      
+
       // Add PDF-specific options if applicable
       if (options.outputFormat === 'pdf' && options.pdf) {
         const pdfOpts: string[] = [];
@@ -578,14 +566,14 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       // Read the converted output file
       try {
         const outputData = this.module.FS.readFile(outputPath) as Uint8Array;
-        
+
         if (outputData.length === 0) {
           throw new ConversionError(
             ConversionErrorCode.CONVERSION_FAILED,
             'Conversion produced empty output'
           );
         }
-        
+
         return outputData;
       } catch (fsError) {
         throw new ConversionError(
@@ -615,10 +603,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
   /**
    * Render page previews (thumbnails) for a document
-   * @param input Document data
-   * @param options Options with inputFormat
-   * @param renderOptions Render settings (width, height, pageIndices)
-   * @returns Array of page preview data with RGBA pixels
    */
   async renderPagePreviews(
     input: Uint8Array | ArrayBuffer | Buffer,
@@ -638,22 +622,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const height = renderOptions.height ?? 0;
     const pageIndices = renderOptions.pageIndices ?? [];
 
-    // Write input file to virtual FS
     const inputPath = `/tmp/preview/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
-      // Create directory
       try {
-        fs.mkdir('/tmp/preview');
+        emFs.mkdir('/tmp/preview');
       } catch {
         // Directory might exist
       }
 
-      // Write file
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
 
-      // Load document
       const docPtr = this.lokBindings.documentLoad(inputPath);
       if (docPtr === 0) {
         throw new ConversionError(
@@ -663,22 +643,19 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
 
       try {
-        // Get number of pages/parts
         const numParts = this.lokBindings.documentGetParts(docPtr);
         if (this.options.verbose) {
           console.log(`[Preview] Document has ${numParts} pages/parts`);
         }
 
-        // Determine which pages to render
         const pagesToRender =
           pageIndices.length > 0
             ? pageIndices.filter((i) => i >= 0 && i < numParts)
             : Array.from({ length: numParts }, (_, i) => i);
 
         const results: PagePreview[] = [];
-
-        // Render each page (editMode defaults to false for clean presentation rendering)
         const editMode = renderOptions.editMode ?? false;
+
         for (const pageIndex of pagesToRender) {
           if (this.options.verbose) {
             console.log(`[Preview] Rendering page ${pageIndex + 1}/${numParts}`);
@@ -695,18 +672,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
         return results;
       } finally {
-        // Clean up document
         this.lokBindings.documentDestroy(docPtr);
       }
     } finally {
-      // Clean up input file
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/preview');
+        emFs.rmdir('/tmp/preview');
       } catch {
         // Ignore
       }
@@ -715,11 +690,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
   /**
    * Render a page at full quality (native resolution based on DPI)
-   * @param input Document data
-   * @param options Options with inputFormat
-   * @param pageIndex Zero-based page index to render
-   * @param renderOptions DPI and max dimension settings
-   * @returns Full quality page preview with RGBA data and DPI info
    */
   async renderPageFullQuality(
     input: Uint8Array | ArrayBuffer | Buffer,
@@ -739,22 +709,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const dpi = renderOptions.dpi ?? 150;
     const maxDimension = renderOptions.maxDimension;
 
-    // Write input file to virtual FS
     const inputPath = `/tmp/fullquality/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
-      // Create directory
       try {
-        fs.mkdir('/tmp/fullquality');
+        emFs.mkdir('/tmp/fullquality');
       } catch {
         // Directory might exist
       }
 
-      // Write file
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
 
-      // Load document
       const docPtr = this.lokBindings.documentLoad(inputPath);
       if (docPtr === 0) {
         throw new ConversionError(
@@ -764,7 +730,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
 
       try {
-        // Validate page index
         const numParts = this.lokBindings.documentGetParts(docPtr);
         if (pageIndex < 0 || pageIndex >= numParts) {
           throw new ConversionError(
@@ -777,7 +742,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
           console.log(`[FullQuality] Rendering page ${pageIndex + 1}/${numParts} at ${dpi} DPI`);
         }
 
-        // Render at full quality (editMode defaults to false for clean presentation rendering)
         const editMode = renderOptions.editMode ?? false;
         const preview = this.lokBindings.renderPageFullQuality(docPtr, pageIndex, dpi, maxDimension, editMode);
 
@@ -789,18 +753,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
           dpi: preview.dpi,
         };
       } finally {
-        // Clean up document
         this.lokBindings.documentDestroy(docPtr);
       }
     } finally {
-      // Clean up input file
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/fullquality');
+        emFs.rmdir('/tmp/fullquality');
       } catch {
         // Ignore
       }
@@ -825,16 +787,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const inputFormat = (options.inputFormat || 'docx').toLowerCase();
 
     const inputPath = `/tmp/pagecount/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/pagecount');
+        emFs.mkdir('/tmp/pagecount');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -851,12 +813,12 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/pagecount');
+        emFs.rmdir('/tmp/pagecount');
       } catch {
         // Ignore
       }
@@ -865,10 +827,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
   /**
    * Get valid output formats for a document by loading it and checking its type
-   * This is more accurate than static validation as it uses LibreOffice's actual document type detection
-   * @param input Document data
-   * @param options Options with inputFormat
-   * @returns Object with document type and valid output formats
    */
   async getDocumentInfo(
     input: Uint8Array | ArrayBuffer | Buffer,
@@ -885,16 +843,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const inputFormat = (options.inputFormat || 'docx').toLowerCase();
 
     const inputPath = `/tmp/docinfo/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/docinfo');
+        emFs.mkdir('/tmp/docinfo');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -928,28 +886,22 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/docinfo');
+        emFs.rmdir('/tmp/docinfo');
       } catch {
         // Ignore
       }
     }
   }
 
-  // ============================================================
+  // ============================================
   // Document Inspection Methods
-  // ============================================================
+  // ============================================
 
-  /**
-   * Get all text content from a document
-   * @param input Document data
-   * @param options Conversion options with inputFormat
-   * @returns All text content from the document
-   */
   async getDocumentText(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: ConversionOptions
@@ -972,16 +924,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     const inputPath = `/tmp/inspect/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/inspect');
+        emFs.mkdir('/tmp/inspect');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -998,24 +950,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/inspect');
+        emFs.rmdir('/tmp/inspect');
       } catch {
         // Ignore
       }
     }
   }
 
-  /**
-   * Get page/slide names from a document
-   * @param input Document data
-   * @param options Conversion options with inputFormat
-   * @returns Array of page/slide names
-   */
   async getPageNames(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: ConversionOptions
@@ -1038,16 +984,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     const inputPath = `/tmp/names/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/names');
+        emFs.mkdir('/tmp/names');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -1060,36 +1006,30 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       try {
         const numParts = this.lokBindings.documentGetParts(docPtr);
         const names: string[] = [];
-        
+
         for (let i = 0; i < numParts; i++) {
           const name = this.lokBindings.getPartName(docPtr, i);
           names.push(name || `Page ${i + 1}`);
         }
-        
+
         return names;
       } finally {
         this.lokBindings.documentDestroy(docPtr);
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/names');
+        emFs.rmdir('/tmp/names');
       } catch {
         // Ignore
       }
     }
   }
 
-  /**
-   * Get page bounding rectangles from a document
-   * @param input Document data
-   * @param options Conversion options with inputFormat
-   * @returns Array of page rectangles in twips
-   */
   async getPageRectangles(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: ConversionOptions
@@ -1112,16 +1052,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     const inputPath = `/tmp/rects/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/rects');
+        emFs.mkdir('/tmp/rects');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -1139,25 +1079,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/rects');
+        emFs.rmdir('/tmp/rects');
       } catch {
         // Ignore
       }
     }
   }
 
-  /**
-   * Get spreadsheet data area (last used row/column)
-   * @param input Document data
-   * @param options Conversion options with inputFormat
-   * @param sheetIndex Sheet index (0-based)
-   * @returns Object with col and row counts
-   */
   async getSpreadsheetDataArea(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: ConversionOptions,
@@ -1181,16 +1114,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     const inputPath = `/tmp/dataarea/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/dataarea');
+        emFs.mkdir('/tmp/dataarea');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -1207,26 +1140,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/dataarea');
+        emFs.rmdir('/tmp/dataarea');
       } catch {
         // Ignore
       }
     }
   }
 
-  /**
-   * Execute a UNO command on a document
-   * @param input Document data
-   * @param options Conversion options with inputFormat
-   * @param command UNO command (e.g., '.uno:SelectAll')
-   * @param args JSON arguments string
-   * @returns Command result (if any)
-   */
   async executeUnoCommand(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: ConversionOptions,
@@ -1251,16 +1176,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     const inputPath = `/tmp/uno/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/uno');
+        emFs.mkdir('/tmp/uno');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -1277,12 +1202,12 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/uno');
+        emFs.rmdir('/tmp/uno');
       } catch {
         // Ignore
       }
@@ -1293,15 +1218,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   // ILibreOfficeConverter Interface Methods
   // ============================================
 
-  /**
-   * Render a single page as an image
-   * @param input Document data
-   * @param options Options with inputFormat
-   * @param pageIndex Zero-based page index to render
-   * @param width Target width for rendered page
-   * @param height Optional target height (0 = auto based on aspect ratio)
-   * @returns Page preview with RGBA data
-   */
   async renderPage(
     input: Uint8Array | ArrayBuffer | Buffer,
     options: InputFormatOptions,
@@ -1320,16 +1236,16 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const inputFormat = (options.inputFormat || 'docx').toLowerCase();
 
     const inputPath = `/tmp/renderpage/doc.${inputFormat}`;
-    const fs = this.module.FS;
+    const emFs = this.module.FS;
 
     try {
       try {
-        fs.mkdir('/tmp/renderpage');
+        emFs.mkdir('/tmp/renderpage');
       } catch {
         // Directory might exist
       }
 
-      fs.writeFile(inputPath, data);
+      emFs.writeFile(inputPath, data);
       const docPtr = this.lokBindings.documentLoad(inputPath);
 
       if (docPtr === 0) {
@@ -1352,24 +1268,18 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     } finally {
       try {
-        fs.unlink(inputPath);
+        emFs.unlink(inputPath);
       } catch {
         // Ignore
       }
       try {
-        fs.rmdir('/tmp/renderpage');
+        emFs.rmdir('/tmp/renderpage');
       } catch {
         // Ignore
       }
     }
   }
 
-  /**
-   * Open a document for editing
-   * Note: This low-level converter does not support persistent editor sessions.
-   * Use WorkerConverter or WorkerBrowserConverter for editor operations.
-   * @throws ConversionError Always throws - editor sessions not supported
-   */
   openDocument(
     _input: Uint8Array | ArrayBuffer,
     _options: InputFormatOptions
@@ -1380,11 +1290,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     ));
   }
 
-  /**
-   * Execute an editor operation on an open document
-   * Note: This low-level converter does not support editor operations.
-   * @throws ConversionError Always throws - editor operations not supported
-   */
   editorOperation<T = unknown>(
     _sessionId: string,
     _method: string,
@@ -1396,11 +1301,6 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     ));
   }
 
-  /**
-   * Close an editor session
-   * Note: This low-level converter does not support editor sessions.
-   * @throws ConversionError Always throws - editor sessions not supported
-   */
   closeDocument(_sessionId: string): Promise<Uint8Array | undefined> {
     return Promise.reject(new ConversionError(
       ConversionErrorCode.CONVERSION_FAILED,
@@ -1408,18 +1308,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     ));
   }
 
-  /**
-   * Get LOK bindings for advanced operations
-   * Use with caution - this exposes low-level API
-   * @returns LOK bindings instance or null
-   */
   getLokBindings(): typeof this.lokBindings {
     return this.lokBindings;
   }
 
-  /**
-   * Destroy the LibreOffice instance and free resources
-   */
   destroy(): Promise<void> {
     if (this.lokBindings) {
       try {
@@ -1430,19 +1322,20 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       this.lokBindings = null;
     }
 
-    // Terminate Emscripten pthread workers
+    // Terminate Emscripten pthread workers to allow process to exit
     if (this.module) {
       try {
         const mod = this.module as EmscriptenModuleWithPThread;
 
-        // Try to terminate all pthread workers
         if (mod.PThread?.terminateAllThreads) {
           mod.PThread.terminateAllThreads();
         }
 
-        // Terminate any running workers
         if (mod.PThread?.runningWorkers) {
           for (const worker of mod.PThread.runningWorkers) {
+            if (worker?.unref) {
+              worker.unref();
+            }
             if (worker?.terminate) {
               worker.terminate();
             }
@@ -1450,9 +1343,11 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
           mod.PThread.runningWorkers = [];
         }
 
-        // Also check unusedWorkers
         if (mod.PThread?.unusedWorkers) {
           for (const worker of mod.PThread.unusedWorkers) {
+            if (worker?.unref) {
+              worker.unref();
+            }
             if (worker?.terminate) {
               worker.terminate();
             }
@@ -1464,62 +1359,58 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     }
 
+    // In Node.js, unref any remaining handles to allow process exit
+    if (typeof process !== 'undefined') {
+      try {
+        const proc = process as unknown as ProcessWithHandles;
+        if (proc._getActiveHandles) {
+          const handles = proc._getActiveHandles();
+          for (const handle of handles) {
+            if (handle?.unref) {
+              const name = handle.constructor?.name ?? '';
+              if (name === 'MessagePort' || (name === 'Socket' && !handle.remoteAddress)) {
+                handle.unref();
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
     this.module = null;
     this.initialized = false;
     return Promise.resolve();
   }
 
-  /**
-   * Check if the converter is ready
-   */
   isReady(): boolean {
     return this.initialized;
   }
 
-  /**
-   * Get the Emscripten module for advanced operations
-   * This is useful for direct filesystem or module access
-   */
   getModule(): EmscriptenModule | null {
     return this.module;
   }
 
-  /**
-   * Get supported input formats
-   */
   static getSupportedInputFormats(): string[] {
     return Object.keys(EXTENSION_TO_FORMAT);
   }
 
-  /**
-   * Get supported output formats
-   */
   static getSupportedOutputFormats(): OutputFormat[] {
     return Object.keys(FORMAT_FILTERS) as OutputFormat[];
   }
 
-  /**
-   * Get valid output formats for a given input format
-   * @param inputFormat The input document format (e.g., 'pdf', 'docx', 'xlsx')
-   * @returns Array of valid output formats for this input
-   */
   static getValidOutputFormats(inputFormat: string): OutputFormat[] {
     return getValidOutputFormats(inputFormat as InputFormat);
   }
 
-  /**
-   * Check if a conversion from input format to output format is supported
-   * @param inputFormat The input document format
-   * @param outputFormat The desired output format
-   * @returns true if the conversion is supported
-   */
   static isConversionSupported(inputFormat: string, outputFormat: string): boolean {
     return isConversionValid(inputFormat, outputFormat);
   }
 
-  // ============================================================
+  // ============================================
   // Private helper methods
-  // ============================================================
+  // ============================================
 
   private normalizeInput(input: Uint8Array | ArrayBuffer | Buffer): Uint8Array {
     if (input instanceof Uint8Array) {
