@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.4.0...v1.5.0) (2025-12-11)
+
+
+### Features
+
+* add edit mode and full quality rendering options to types ([f8cd819](https://github.com/matbeedotcom/libreoffice-document-converter/commit/f8cd819f18f844365b177e492c2855c70f3110b9))
+
 # [1.4.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.3.5...v1.4.0) (2025-12-10)
 
 
