@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.8.0...v1.9.0) (2025-12-12)
+
+
+### Features
+
+* remove stress test script from examples ([7556f56](https://github.com/matbeedotcom/libreoffice-document-converter/commit/7556f56c7139c0cc882c7e6b7c8de32cd7204663))
+
 # [1.8.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.7.0...v1.8.0) (2025-12-12)
 
 
