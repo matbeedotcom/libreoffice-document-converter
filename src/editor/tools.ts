@@ -892,21 +892,24 @@ export function getToolsForDocumentType(docType: 'writer' | 'calc' | 'impress' |
 }
 
 /**
- * Check if Zod v4's toJSONSchema is available
- */
-const hasToJSONSchema = typeof (z as unknown as { toJSONSchema?: unknown }).toJSONSchema === 'function';
-
-/**
  * Convert a Zod schema to JSON Schema format using Zod v4's native support.
  * Falls back to a minimal schema if Zod v4 is not available.
+ *
+ * Uses dynamic property access to prevent bundlers (webpack, etc.) from
+ * failing static analysis when toJSONSchema doesn't exist in Zod v3.
  */
 function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
-  if (!hasToJSONSchema) {
+  // Use dynamic property access to avoid bundler static analysis errors
+  const zodModule = z as unknown as Record<string, unknown>;
+  const toJSONSchemaFn = zodModule['toJSONSchema'];
+
+  if (typeof toJSONSchemaFn !== 'function') {
     // Fallback for Zod v3: return a minimal schema
     // Users on Zod v3 won't get full JSON Schema conversion but the library won't crash
     return { type: 'object' };
   }
-  const jsonSchema = (z as unknown as { toJSONSchema: (s: z.ZodTypeAny, opts: { target: string }) => Record<string, unknown> }).toJSONSchema(schema, { target: 'draft-7' });
+
+  const jsonSchema = (toJSONSchemaFn as (s: z.ZodTypeAny, opts: { target: string }) => Record<string, unknown>)(schema, { target: 'draft-7' });
   // Remove the $schema property as it's not needed for LLM tools
   const { $schema: _schema, ...rest } = jsonSchema;
   return rest;
