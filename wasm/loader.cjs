@@ -16,6 +16,28 @@
 const fs = require('fs');
 const path = require('path');
 const { Worker: NodeWorker } = require('worker_threads');
+const zlib = require('zlib');
+
+/**
+ * Check if data starts with gzip magic bytes (0x1f 0x8b)
+ * @param {Buffer|Uint8Array} data - Data to check
+ * @returns {boolean} - True if data is gzipped
+ */
+function isGzipped(data) {
+  return data && data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
+/**
+ * Decompress data if it's gzipped, otherwise return as-is
+ * @param {Buffer|Uint8Array} data - Data to potentially decompress
+ * @returns {Buffer} - Decompressed or original data
+ */
+function decompressIfGzipped(data) {
+  if (isGzipped(data)) {
+    return zlib.gunzipSync(data);
+  }
+  return data;
+}
 
 const wasmDir = __dirname;
 
@@ -359,4 +381,7 @@ module.exports = {
   clearCache,
   getFileSizes,
   wasmDir,
+  // New exports for gzip support
+  isGzipped,
+  decompressIfGzipped,
 };
