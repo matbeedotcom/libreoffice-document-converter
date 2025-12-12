@@ -53,9 +53,8 @@
     "wasm/loader.cjs",
     "wasm/soffice.cjs",
     "wasm/soffice.js",
-    "wasm/soffice.data",
-    "wasm/soffice.data.js.metadata",
-    "wasm/soffice.wasm",
+    "wasm/soffice.data.gz",
+    "wasm/soffice.wasm.gz",
     "wasm/soffice.worker.cjs",
     "wasm/soffice.worker.js",
     "README.md"
