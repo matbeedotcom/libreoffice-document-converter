@@ -306,13 +306,15 @@ export const DEFAULT_WASM_BASE_URL = '/wasm/';
  * Create WASM file paths from a base URL
  * Convenience helper for users who keep all WASM files in one directory
  *
- * Note: WASM files are shipped as .gz compressed files by default.
- * Your server must serve these with Content-Encoding: gzip header,
- * or configure your CDN to handle gzip decompression transparently.
+ * Note: For browser deployments, you have two options for the large WASM files:
+ * 1. Serve uncompressed files and let your server/CDN handle gzip via Content-Encoding
+ * 2. Pre-decompress the .gz files during your build process (recommended for serverless)
+ *
+ * The Node.js loader automatically handles both .gz and uncompressed files.
  *
  * @param baseUrl - Base URL ending with '/' (e.g., '/wasm/', 'https://cdn.example.com/wasm/')
  *                  Defaults to '/wasm/' for same-origin hosting
- * @returns Object with all WASM file paths (pointing to .gz files)
+ * @returns Object with all WASM file paths
  *
  * @example
  * ```typescript
@@ -334,8 +336,8 @@ export function createWasmPaths(baseUrl: string = DEFAULT_WASM_BASE_URL): Browse
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   return {
     sofficeJs: `${base}soffice.js`,
-    sofficeWasm: `${base}soffice.wasm.gz`,
-    sofficeData: `${base}soffice.data.gz`,
+    sofficeWasm: `${base}soffice.wasm`,
+    sofficeData: `${base}soffice.data`,
     sofficeWorkerJs: `${base}soffice.worker.js`,
   };
 }
