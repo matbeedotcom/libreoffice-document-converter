@@ -908,7 +908,7 @@ function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   }
   const jsonSchema = (z as unknown as { toJSONSchema: (s: z.ZodTypeAny, opts: { target: string }) => Record<string, unknown> }).toJSONSchema(schema, { target: 'draft-7' });
   // Remove the $schema property as it's not needed for LLM tools
-  const { $schema: _schema, ...rest } = jsonSchema as Record<string, unknown>;
+  const { $schema: _schema, ...rest } = jsonSchema;
   return rest;
 }
 
