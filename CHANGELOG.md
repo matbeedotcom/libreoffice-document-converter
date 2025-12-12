@@ -1,3 +1,11 @@
+# [1.8.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.7.0...v1.8.0) (2025-12-12)
+
+
+### Features
+
+* add gzip compression for WASM files and update loader to support .gz files ([1573d21](https://github.com/matbeedotcom/libreoffice-document-converter/commit/1573d21e17f8b419a29fd1b7a29c82bf39e7eb8f))
+* add gzip detection and decompression helpers to loader ([71d9d52](https://github.com/matbeedotcom/libreoffice-document-converter/commit/71d9d52ef34d48c5d03232a2dbdd20366ba10105))
+
 # [1.7.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.6.0...v1.7.0) (2025-12-11)
 
 
