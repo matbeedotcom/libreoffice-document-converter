@@ -1,3 +1,15 @@
+# [1.10.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.9.0...v1.10.0) (2025-12-12)
+
+
+### Bug Fixes
+
+* simplify JSON schema conversion by removing unnecessary $schema property ([2de2379](https://github.com/matbeedotcom/libreoffice-document-converter/commit/2de23794bb67a6e99fbc8402430469c1ccc10763))
+
+
+### Features
+
+* update peer dependencies and enhance Zod schema handling ([61c3904](https://github.com/matbeedotcom/libreoffice-document-converter/commit/61c390438c4615aea261eb289857c628aaae282d))
+
 # [1.9.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.8.0...v1.9.0) (2025-12-12)
 
 
