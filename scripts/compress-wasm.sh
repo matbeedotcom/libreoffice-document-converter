@@ -1,64 +1,44 @@
 #!/bin/bash
 # Compress WASM files for deployment
+# Run this after copying uncompressed WASM files to wasm/
+#
+# Usage:
+#   ./scripts/compress-wasm.sh           # Compress files in ./wasm
+#   ./scripts/compress-wasm.sh /path     # Compress files in specified directory
 
-WASM_DIR=${1:-./wasm}
+set -e
 
-echo "=== Compressing WASM files for deployment ==="
-echo ""
+WASM_DIR="${1:-./wasm}"
 
-# Check original sizes
-echo "Original sizes:"
-ls -lh "$WASM_DIR/soffice.wasm" "$WASM_DIR/soffice.data" 2>/dev/null
-echo ""
+echo "Compressing WASM files in ${WASM_DIR}..."
 
-# Brotli (best compression)
-if command -v brotli &> /dev/null; then
-    echo "Creating Brotli compressed files (.br)..."
-    brotli -9 -f "$WASM_DIR/soffice.wasm" -o "$WASM_DIR/soffice.wasm.br"
-    brotli -9 -f "$WASM_DIR/soffice.data" -o "$WASM_DIR/soffice.data.br"
-    brotli -9 -f "$WASM_DIR/soffice.cjs" -o "$WASM_DIR/soffice.cjs.br"
-    echo "✓ Brotli compression complete"
-else
-    echo "⚠ brotli not installed - skipping (install with: apt install brotli)"
+cd "${WASM_DIR}"
+
+if [ -f "soffice.wasm" ] && [ ! -f "soffice.wasm.gz" ]; then
+    echo "Compressing soffice.wasm..."
+    gzip -9 -k soffice.wasm
+    ORIG=$(stat -c %s soffice.wasm 2>/dev/null || stat -f %z soffice.wasm)
+    COMP=$(stat -c %s soffice.wasm.gz 2>/dev/null || stat -f %z soffice.wasm.gz)
+    echo "  Created soffice.wasm.gz ($(numfmt --to=iec $COMP 2>/dev/null || echo "${COMP} bytes"), $(($COMP * 100 / $ORIG))% of original)"
+elif [ -f "soffice.wasm.gz" ]; then
+    echo "soffice.wasm.gz already exists, skipping"
+elif [ ! -f "soffice.wasm" ]; then
+    echo "soffice.wasm not found in ${WASM_DIR}"
 fi
 
-# Gzip (wider compatibility)
-echo "Creating Gzip compressed files (.gz)..."
-gzip -9 -k -f "$WASM_DIR/soffice.wasm"
-gzip -9 -k -f "$WASM_DIR/soffice.data"
-gzip -9 -k -f "$WASM_DIR/soffice.cjs"
-echo "✓ Gzip compression complete"
-
-echo ""
-echo "=== Compressed file sizes ==="
-echo ""
-echo "Brotli (.br) - Best compression:"
-ls -lh "$WASM_DIR"/*.br 2>/dev/null || echo "  (not created)"
-echo ""
-echo "Gzip (.gz) - Wide compatibility:"
-ls -lh "$WASM_DIR"/*.gz 2>/dev/null
-echo ""
-
-# Calculate totals
-if [ -f "$WASM_DIR/soffice.wasm.br" ]; then
-    WASM_BR=$(stat -c%s "$WASM_DIR/soffice.wasm.br")
-    DATA_BR=$(stat -c%s "$WASM_DIR/soffice.data.br")
-    TOTAL_BR=$((WASM_BR + DATA_BR))
-    echo "Total with Brotli: $(numfmt --to=iec $TOTAL_BR)"
+if [ -f "soffice.data" ] && [ ! -f "soffice.data.gz" ]; then
+    echo "Compressing soffice.data..."
+    gzip -9 -k soffice.data
+    ORIG=$(stat -c %s soffice.data 2>/dev/null || stat -f %z soffice.data)
+    COMP=$(stat -c %s soffice.data.gz 2>/dev/null || stat -f %z soffice.data.gz)
+    echo "  Created soffice.data.gz ($(numfmt --to=iec $COMP 2>/dev/null || echo "${COMP} bytes"), $(($COMP * 100 / $ORIG))% of original)"
+elif [ -f "soffice.data.gz" ]; then
+    echo "soffice.data.gz already exists, skipping"
+elif [ ! -f "soffice.data" ]; then
+    echo "soffice.data not found in ${WASM_DIR}"
 fi
 
-WASM_GZ=$(stat -c%s "$WASM_DIR/soffice.wasm.gz")
-DATA_GZ=$(stat -c%s "$WASM_DIR/soffice.data.gz")
-TOTAL_GZ=$((WASM_GZ + DATA_GZ))
-echo "Total with Gzip: $(numfmt --to=iec $TOTAL_GZ)"
-
+echo "Done!"
 echo ""
-echo "=== Server Configuration ==="
-echo ""
-echo "For Nginx, add to your config:"
-echo '  gzip_static on;'
-echo '  brotli_static on;  # if using ngx_brotli module'
-echo ""
-echo "For Express.js:"
-echo '  npm install compression shrink-ray-current'
-echo '  app.use(require("shrink-ray-current")());'
+echo "Files in ${WASM_DIR}:"
+ls -lh *.wasm* *.data* 2>/dev/null || echo "No WASM files found"

@@ -98,21 +98,36 @@ const origReadFile = fs.readFile.bind(fs);
 fs.readFile = function(filePath, optionsOrCallback, maybeCallback) {
   const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
   const options = typeof optionsOrCallback === 'function' ? undefined : optionsOrCallback;
-  
+
   const filename = path.basename(filePath);
-  
+
   // Emit progress for large files
-  if (filename === 'soffice.data') {
+  if (filename === 'soffice.data' || filename === 'soffice.data.gz') {
     emitProgress('loading_data', 20, 'Loading LibreOffice data files...');
   }
-  
+
   try {
-    const data = fs.readFileSync(filePath, options);
-    
-    if (filename === 'soffice.data') {
+    // Try .gz version first if file doesn't exist
+    let actualPath = filePath;
+    if (!fs.existsSync(filePath) && !filePath.endsWith('.gz')) {
+      const gzPath = filePath + '.gz';
+      if (fs.existsSync(gzPath)) {
+        actualPath = gzPath;
+      }
+    }
+
+    let data = fs.readFileSync(actualPath, options);
+
+    // Decompress if gzipped (and no encoding specified - binary mode)
+    if (!options && isGzipped(data)) {
+      emitProgress('loading_data', 25, 'Decompressing data file...');
+      data = decompressIfGzipped(data);
+    }
+
+    if (filename === 'soffice.data' || filename === 'soffice.data.gz') {
       emitProgress('loading_data', 35, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB filesystem image`);
     }
-    
+
     callback(null, data);
   } catch (err) {
     callback(err);
@@ -145,16 +160,32 @@ class NodeXMLHttpRequest {
 
   send() {
     const filename = path.basename(this._url);
-    
+
     try {
       // Emit progress before loading large files
-      if (filename === 'soffice.data') {
+      if (filename === 'soffice.data' || filename === 'soffice.data.gz') {
         emitProgress('loading_data', 20, 'Loading LibreOffice filesystem image...');
       } else if (filename.endsWith('.metadata')) {
         emitProgress('loading_metadata', 15, 'Loading filesystem metadata...');
       }
-      
-      const data = fs.readFileSync(this._url);
+
+      // Try .gz version first if requesting uncompressed file
+      let filePath = this._url;
+      if (!fs.existsSync(filePath) && !filePath.endsWith('.gz')) {
+        const gzPath = filePath + '.gz';
+        if (fs.existsSync(gzPath)) {
+          filePath = gzPath;
+        }
+      }
+
+      let data = fs.readFileSync(filePath);
+
+      // Decompress if gzipped
+      if (isGzipped(data)) {
+        emitProgress('loading_data', 25, 'Decompressing filesystem image...');
+        data = decompressIfGzipped(data);
+      }
+
       this.status = 200;
       this.statusText = 'OK';
       this.readyState = 4;
@@ -167,7 +198,7 @@ class NodeXMLHttpRequest {
       }
 
       // Emit progress after loading
-      if (filename === 'soffice.data') {
+      if (filename === 'soffice.data' || filename === 'soffice.data.gz') {
         emitProgress('loading_data', 38, `Loaded ${(data.length / 1024 / 1024).toFixed(0)}MB filesystem`);
       }
 
@@ -210,14 +241,24 @@ function createModule(config = {}) {
         wasmBinary = cachedWasmBinary;
       } else {
         emitProgress('loading_wasm', 2, 'Loading WebAssembly binary...');
-        
+
+        // Try .gz file first, then fall back to uncompressed
+        const wasmGzPath = path.join(wasmDir, 'soffice.wasm.gz');
         const wasmPath = path.join(wasmDir, 'soffice.wasm');
-        const wasmData = fs.readFileSync(wasmPath);
+
+        let wasmData;
+        if (fs.existsSync(wasmGzPath)) {
+          emitProgress('loading_wasm', 5, 'Decompressing WebAssembly binary...');
+          wasmData = decompressIfGzipped(fs.readFileSync(wasmGzPath));
+        } else {
+          wasmData = decompressIfGzipped(fs.readFileSync(wasmPath));
+        }
+
         wasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
-        
+
         // Cache for future use
         cachedWasmBinary = wasmBinary;
-        
+
         emitProgress('loading_wasm', 12, `Loaded ${(wasmData.length / 1024 / 1024).toFixed(0)}MB WebAssembly binary`);
       }
     }
@@ -232,9 +273,21 @@ function createModule(config = {}) {
       // Note: ENV is set up by Emscripten's preRun, our preRun runs after
       preRun: [],
       
-      // Locate files using absolute paths
+      // Locate files using absolute paths, preferring .gz versions
       locateFile: (filename) => {
         const resolved = path.join(wasmDir, filename);
+
+        // Check if .gz version exists (for soffice.data mainly)
+        if (!fs.existsSync(resolved)) {
+          const gzResolved = resolved + '.gz';
+          if (fs.existsSync(gzResolved)) {
+            if (config.verbose) {
+              console.log('[WASM] locateFile:', filename, '->', gzResolved, '(compressed)');
+            }
+            return gzResolved;
+          }
+        }
+
         if (config.verbose) {
           console.log('[WASM] locateFile:', filename, '->', resolved);
         }
@@ -313,16 +366,26 @@ function createModuleSync(config = {}) {
 /**
  * Pre-load the WASM binary into memory (call early for faster init later)
  * This allows you to start loading while doing other work.
- * 
- * @returns {Buffer} The WASM binary
+ * Automatically handles gzipped files (.gz extension or gzip magic bytes)
+ *
+ * @returns {ArrayBuffer} The WASM binary (decompressed if needed)
  */
 function preloadWasmBinary() {
   if (cachedWasmBinary) {
     return cachedWasmBinary;
   }
-  
+
+  // Try .gz file first, then fall back to uncompressed
+  const wasmGzPath = path.join(wasmDir, 'soffice.wasm.gz');
   const wasmPath = path.join(wasmDir, 'soffice.wasm');
-  const wasmData = fs.readFileSync(wasmPath);
+
+  let wasmData;
+  if (fs.existsSync(wasmGzPath)) {
+    wasmData = decompressIfGzipped(fs.readFileSync(wasmGzPath));
+  } else {
+    wasmData = decompressIfGzipped(fs.readFileSync(wasmPath));
+  }
+
   cachedWasmBinary = wasmData.buffer.slice(wasmData.byteOffset, wasmData.byteOffset + wasmData.byteLength);
   return cachedWasmBinary;
 }
@@ -360,14 +423,22 @@ function clearCache() {
 
 /**
  * Get file sizes for progress estimation
+ * Reports actual file sizes (compressed if .gz files are present)
  */
 function getFileSizes() {
+  // Check for .gz versions first
+  const wasmGzPath = path.join(wasmDir, 'soffice.wasm.gz');
   const wasmPath = path.join(wasmDir, 'soffice.wasm');
+  const dataGzPath = path.join(wasmDir, 'soffice.data.gz');
   const dataPath = path.join(wasmDir, 'soffice.data');
-  
+
+  const wasmFile = fs.existsSync(wasmGzPath) ? wasmGzPath : wasmPath;
+  const dataFile = fs.existsSync(dataGzPath) ? dataGzPath : dataPath;
+
   return {
-    wasm: fs.existsSync(wasmPath) ? fs.statSync(wasmPath).size : 0,
-    data: fs.existsSync(dataPath) ? fs.statSync(dataPath).size : 0,
+    wasm: fs.existsSync(wasmFile) ? fs.statSync(wasmFile).size : 0,
+    data: fs.existsSync(dataFile) ? fs.statSync(dataFile).size : 0,
+    compressed: fs.existsSync(wasmGzPath) || fs.existsSync(dataGzPath),
     get total() { return this.wasm + this.data; },
   };
 }

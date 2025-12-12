@@ -405,30 +405,38 @@ if [ -f "soffice.worker.cjs" ]; then
 fi
 log_success "Created browser copies (soffice.js, soffice.worker.js)"
 
+# 5. Compress WASM files with gzip for smaller deployments
+log_info "Compressing WASM files with gzip..."
+
+if [ -f "soffice.wasm" ]; then
+    gzip -9 -k soffice.wasm
+    ORIG_SIZE=$(stat -c %s soffice.wasm)
+    COMP_SIZE=$(stat -c %s soffice.wasm.gz)
+    log_success "Created soffice.wasm.gz ($(numfmt --to=iec $COMP_SIZE), $(($COMP_SIZE * 100 / $ORIG_SIZE))% of original)"
+    rm soffice.wasm
+    log_info "Removed uncompressed soffice.wasm"
+fi
+
+if [ -f "soffice.data" ]; then
+    gzip -9 -k soffice.data
+    ORIG_SIZE=$(stat -c %s soffice.data)
+    COMP_SIZE=$(stat -c %s soffice.data.gz)
+    log_success "Created soffice.data.gz ($(numfmt --to=iec $COMP_SIZE), $(($COMP_SIZE * 100 / $ORIG_SIZE))% of original)"
+    rm soffice.data
+    log_info "Removed uncompressed soffice.data"
+fi
+
 cd "${LO_DIR}"
 
 # Calculate sizes
 echo ""
 echo "=============================================="
-echo "  Build Complete!"  
+echo "  Build Complete!"
 echo "=============================================="
 echo ""
 echo "Output files in ${OUTPUT_DIR}:"
+ls -lh "${OUTPUT_DIR}"/*.wasm.gz "${OUTPUT_DIR}"/*.js "${OUTPUT_DIR}"/*.data.gz 2>/dev/null || \
 ls -lh "${OUTPUT_DIR}"/*.wasm "${OUTPUT_DIR}"/*.js "${OUTPUT_DIR}"/*.data 2>/dev/null || true
-
-# Show compressed sizes
-if command -v gzip &> /dev/null; then
-    echo ""
-    echo "Compressed sizes (gzip -9):"
-    for f in "${OUTPUT_DIR}"/*.wasm "${OUTPUT_DIR}"/*.data; do
-        if [ -f "$f" ]; then
-            COMPRESSED=$(gzip -9 -c "$f" | wc -c)
-            ORIGINAL=$(stat -c %s "$f")
-            RATIO=$((COMPRESSED * 100 / ORIGINAL))
-            echo "  $(basename $f): $(numfmt --to=iec $COMPRESSED) (${RATIO}% of original)"
-        fi
-    done
-fi
 
 echo ""
 log_success "LibreOffice WASM build complete!"

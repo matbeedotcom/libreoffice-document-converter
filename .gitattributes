@@ -1,2 +1,5 @@
 wasm/*.wasm filter=lfs diff=lfs merge=lfs -text
 wasm/*.data filter=lfs diff=lfs merge=lfs -text
+*.was.gz filter=lfs diff=lfs merge=lfs -text
+*.wasm.gz filter=lfs diff=lfs merge=lfs -text
+*.data.gz filter=lfs diff=lfs merge=lfs -text
