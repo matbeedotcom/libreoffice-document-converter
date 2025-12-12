@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.1...v1.10.2) (2025-12-12)
+
+
+### Bug Fixes
+
+* update WASM file handling in createWasmPaths function ([71e50ba](https://github.com/matbeedotcom/libreoffice-document-converter/commit/71e50bac8d75fd1f5f068cbc69fb7cbccb708de3))
+
 ## [1.10.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.0...v1.10.1) (2025-12-12)
 
 
