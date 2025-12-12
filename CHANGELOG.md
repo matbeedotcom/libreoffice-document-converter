@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.0...v1.10.1) (2025-12-12)
+
+
+### Bug Fixes
+
+* add workflow_dispatch trigger to publish workflow ([422b292](https://github.com/matbeedotcom/libreoffice-document-converter/commit/422b292532d3b5f11690621dac8f3833630d48a5))
+* enhance Zod schema conversion with dynamic property access ([47c0663](https://github.com/matbeedotcom/libreoffice-document-converter/commit/47c0663122f5b435b07bd654ba5839c471f77648))
+
 # [1.10.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.9.0...v1.10.0) (2025-12-12)
 
 
