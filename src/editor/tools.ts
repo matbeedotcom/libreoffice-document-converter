@@ -892,10 +892,21 @@ export function getToolsForDocumentType(docType: 'writer' | 'calc' | 'impress' |
 }
 
 /**
- * Convert a Zod schema to JSON Schema format using Zod v4's native support
+ * Check if Zod v4's toJSONSchema is available
+ */
+const hasToJSONSchema = typeof (z as unknown as { toJSONSchema?: unknown }).toJSONSchema === 'function';
+
+/**
+ * Convert a Zod schema to JSON Schema format using Zod v4's native support.
+ * Falls back to a minimal schema if Zod v4 is not available.
  */
 function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
-  const jsonSchema = z.toJSONSchema(schema, { target: 'draft-7' });
+  if (!hasToJSONSchema) {
+    // Fallback for Zod v3: return a minimal schema
+    // Users on Zod v3 won't get full JSON Schema conversion but the library won't crash
+    return { type: 'object' };
+  }
+  const jsonSchema = (z as unknown as { toJSONSchema: (s: z.ZodTypeAny, opts: { target: string }) => Record<string, unknown> }).toJSONSchema(schema, { target: 'draft-7' });
   // Remove the $schema property as it's not needed for LLM tools
   const { $schema: _schema, ...rest } = jsonSchema as Record<string, unknown>;
   return rest;

@@ -106,10 +106,13 @@
   },
   "peerDependencies": {
     "sharp": ">=0.32.0",
-    "zod": "^4.1.13"
+    "zod": ">=3.0.0"
   },
   "peerDependenciesMeta": {
     "sharp": {
+      "optional": true
+    },
+    "zod": {
       "optional": true
     }
   },
