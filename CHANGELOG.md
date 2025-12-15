@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.14.0...v1.15.0) (2025-12-15)
+
+
+### Features
+
+* enhance publish workflow with release type input ([3cc62ee](https://github.com/matbeedotcom/libreoffice-document-converter/commit/3cc62ee3fce83ff74cb228aecd1cc236a884aa01))
+
 # [1.14.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.13.0...v1.14.0) (2025-12-15)
 
 
