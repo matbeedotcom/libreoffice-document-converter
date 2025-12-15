@@ -1,3 +1,18 @@
+# [2.0.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.20.0...v2.0.0) (2025-12-15)
+
+
+* feat!: force major release [workflow_dispatch] ([156e79f](https://github.com/matbeedotcom/libreoffice-document-converter/commit/156e79f4328ad966cf7dcfdb5856fa35e0a5e893))
+
+
+### Bug Fixes
+
+* update package.json to include import paths for WASM loaders ([1ae8e83](https://github.com/matbeedotcom/libreoffice-document-converter/commit/1ae8e833ff49577469991f36cc8eb75e453a0ecf))
+
+
+### BREAKING CHANGES
+
+* Manual major release triggered via workflow_dispatch
+
 # [1.20.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.19.0...v1.20.0) (2025-12-15)
 
 
