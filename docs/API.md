@@ -138,12 +138,58 @@ await converter.destroy();
 
 ---
 
+#### `createSubprocessConverter(options?)`
+
+Creates a converter that runs in a separate Node.js process. **Recommended for serverless environments** like Vercel, AWS Lambda, etc. Provides memory isolation and better timeout handling.
+
+```typescript
+import { createSubprocessConverter } from '@matbee/libreoffice-converter';
+
+const converter = await createSubprocessConverter({
+  wasmPath: './wasm',
+  userProfilePath: '/tmp/libreoffice-user',  // Required for serverless
+  prewarm: true,    // Pre-warm font cache during init (recommended for serverless)
+  verbose: false,
+});
+
+// Same API as other converters
+const result = await converter.convert(docxBuffer, { outputFormat: 'pdf' });
+await converter.destroy();
+```
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `wasmPath` | `string` | `'./wasm'` | Path to WASM files directory |
+| `userProfilePath` | `string` | - | Writable path for LibreOffice config (use `/tmp` on serverless) |
+| `prewarm` | `boolean` | `false` | Pre-warm font cache during init (avoids 30s delay on first conversion) |
+| `skipPreload` | `boolean` | `false` | Skip LibreOffice preload for faster init |
+| `conversionTimeout` | `number` | `60000` | Timeout in ms for conversions (subprocess killed on timeout) |
+| `maxInitRetries` | `number` | `3` | Retries for initialization failures |
+| `maxConversionRetries` | `number` | `2` | Retries for conversion failures |
+| `restartOnMemoryError` | `boolean` | `true` | Auto-restart subprocess on WASM memory errors |
+| `verbose` | `boolean` | `false` | Enable debug logging |
+
+**Additional Methods:**
+
+```typescript
+// Manual pre-warm (if not using prewarm option)
+await converter.prewarm();
+
+// Check if ready
+converter.isReady(); // boolean
+```
+
+---
+
 ### Converter Comparison
 
 | Converter | Thread | Memory | Use Case |
 |-----------|--------|--------|----------|
 | `createConverter()` | Main | Shared | Simple scripts |
 | `createWorkerConverter()` | Worker | Shared | **Servers (recommended)** |
+| `createSubprocessConverter()` | Process | Isolated | **Serverless (Vercel, Lambda)** |
 
 ---
 

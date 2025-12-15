@@ -13,6 +13,11 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Worker } from 'worker_threads';
 
+// atob polyfill for Node.js < 16
+if (typeof globalThis.atob !== 'function') {
+  globalThis.atob = (data: string) => Buffer.from(data, 'base64').toString('binary');
+}
+
 const wasmPath = process.env.WASM_PATH || './wasm';
 const verbose = process.env.VERBOSE === 'true';
 const userProfilePath = process.env.USER_PROFILE_PATH || undefined;
@@ -537,8 +542,12 @@ async function handleDestroy(): Promise<void> {
 /**
  * Handle init message - initialize the converter
  */
-async function handleInit(): Promise<void> {
+async function handleInit(prewarm = false): Promise<void> {
   if (converter?.isReady()) {
+    // If already initialized but prewarm requested, do prewarm
+    if (prewarm) {
+      await doPrewarm();
+    }
     return;
   }
 
@@ -553,6 +562,98 @@ async function handleInit(): Promise<void> {
   log('Initializing converter...');
   await converter.initialize();
   log('Converter initialized successfully');
+
+  // Pre-warm font cache by loading a minimal document
+  // This triggers fontconfig to scan all fonts during initialization
+  // rather than during the first conversion (which may have a shorter timeout)
+  if (prewarm) {
+    await doPrewarm();
+  }
+}
+
+/**
+ * Pre-warm the converter by loading a minimal document
+ * This triggers font scanning which can be slow on first load
+ */
+async function doPrewarm(): Promise<void> {
+  if (!converter?.isReady()) {
+    log('Cannot prewarm: converter not ready');
+    return;
+  }
+
+  log('Pre-warming font cache...');
+  const startTime = Date.now();
+
+  const module = converter.getModule();
+  const lokBindings = converter.getLokBindings();
+
+  if (!module || !lokBindings) {
+    log('Cannot prewarm: module or lokBindings not available');
+    return;
+  }
+
+  // Create a minimal ODT document (smallest valid document format)
+  // This is a minimal valid ODT that LibreOffice can parse
+  const minimalOdt = createMinimalOdt();
+
+  const prewarmPath = '/tmp/prewarm.odt';
+  try {
+    // Write minimal document
+    module.FS.writeFile(prewarmPath, minimalOdt);
+
+    // Load document - this triggers font scanning
+    const docPtr = lokBindings.documentLoad(prewarmPath);
+    if (docPtr !== 0) {
+      // Clean up
+      lokBindings.documentDestroy(docPtr);
+      log(`Font cache pre-warmed in ${Date.now() - startTime}ms`);
+    } else {
+      log('Prewarm document load failed (this is often OK)');
+    }
+  } catch (e) {
+    // Font scanning still happens even if document load fails
+    log(`Prewarm completed with error (fonts still scanned): ${(e as Error).message}`);
+  } finally {
+    try {
+      module.FS.unlink(prewarmPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Create a minimal ODT document for pre-warming
+ * ODT is a ZIP containing XML files - this is the smallest valid structure
+ */
+function createMinimalOdt(): Uint8Array {
+  // Pre-computed minimal ODT file (ZIP with mimetype, content.xml, META-INF/manifest.xml)
+  // This was generated from a minimal LibreOffice Writer document
+  // Base64-encoded to avoid binary issues in source code
+  const minimalOdtBase64 = 
+    'UEsDBBQAAAAIAAAAAACKIYEgHwAAAB0AAAAIAAAAbWltZXR5cGVhcHBsaWNhdGlvbi92bmQu' +
+    'b2FzaXMub3BlbmRvY3VtZW50LnRleHRQSwMEFAAAAAAAAAAAgAAAAAAAAAAAAAAAABIAAABN' +
+    'RVRBLUlORi9tYW5pZmVzdC54bWyNzk0KwCAMBOC9p5Dc3578Iz2BV+kZxKiVgKaNevxq6aKb' +
+    'Lob5mOz05N5KJEsIKzTJLhqRIXJl0AqpB+IRcqtdSXx0o/qg5N1C5Y+xX+wF5j0xeXrM8gJQ' +
+    'SwMEFAAAAAgAAAAAAKwVJJY8AAAAQQAAAAsAAABjb250ZW50LnhtbE2OSw6AIAwA956C9AZi' +
+    'Nxj3PoD7hxKkRvpCAer1BRN1N5OZbPakYMNQpRz7gZ7GUvZk5Vz8pLIZ7tDkfELV8j9BRLWD' +
+    'VAcwz6O3FaJ2LxBQSwECPwAUAAAACAAAAAAAgAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAA' +
+    'AAAG1pbWV0eXBlUEsBAj8AFAAAAAAAAACAAAAAAAAAAAAAAAAAAAASAAAAAAAAAAAAEAAA' +
+    'AABNRVRBLUlORi9tYW5pZmVzdC54bWxQSwECPwAUAAAACAAAAAAArBUkljwAAABBAAAACwAA' +
+    'AAAAAAAAAAAAAACOAAAAAAAAAAAAEAAAAABjb250ZW50LnhtbFBLBQYAAAAAAwADAK0AAACP' +
+    'AAAAAAA=';
+
+  // Decode base64
+  const binaryString = atob(minimalOdtBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+interface InitPayload {
+  prewarm?: boolean;
 }
 
 // Handle incoming messages
@@ -562,7 +663,11 @@ process.on('message', async (msg: WorkerMessage) => {
 
     switch (msg.type) {
       case 'init':
-        await handleInit();
+        await handleInit((msg.payload as InitPayload)?.prewarm ?? false);
+        break;
+
+      case 'prewarm':
+        await doPrewarm();
         break;
 
       case 'convert':

@@ -51,6 +51,20 @@ interface SubprocessConverterOptions extends LibreOfficeWasmOptions {
   restartOnMemoryError?: boolean;
   /** Timeout for conversion operations in ms (default: 60000). When exceeded, subprocess is killed. */
   conversionTimeout?: number;
+  /**
+   * Pre-warm font cache during initialization by loading a minimal document.
+   * This triggers fontconfig to scan all fonts during init (which has a longer timeout)
+   * rather than during the first conversion.
+   * Recommended for serverless environments like Vercel. (default: false)
+   */
+  prewarm?: boolean;
+  /**
+   * Skip LibreOffice preload operations for faster initialization.
+   * This sets LOK_SKIP_PRELOAD=1 environment variable.
+   * May reduce functionality but speeds up cold starts.
+   * (default: false)
+   */
+  skipPreload?: boolean;
 }
 
 export class SubprocessConverter implements ILibreOfficeConverter {
@@ -107,6 +121,8 @@ export class SubprocessConverter implements ILibreOfficeConverter {
         WASM_PATH: wasmPath,
         VERBOSE: String(this.options.verbose || false),
         ...(this.options.userProfilePath ? { USER_PROFILE_PATH: this.options.userProfilePath } : {}),
+        // Skip LibreOffice preload for faster init (conversion-only use case)
+        ...(this.options.skipPreload ? { LOK_SKIP_PRELOAD: '1' } : {}),
       },
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       serialization: 'advanced', // Use V8 serialization for efficient Buffer/Uint8Array transfer
@@ -150,7 +166,10 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     });
 
     // Now send init message to start WASM loading
-    await this.send('init', undefined, 180000); // 3 minute timeout for WASM init
+    // If prewarm is enabled, font scanning will happen during init (longer timeout)
+    // rather than during first conversion (shorter timeout)
+    const initPayload = this.options.prewarm ? { prewarm: true } : undefined;
+    await this.send('init', initPayload, 30000); // 30 second timeout for WASM init (includes prewarm if enabled)
   }
 
   private killWorker(): void {
@@ -567,6 +586,26 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     }
 
     return this.send('listDirectory', { path }) as Promise<string[]>;
+  }
+
+  /**
+   * Pre-warm the font cache by loading a minimal document.
+   * This triggers fontconfig to scan all fonts, which can be slow on first load.
+   * Call this after initialize() if you didn't use the prewarm option during construction.
+   * 
+   * Recommended for serverless environments like Vercel where conversion timeout
+   * may be shorter than initialization timeout.
+   */
+  async prewarm(): Promise<void> {
+    if (!this.initialized || !this.child) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    // 60 second timeout for prewarm (font scanning can take 10-30 seconds)
+    await this.send('prewarm', undefined, 60000);
   }
 
   async destroy(): Promise<void> {
