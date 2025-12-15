@@ -30,10 +30,12 @@
       "default": "./dist/types-entry.js"
     },
     "./wasm/loader": {
+      "import": "./wasm/loader.cjs",
       "require": "./wasm/loader.cjs",
       "default": "./wasm/loader.cjs"
     },
     "./wasm/loader-isolated": {
+      "import": "./wasm/loader-isolated.cjs",
       "require": "./wasm/loader-isolated.cjs",
       "default": "./wasm/loader-isolated.cjs"
     },
