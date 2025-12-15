@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.16.0...v1.17.0) (2025-12-15)
+
+
+### Features
+
+* add subprocess converter for serverless environments ([8d12f19](https://github.com/matbeedotcom/libreoffice-document-converter/commit/8d12f19342bd1a0cc8578341abfea5565724067a))
+
 # [1.16.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.15.0...v1.16.0) (2025-12-15)
 
 
