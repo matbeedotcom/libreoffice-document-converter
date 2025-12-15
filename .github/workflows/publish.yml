@@ -28,6 +28,12 @@ jobs:
           persist-credentials: false
           lfs: true
 
+      - name: Pull latest main (for manual triggers)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
