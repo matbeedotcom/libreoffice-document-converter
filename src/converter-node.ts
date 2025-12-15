@@ -300,6 +300,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       const emFs = this.module.FS as typeof this.module.FS & {
         trackingDelegate?: Record<string, unknown>;
         open: (...args: unknown[]) => unknown;
+        writeFile: (path: string, data: unknown, opts?: unknown) => void;
+        readFile: (path: string, opts?: unknown) => unknown;
+        mkdir: (path: string, mode?: number) => void;
+        unlink: (path: string) => void;
       };
 
       if (!this.fsTracked) {
@@ -316,10 +320,11 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
           };
         }
 
+        // Hook FS.open
         if (typeof emFs.open === 'function') {
           const originalOpen = emFs.open.bind(emFs);
           emFs.open = ((filePath: string, flags?: unknown, mode?: unknown) => {
-            console.log('[FS OPEN CALL]', filePath);
+            console.log('[FS OPEN]', filePath, 'flags:', flags);
             try {
               return originalOpen(filePath, flags as never, mode as never);
             } catch (err) {
@@ -330,6 +335,48 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
               throw err;
             }
           }) as typeof emFs.open;
+        }
+
+        // Hook FS.writeFile
+        if (typeof emFs.writeFile === 'function') {
+          const originalWriteFile = emFs.writeFile.bind(emFs);
+          emFs.writeFile = ((path: string, data: unknown, opts?: unknown) => {
+            const size = data instanceof Uint8Array ? data.length :
+                        typeof data === 'string' ? data.length : 'unknown';
+            console.log('[FS WRITE]', path, 'size:', size);
+            return originalWriteFile(path, data, opts);
+          }) as typeof emFs.writeFile;
+        }
+
+        // Hook FS.readFile
+        if (typeof emFs.readFile === 'function') {
+          const originalReadFile = emFs.readFile.bind(emFs);
+          emFs.readFile = ((path: string, opts?: unknown) => {
+            console.log('[FS READ]', path);
+            const result = originalReadFile(path, opts);
+            const size = result instanceof Uint8Array ? result.length :
+                        typeof result === 'string' ? result.length : 'unknown';
+            console.log('[FS READ DONE]', path, 'size:', size);
+            return result;
+          }) as typeof emFs.readFile;
+        }
+
+        // Hook FS.mkdir
+        if (typeof emFs.mkdir === 'function') {
+          const originalMkdir = emFs.mkdir.bind(emFs);
+          emFs.mkdir = ((path: string, mode?: number) => {
+            console.log('[FS MKDIR]', path);
+            return originalMkdir(path, mode);
+          }) as typeof emFs.mkdir;
+        }
+
+        // Hook FS.unlink
+        if (typeof emFs.unlink === 'function') {
+          const originalUnlink = emFs.unlink.bind(emFs);
+          emFs.unlink = ((path: string) => {
+            console.log('[FS UNLINK]', path);
+            return originalUnlink(path);
+          }) as typeof emFs.unlink;
         }
       }
 
@@ -357,10 +404,49 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     try {
       // Create user profile directory if specified (for serverless environments)
       if (this.options.userProfilePath && this.module.FS) {
+        if (this.options.verbose) {
+          console.log('[LOK] Creating user profile directory:', this.options.userProfilePath);
+        }
         try {
           this.module.FS.mkdir(this.options.userProfilePath);
+          if (this.options.verbose) {
+            console.log('[LOK] Created:', this.options.userProfilePath);
+          }
         } catch {
           // Directory may already exist
+          if (this.options.verbose) {
+            console.log('[LOK] Directory already exists:', this.options.userProfilePath);
+          }
+        }
+        // LibreOffice expects a 'user' subdirectory for config writes
+        const userDir = `${this.options.userProfilePath}/user`;
+        try {
+          this.module.FS.mkdir(userDir);
+          if (this.options.verbose) {
+            console.log('[LOK] Created:', userDir);
+          }
+        } catch {
+          // Directory may already exist
+          if (this.options.verbose) {
+            console.log('[LOK] Directory already exists:', userDir);
+          }
+        }
+
+        // Create empty registrymodifications.xcu - LibreOffice needs this file to exist
+        // to avoid stalling when trying to read/write user configuration
+        const registryModificationsPath = `${userDir}/registrymodifications.xcu`;
+        const emptyRegistryXml = `<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+</oor:items>`;
+        try {
+          this.module.FS.writeFile(registryModificationsPath, emptyRegistryXml);
+          if (this.options.verbose) {
+            console.log('[LOK] Created:', registryModificationsPath);
+          }
+        } catch (e) {
+          if (this.options.verbose) {
+            console.log('[LOK] Failed to create registrymodifications.xcu:', e);
+          }
         }
       }
 

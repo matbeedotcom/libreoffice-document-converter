@@ -374,6 +374,12 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
         } catch {
           // Directory may already exist
         }
+        // LibreOffice expects a 'user' subdirectory for config writes
+        try {
+          this.module.FS.mkdir(`${this.options.userProfilePath}/user`);
+        } catch {
+          // Directory may already exist
+        }
       }
 
       // Initialize LibreOfficeKit through the bindings

@@ -851,9 +851,16 @@ describe('SubprocessConverter', () => {
         expect(converter.isReady()).toBe(true);
 
         // Verify the custom user profile directory was created in /tmp
-        // (LibreOffice creates the directory but may not write files on first init)
         const tmpContents = await converter.listDirectory('/tmp');
         expect(tmpContents).toContain('libreoffice-test-profile');
+
+        // Verify the user subdirectory was created
+        const profileContents = await converter.listDirectory(customProfilePath);
+        expect(profileContents).toContain('user');
+
+        // Verify registrymodifications.xcu was created (critical for Vercel)
+        const userContents = await converter.listDirectory(`${customProfilePath}/user`);
+        expect(userContents).toContain('registrymodifications.xcu');
 
         // Verify conversion works with custom profile path
         if (fs.existsSync(testDocxPath)) {
