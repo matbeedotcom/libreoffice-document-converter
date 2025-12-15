@@ -49,6 +49,8 @@ interface SubprocessConverterOptions extends LibreOfficeWasmOptions {
   maxConversionRetries?: number;
   /** Whether to restart subprocess on memory errors (default: true) */
   restartOnMemoryError?: boolean;
+  /** Timeout for conversion operations in ms (default: 60000). When exceeded, subprocess is killed. */
+  conversionTimeout?: number;
 }
 
 export class SubprocessConverter implements ILibreOfficeConverter {
@@ -66,6 +68,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
       maxInitRetries: 3,
       maxConversionRetries: 2,
       restartOnMemoryError: true,
+      conversionTimeout: 60000,
       ...options
     };
   }
@@ -101,6 +104,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     this.child = fork(this.workerPath, [], {
       env: { ...process.env, WASM_PATH: wasmPath, VERBOSE: String(this.options.verbose || false) },
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      serialization: 'advanced', // Use V8 serialization for efficient Buffer/Uint8Array transfer
     });
 
     this.child.stdout?.on('data', (d: Buffer) => { if (this.options.verbose) process.stdout.write(d); });
@@ -192,7 +196,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     throw err;
   }
 
-  private send(type: string, payload?: unknown, timeout: number = 300000): Promise<unknown> {
+  private send(type: string, payload?: unknown, timeout: number = 300000, killOnTimeout: boolean = false): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.child) { reject(new ConversionError(ConversionErrorCode.WASM_NOT_INITIALIZED, 'No process')); return; }
       const id = randomUUID();
@@ -201,7 +205,14 @@ export class SubprocessConverter implements ILibreOfficeConverter {
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          reject(new ConversionError(ConversionErrorCode.CONVERSION_FAILED, 'Timeout'));
+          if (killOnTimeout) {
+            // Kill the subprocess since it's likely locked in WASM execution
+            if (this.options.verbose) {
+              console.error('[SubprocessConverter] Timeout exceeded, killing subprocess...');
+            }
+            this.killWorker();
+          }
+          reject(new ConversionError(ConversionErrorCode.CONVERSION_FAILED, killOnTimeout ? 'Timeout - subprocess killed' : 'Timeout'));
         }
       }, timeout);
     });
@@ -236,18 +247,20 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     const maxRetries = this.options.maxConversionRetries || 2;
     let lastError: Error | null = null;
 
+    const conversionTimeout = this.options.conversionTimeout || 60000;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const r = await this.send('convert', {
-          inputData: Array.from(data),
+          inputData: data,
           inputExt: ext,
           outputFormat: OUTPUT_FORMAT_TO_LOK[options.outputFormat],
           filterOptions: filter
-        }) as number[];
+        }, conversionTimeout, true) as Uint8Array;
 
         const base = filename.includes('.') ? filename.slice(0, filename.lastIndexOf('.')) : filename;
         return {
-          data: new Uint8Array(r),
+          data: r,
           mimeType: FORMAT_MIME_TYPES[options.outputFormat],
           filename: `${base}.${options.outputFormat}`,
           duration: Date.now() - start
@@ -259,11 +272,15 @@ export class SubprocessConverter implements ILibreOfficeConverter {
           console.error(`[SubprocessConverter] Conversion attempt ${attempt}/${maxRetries} failed:`, lastError.message);
         }
 
-        // If it's a memory error and we should restart, do so
-        if (this.isMemoryError(lastError) && this.options.restartOnMemoryError && attempt < maxRetries) {
+        const isTimeout = lastError.message.includes('Timeout');
+        const isMemory = this.isMemoryError(lastError);
+
+        // If it's a timeout or memory error and we have retries left, respawn subprocess
+        if ((isTimeout || (isMemory && this.options.restartOnMemoryError)) && attempt < maxRetries) {
           if (this.options.verbose) {
-            console.error('[SubprocessConverter] Memory error detected, restarting subprocess...');
+            console.error(`[SubprocessConverter] ${isTimeout ? 'Timeout' : 'Memory error'} detected, respawning subprocess...`);
           }
+          // killWorker already called by send() on timeout, but call again to be safe
           await this.killWorker();
           await this.spawnWorker();
           this.initialized = true;
@@ -293,7 +310,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     return this.send('getPageCount', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat
     }) as Promise<number>;
   }
@@ -314,7 +331,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     return this.send('getDocumentInfo', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat
     }) as Promise<DocumentInfo>;
   }
@@ -338,16 +355,16 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     const result = await this.send('renderPage', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat,
       pageIndex,
       width,
       height,
-    }) as { data: number[]; width: number; height: number };
+    }) as { data: Uint8Array; width: number; height: number };
 
     return {
       page: pageIndex,
-      data: new Uint8Array(result.data),
+      data: result.data,
       width: result.width,
       height: result.height,
     };
@@ -370,16 +387,16 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     const result = await this.send('renderPagePreviews', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat,
       width: renderOptions.width || 800,
       height: renderOptions.height || 0,
       pageIndices: renderOptions.pageIndices,
-    }) as Array<{ page: number; data: number[]; width: number; height: number }>;
+    }) as Array<{ page: number; data: Uint8Array; width: number; height: number }>;
 
     return result.map((preview) => ({
       page: preview.page,
-      data: new Uint8Array(preview.data),
+      data: preview.data,
       width: preview.width,
       height: preview.height,
     }));
@@ -408,17 +425,17 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     const result = await this.send('renderPageFullQuality', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat,
       pageIndex,
       dpi: renderOptions.dpi ?? 150,
       maxDimension: renderOptions.maxDimension,
       editMode: renderOptions.editMode ?? false,
-    }) as { page: number; data: number[]; width: number; height: number; dpi: number };
+    }) as { page: number; data: Uint8Array; width: number; height: number; dpi: number };
 
     return {
       page: result.page,
-      data: new Uint8Array(result.data),
+      data: result.data,
       width: result.width,
       height: result.height,
       dpi: result.dpi,
@@ -441,7 +458,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     return this.send('getDocumentText', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat
     }) as Promise<string | null>;
   }
@@ -462,7 +479,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     return this.send('getPageNames', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat
     }) as Promise<string[]>;
   }
@@ -488,7 +505,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const inputData = this.normalizeInput(input);
     return this.send('openDocument', {
-      inputData: Array.from(inputData),
+      inputData,
       inputFormat: options.inputFormat
     }) as Promise<EditorSession>;
   }
@@ -527,8 +544,8 @@ export class SubprocessConverter implements ILibreOfficeConverter {
       );
     }
 
-    const result = await this.send('closeDocument', { sessionId }) as number[] | undefined;
-    return result ? new Uint8Array(result) : undefined;
+    const result = await this.send('closeDocument', { sessionId }) as Uint8Array | undefined;
+    return result;
   }
 
   async destroy(): Promise<void> {

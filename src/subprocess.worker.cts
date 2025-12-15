@@ -99,20 +99,21 @@ function getRecentOutput(): string {
 }
 
 // Message payload types
+// With serialization: 'advanced', Uint8Array is transferred efficiently via V8 serialization
 interface ConvertPayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputExt: string;
   outputFormat: string;
   filterOptions: string;
 }
 
 interface DocumentPayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputFormat: string;
 }
 
 interface RenderPagePayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputFormat: string;
   pageIndex: number;
   width: number;
@@ -120,7 +121,7 @@ interface RenderPagePayload {
 }
 
 interface RenderPagePreviewsPayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputFormat: string;
   width: number;
   height?: number;
@@ -128,7 +129,7 @@ interface RenderPagePreviewsPayload {
 }
 
 interface RenderPageFullQualityPayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputFormat: string;
   pageIndex: number;
   dpi: number;
@@ -137,7 +138,7 @@ interface RenderPageFullQualityPayload {
 }
 
 interface OpenDocumentPayload {
-  inputData: number[];
+  inputData: Uint8Array;
   inputFormat: string;
 }
 
@@ -160,14 +161,13 @@ interface WorkerMessage {
 /**
  * Handle convert request
  */
-async function handleConvert(payload: ConvertPayload): Promise<number[]> {
+async function handleConvert(payload: ConvertPayload): Promise<Uint8Array> {
   if (!converter?.isReady()) {
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
   const result = await converter.convert(
-    inputData,
+    payload.inputData,
     {
       inputFormat: payload.inputExt,
       outputFormat: payload.outputFormat,
@@ -175,7 +175,7 @@ async function handleConvert(payload: ConvertPayload): Promise<number[]> {
     'document'
   );
 
-  return Array.from(result.data);
+  return result.data;
 }
 
 /**
@@ -186,8 +186,7 @@ async function handleGetPageCount(payload: DocumentPayload): Promise<number> {
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
-  return converter.getPageCount(inputData, {
+  return converter.getPageCount(payload.inputData, {
     inputFormat: payload.inputFormat,
     outputFormat: 'pdf',
   } as ConversionOptions);
@@ -201,8 +200,7 @@ async function handleGetDocumentInfo(payload: DocumentPayload): Promise<unknown>
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
-  return converter.getDocumentInfo(inputData, {
+  return converter.getDocumentInfo(payload.inputData, {
     inputFormat: payload.inputFormat,
     outputFormat: 'pdf',
   } as ConversionOptions);
@@ -212,7 +210,7 @@ async function handleGetDocumentInfo(payload: DocumentPayload): Promise<unknown>
  * Handle renderPage request
  */
 async function handleRenderPage(payload: RenderPagePayload): Promise<{
-  data: number[];
+  data: Uint8Array;
   width: number;
   height: number;
 }> {
@@ -220,9 +218,8 @@ async function handleRenderPage(payload: RenderPagePayload): Promise<{
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
   const previews = await converter.renderPagePreviews(
-    inputData,
+    payload.inputData,
     { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
     {
       width: payload.width,
@@ -237,7 +234,7 @@ async function handleRenderPage(payload: RenderPagePayload): Promise<{
 
   const preview = previews[0]!;
   return {
-    data: Array.from(preview.data),
+    data: preview.data,
     width: preview.width,
     height: preview.height,
   };
@@ -248,7 +245,7 @@ async function handleRenderPage(payload: RenderPagePayload): Promise<{
  */
 async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Promise<Array<{
   page: number;
-  data: number[];
+  data: Uint8Array;
   width: number;
   height: number;
 }>> {
@@ -256,9 +253,8 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
   const previews = await converter.renderPagePreviews(
-    inputData,
+    payload.inputData,
     { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
     {
       width: payload.width,
@@ -269,7 +265,7 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
 
   return previews.map((preview: { page: number; data: Uint8Array; width: number; height: number }) => ({
     page: preview.page,
-    data: Array.from(preview.data),
+    data: preview.data,
     width: preview.width,
     height: preview.height,
   }));
@@ -280,7 +276,7 @@ async function handleRenderPagePreviews(payload: RenderPagePreviewsPayload): Pro
  */
 async function handleRenderPageFullQuality(payload: RenderPageFullQualityPayload): Promise<{
   page: number;
-  data: number[];
+  data: Uint8Array;
   width: number;
   height: number;
   dpi: number;
@@ -289,9 +285,8 @@ async function handleRenderPageFullQuality(payload: RenderPageFullQualityPayload
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
   const preview = await converter.renderPageFullQuality(
-    inputData,
+    payload.inputData,
     { inputFormat: payload.inputFormat as InputFormatOptions['inputFormat'] },
     payload.pageIndex,
     {
@@ -303,7 +298,7 @@ async function handleRenderPageFullQuality(payload: RenderPageFullQualityPayload
 
   return {
     page: preview.page,
-    data: Array.from(preview.data),
+    data: preview.data,
     width: preview.width,
     height: preview.height,
     dpi: preview.dpi,
@@ -318,8 +313,7 @@ async function handleGetDocumentText(payload: DocumentPayload): Promise<string |
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
-  return converter.getDocumentText(inputData, {
+  return converter.getDocumentText(payload.inputData, {
     inputFormat: payload.inputFormat,
     outputFormat: 'pdf',
   } as ConversionOptions);
@@ -333,8 +327,7 @@ async function handleGetPageNames(payload: DocumentPayload): Promise<string[]> {
     throw new Error('Worker not initialized');
   }
 
-  const inputData = new Uint8Array(payload.inputData);
-  return converter.getPageNames(inputData, {
+  return converter.getPageNames(payload.inputData, {
     inputFormat: payload.inputFormat,
     outputFormat: 'pdf',
   } as ConversionOptions);
@@ -364,8 +357,7 @@ async function handleOpenDocument(payload: OpenDocumentPayload): Promise<{
   const filePath = `/tmp/edit_${sessionId}.${payload.inputFormat}`;
 
   // Write file to virtual FS
-  const inputData = new Uint8Array(payload.inputData);
-  module.FS.writeFile(filePath, inputData);
+  module.FS.writeFile(filePath, payload.inputData);
 
   // Load document
   const docPtr = lokBindings.documentLoad(filePath);
@@ -450,7 +442,7 @@ async function handleEditorOperation(payload: EditorOperationPayload): Promise<O
 /**
  * Handle closeDocument request
  */
-async function handleCloseDocument(payload: CloseDocumentPayload): Promise<number[] | undefined> {
+async function handleCloseDocument(payload: CloseDocumentPayload): Promise<Uint8Array | undefined> {
   const session = editorSessions.get(payload.sessionId);
   if (!session) {
     throw new Error(`Session not found: ${payload.sessionId}`);
@@ -461,14 +453,13 @@ async function handleCloseDocument(payload: CloseDocumentPayload): Promise<numbe
   const { docPtr, filePath } = session;
 
   // Get the modified document data before closing
-  let modifiedData: number[] | undefined;
+  let modifiedData: Uint8Array | undefined;
   if (module && lokBindings) {
     try {
       // Save to original path first
       const ext = filePath.split('.').pop() || 'docx';
       lokBindings.documentSaveAs(docPtr, filePath, ext, '');
-      const data = module.FS.readFile(filePath) as Uint8Array;
-      modifiedData = Array.from(data);
+      modifiedData = module.FS.readFile(filePath) as Uint8Array;
     } catch (e) {
       console.warn('[Worker] Could not save document:', e);
     }
