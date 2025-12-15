@@ -177,6 +177,14 @@ export interface LibreOfficeWasmOptions {
   wasmPath?: string;
 
   /**
+   * Path to writable user profile directory in the virtual filesystem.
+   * On serverless environments (Vercel, AWS Lambda), set this to '/tmp/libreoffice-profile'
+   * to avoid write failures on the read-only /instdir filesystem.
+   * @default undefined (uses default location in /instdir)
+   */
+  userProfilePath?: string;
+
+  /**
    * Path to the worker script (for WorkerConverter)
    * When not specified, auto-detected based on module location
    */

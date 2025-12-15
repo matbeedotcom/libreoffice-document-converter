@@ -367,8 +367,17 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     this.lokBindings = new LOKBindings(this.module, this.options.verbose);
 
     try {
+      // Create user profile directory if specified (for serverless environments)
+      if (this.options.userProfilePath && this.module.FS) {
+        try {
+          this.module.FS.mkdir(this.options.userProfilePath);
+        } catch {
+          // Directory may already exist
+        }
+      }
+
       // Initialize LibreOfficeKit through the bindings
-      this.lokBindings.initialize('/instdir/program');
+      this.lokBindings.initialize('/instdir/program', this.options.userProfilePath);
 
       if (this.options.verbose) {
         const versionInfo = this.lokBindings.getVersionInfo();

@@ -102,7 +102,12 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     const wasmPath = resolve(this.options.wasmPath || './wasm');
 
     this.child = fork(this.workerPath, [], {
-      env: { ...process.env, WASM_PATH: wasmPath, VERBOSE: String(this.options.verbose || false) },
+      env: {
+        ...process.env,
+        WASM_PATH: wasmPath,
+        VERBOSE: String(this.options.verbose || false),
+        ...(this.options.userProfilePath ? { USER_PROFILE_PATH: this.options.userProfilePath } : {}),
+      },
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       serialization: 'advanced', // Use V8 serialization for efficient Buffer/Uint8Array transfer
     });
@@ -546,6 +551,22 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
     const result = await this.send('closeDocument', { sessionId }) as Uint8Array | undefined;
     return result;
+  }
+
+  /**
+   * List files in a directory on the virtual filesystem (for testing/debugging)
+   * @param path - Path to directory in the WASM virtual filesystem
+   * @returns Array of filenames in the directory, or empty array if directory doesn't exist
+   */
+  async listDirectory(path: string): Promise<string[]> {
+    if (!this.initialized || !this.child) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Converter not initialized. Call initialize() first.'
+      );
+    }
+
+    return this.send('listDirectory', { path }) as Promise<string[]>;
   }
 
   async destroy(): Promise<void> {

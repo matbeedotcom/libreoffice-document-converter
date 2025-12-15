@@ -304,22 +304,36 @@ export class LOKBindings {
 
   /**
    * Initialize LibreOfficeKit
+   * @param installPath - Path to LibreOffice installation (default: /instdir/program)
+   * @param userProfilePath - Path to writable user profile directory (default: null, uses install path).
+   *                          On serverless environments like Vercel, set this to a /tmp path.
    */
-  initialize(installPath: string = '/instdir/program'): void {
-    this.log('Initializing with path:', installPath);
+  initialize(installPath: string = '/instdir/program', userProfilePath?: string): void {
+    this.log('Initializing with path:', installPath, userProfilePath ? `(user profile: ${userProfilePath})` : '');
     const pathPtr = this.allocString(installPath);
+    let userProfilePtr = 0;
 
     try {
+      // Try hook_2 first if userProfilePath is provided (allows custom user profile location)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      const hook2 = (this.module as any)._libreofficekit_hook_2 as
+        | ((pathPtr: number, userProfilePtr: number) => number)
+        | undefined;
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       const hook = (this.module as any)._libreofficekit_hook as
         | ((pathPtr: number) => number)
         | undefined;
 
-      if (typeof hook !== 'function') {
+      if (userProfilePath && typeof hook2 === 'function') {
+        userProfilePtr = this.allocString(userProfilePath);
+        this.log('Using libreofficekit_hook_2 with custom user profile');
+        this.lokPtr = hook2(pathPtr, userProfilePtr);
+      } else if (typeof hook === 'function') {
+        this.lokPtr = hook(pathPtr);
+      } else {
         throw new Error('libreofficekit_hook export not found on module');
       }
-
-      this.lokPtr = hook(pathPtr);
 
       if (this.lokPtr === 0) {
         throw new Error('Failed to initialize LibreOfficeKit');
@@ -328,6 +342,9 @@ export class LOKBindings {
       this.log('LOK initialized, ptr:', this.lokPtr);
     } finally {
       this.module._free(pathPtr);
+      if (userProfilePtr !== 0) {
+        this.module._free(userProfilePtr);
+      }
     }
   }
 

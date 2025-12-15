@@ -15,6 +15,7 @@ import { Worker } from 'worker_threads';
 
 const wasmPath = process.env.WASM_PATH || './wasm';
 const verbose = process.env.VERBOSE === 'true';
+const userProfilePath = process.env.USER_PROFILE_PATH || undefined;
 const wasmDir = path.resolve(wasmPath);
 
 // Change to wasm directory for soffice.data path resolution
@@ -480,6 +481,33 @@ async function handleCloseDocument(payload: CloseDocumentPayload): Promise<Uint8
   return modifiedData;
 }
 
+interface ListDirectoryPayload {
+  path: string;
+}
+
+/**
+ * Handle listDirectory request - list files in virtual filesystem directory
+ */
+function handleListDirectory(payload: ListDirectoryPayload): string[] {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+
+  const module = converter.getModule();
+  if (!module?.FS) {
+    throw new Error('Module FS not available');
+  }
+
+  try {
+    const entries = module.FS.readdir(payload.path) as string[];
+    // Filter out . and ..
+    return entries.filter((e: string) => e !== '.' && e !== '..');
+  } catch (e) {
+    // Directory doesn't exist or can't be read
+    return [];
+  }
+}
+
 /**
  * Handle destroy request
  */
@@ -519,6 +547,7 @@ async function handleInit(): Promise<void> {
     wasmPath: wasmDir,
     verbose,
     wasmLoader,
+    userProfilePath,
   });
 
   log('Initializing converter...');
@@ -578,6 +607,10 @@ process.on('message', async (msg: WorkerMessage) => {
 
       case 'closeDocument':
         result = await handleCloseDocument(msg.payload as CloseDocumentPayload);
+        break;
+
+      case 'listDirectory':
+        result = handleListDirectory(msg.payload as ListDirectoryPayload);
         break;
 
       case 'destroy':

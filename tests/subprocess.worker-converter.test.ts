@@ -817,4 +817,112 @@ describe('SubprocessConverter', () => {
       }, 180000);
     });
   });
+
+  // userProfilePath tests (requires WASM build)
+  describe('userProfilePath option (requires WASM build)', () => {
+    let testDocxPath: string;
+
+    beforeAll(() => {
+      testDocxPath = path.resolve(__dirname, 'sample_2_page.docx');
+    });
+
+    it('should accept userProfilePath option', () => {
+      const converter = new SubprocessConverter({
+        wasmPath: './wasm',
+        userProfilePath: '/tmp/test-user-profile',
+      });
+      expect(converter).toBeInstanceOf(SubprocessConverter);
+    });
+
+    it('should initialize and convert with custom userProfilePath', async () => {
+      // This test verifies that the userProfilePath option works correctly.
+      // On serverless environments like Vercel, /instdir is read-only,
+      // so LibreOffice needs a custom user profile path to write its config.
+      const customProfilePath = '/tmp/libreoffice-test-profile';
+
+      const converter = new SubprocessConverter({
+        wasmPath: './wasm',
+        userProfilePath: customProfilePath,
+        verbose: false,
+      });
+
+      try {
+        await converter.initialize();
+        expect(converter.isReady()).toBe(true);
+
+        // Verify the custom user profile directory was created in /tmp
+        // (LibreOffice creates the directory but may not write files on first init)
+        const tmpContents = await converter.listDirectory('/tmp');
+        expect(tmpContents).toContain('libreoffice-test-profile');
+
+        // Verify conversion works with custom profile path
+        if (fs.existsSync(testDocxPath)) {
+          const docxData = fs.readFileSync(testDocxPath);
+          const result = await converter.convert(
+            docxData,
+            { inputFormat: 'docx', outputFormat: 'pdf' },
+            'test.docx'
+          );
+
+          expect(result.data).toBeInstanceOf(Uint8Array);
+          expect(result.data.length).toBeGreaterThan(0);
+          expect(result.mimeType).toBe('application/pdf');
+        }
+      } finally {
+        await converter.destroy();
+      }
+    }, 180000);
+
+    it('should work with different userProfilePath values', async () => {
+      // Test that multiple converters can use different profile paths
+      const profilePath1 = '/tmp/lo-profile-test-1';
+      const profilePath2 = '/tmp/lo-profile-test-2';
+
+      const converter1 = new SubprocessConverter({
+        wasmPath: './wasm',
+        userProfilePath: profilePath1,
+        verbose: false,
+      });
+
+      try {
+        await converter1.initialize();
+        expect(converter1.isReady()).toBe(true);
+
+        // Create second converter with different profile path
+        const converter2 = new SubprocessConverter({
+          wasmPath: './wasm',
+          userProfilePath: profilePath2,
+          verbose: false,
+        });
+
+        try {
+          await converter2.initialize();
+          expect(converter2.isReady()).toBe(true);
+
+          // Both should be able to convert
+          if (fs.existsSync(testDocxPath)) {
+            const docxData = fs.readFileSync(testDocxPath);
+
+            const result1 = await converter1.convert(
+              docxData,
+              { inputFormat: 'docx', outputFormat: 'pdf' },
+              'test1.docx'
+            );
+            expect(result1.data).toBeInstanceOf(Uint8Array);
+
+            const result2 = await converter2.convert(
+              docxData,
+              { inputFormat: 'docx', outputFormat: 'pdf' },
+              'test2.docx'
+            );
+            expect(result2.data).toBeInstanceOf(Uint8Array);
+          }
+        } finally {
+          await converter2.destroy();
+        }
+      } finally {
+        await converter1.destroy();
+      }
+    }, 360000); // Extended timeout for two converter initializations
+  });
 });
