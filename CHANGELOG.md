@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.13.0...v1.14.0) (2025-12-15)
+
+
+### Features
+
+* refactor user profile directory creation for LibreOffice ([959a03f](https://github.com/matbeedotcom/libreoffice-document-converter/commit/959a03f0b055f3e969aca71a90f46ddd94d7826e))
+
 # [1.13.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.12.0...v1.13.0) (2025-12-15)
 
 
