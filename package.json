@@ -33,6 +33,10 @@
       "require": "./wasm/loader.cjs",
       "default": "./wasm/loader.cjs"
     },
+    "./wasm/loader-isolated": {
+      "require": "./wasm/loader-isolated.cjs",
+      "default": "./wasm/loader-isolated.cjs"
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -51,6 +55,7 @@
   "files": [
     "dist",
     "wasm/loader.cjs",
+    "wasm/loader-isolated.cjs",
     "wasm/soffice.cjs",
     "wasm/soffice.js",
     "wasm/soffice.data.gz",
