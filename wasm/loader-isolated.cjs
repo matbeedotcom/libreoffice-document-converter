@@ -62,6 +62,11 @@ let cachedWasmBinary = null;
 // Track active modules for debugging
 let activeModuleCount = 0;
 
+// Mutex to prevent concurrent createModule calls from interfering
+// Since they share global.Module, only one can run at a time
+let createModuleLock = Promise.resolve();
+let lockQueue = 0;
+
 /**
  * Clear the require cache for soffice.cjs to force fresh module load
  */
@@ -210,10 +215,11 @@ function createPatchedReadFile(emitProgress) {
  * Create and initialize an isolated LibreOffice WASM module
  *
  * Each call creates a fresh module by:
- * 1. Clearing the soffice.cjs require cache
- * 2. Setting up a new Module object on global (required by Emscripten)
- * 3. Loading the module fresh
- * 4. Returning the module (caller should store this reference)
+ * 1. Waiting for any in-progress module creation to complete (mutex)
+ * 2. Clearing the soffice.cjs require cache
+ * 3. Setting up a new Module object on global (required by Emscripten)
+ * 4. Loading the module fresh
+ * 5. Returning the module (caller should store this reference)
  *
  * @param {Object} config - Configuration options
  * @param {Function} config.onProgress - Progress callback (phase, percent, message)
@@ -221,7 +227,11 @@ function createPatchedReadFile(emitProgress) {
  * @returns {Promise<Object>} - The initialized Emscripten module
  */
 function createModule(config = {}) {
-  return new Promise((resolve, reject) => {
+  // Use mutex to prevent concurrent createModule calls from interfering
+  // Since they all use global.Module, only one can initialize at a time
+  const queuePosition = ++lockQueue;
+
+  const doCreateModule = () => new Promise((resolve, reject) => {
     let lastProgress = 0;
 
     const emitProgress = (phase, percent, message) => {
@@ -321,32 +331,51 @@ function createModule(config = {}) {
           console.log(`[WASM-${moduleId}] Runtime initialized`);
         }
 
-        // Restore original cwd
-        if (changedDir) {
-          try {
-            process.chdir(origCwd);
-          } catch {}
-        }
+        // Wait for module to be fully ready (all run dependencies resolved)
+        // This prevents "malloc called before runtime initialization" errors
+        const waitForReady = () => {
+          const mod = global.Module;
 
-        // Restore original fs.readFile
-        fs.readFile = originalReadFile;
+          // Check if module is fully initialized
+          // calledRun means the main() function has been called
+          // monitorRunDependencies with 0 deps means all async loads are done
+          if (mod && mod.calledRun && (!mod.monitorRunDependencies || mod._malloc)) {
+            // Restore original cwd
+            if (changedDir) {
+              try {
+                process.chdir(origCwd);
+              } catch {}
+            }
 
-        // Restore original XMLHttpRequest (or remove if none)
-        if (OriginalXHR) {
-          global.XMLHttpRequest = OriginalXHR;
-        }
+            // Restore original fs.readFile
+            fs.readFile = originalReadFile;
 
-        // Get reference to the module before potentially clearing global
-        const moduleRef = global.Module;
+            // Restore original XMLHttpRequest (or remove if none)
+            if (OriginalXHR) {
+              global.XMLHttpRequest = OriginalXHR;
+            }
 
-        // Call user's callback
-        if (config.onRuntimeInitialized) {
-          config.onRuntimeInitialized();
-        }
+            // Get reference to the module
+            const moduleRef = global.Module;
 
-        // Resolve with the module reference
-        // The caller (converter) should store this and use it directly
-        resolve(moduleRef);
+            // Call user's callback
+            if (config.onRuntimeInitialized) {
+              config.onRuntimeInitialized();
+            }
+
+            // Resolve with the module reference
+            resolve(moduleRef);
+          } else {
+            // Module not fully ready yet, wait a bit
+            if (config.verbose) {
+              console.log(`[WASM-${moduleId}] Waiting for module to be fully ready...`);
+            }
+            setTimeout(waitForReady, 10);
+          }
+        };
+
+        // Start checking for readiness
+        waitForReady();
       },
 
       print: config.print || (() => {}),
@@ -376,6 +405,30 @@ function createModule(config = {}) {
       }
       reject(err);
     }
+  });
+
+  // Chain this module creation after any pending ones complete
+  // This ensures only one module initializes at a time (they share global.Module)
+  if (config.verbose) {
+    console.log(`[WASM] Queue position: ${queuePosition}, waiting for lock...`);
+  }
+
+  const previousLock = createModuleLock;
+  let releaseLock;
+  createModuleLock = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+
+  return previousLock.then(() => {
+    if (config.verbose) {
+      console.log(`[WASM] Queue position: ${queuePosition}, lock acquired`);
+    }
+    return doCreateModule();
+  }).finally(() => {
+    if (config.verbose) {
+      console.log(`[WASM] Queue position: ${queuePosition}, releasing lock`);
+    }
+    releaseLock();
   });
 }
 
