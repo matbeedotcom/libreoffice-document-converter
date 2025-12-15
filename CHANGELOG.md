@@ -1,3 +1,11 @@
+# [1.13.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.12.0...v1.13.0) (2025-12-15)
+
+
+### Features
+
+* enhance file system hooks and user profile setup ([e8bde48](https://github.com/matbeedotcom/libreoffice-document-converter/commit/e8bde48c3c4f42410ea6d22c8400c59fa7d991b7))
+* enhance publish workflow with caching for node_modules and ESLint ([8253cbb](https://github.com/matbeedotcom/libreoffice-document-converter/commit/8253cbbc954cf147d613c5a0171874c91950c989))
+
 # [1.12.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.11.0...v1.12.0) (2025-12-15)
 
 
