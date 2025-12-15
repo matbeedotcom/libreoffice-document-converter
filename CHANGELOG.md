@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.2...v1.11.0) (2025-12-15)
+
+
+### Features
+
+* add conversion timeout and improve error handling ([9aaff68](https://github.com/matbeedotcom/libreoffice-document-converter/commit/9aaff6811d5c76058d236d0ffd29e38ed211ceac))
+
 ## [1.10.2](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.1...v1.10.2) (2025-12-12)
 
 
