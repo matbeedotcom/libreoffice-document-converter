@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.19.0...v1.20.0) (2025-12-15)
+
+
+### Features
+
+* add isolated WASM loader and corresponding tests ([df4a516](https://github.com/matbeedotcom/libreoffice-document-converter/commit/df4a5162f005b2ae640e1c39797c3548e1638f95))
+
 # [1.19.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.18.0...v1.19.0) (2025-12-15)
 
 
