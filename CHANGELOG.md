@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.15.0...v1.16.0) (2025-12-15)
+
+
+### Features
+
+* add verbose logging for filesystem operations in LibreOfficeConverter ([2f657ab](https://github.com/matbeedotcom/libreoffice-document-converter/commit/2f657abbe74232f23059fdfa25bbd7112c9aa1da))
+
 # [1.15.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.14.0...v1.15.0) (2025-12-15)
 
 
