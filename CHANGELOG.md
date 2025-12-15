@@ -1,3 +1,11 @@
+# [1.12.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.11.0...v1.12.0) (2025-12-15)
+
+
+### Features
+
+* add skip_tests input to publish workflow ([0b1df75](https://github.com/matbeedotcom/libreoffice-document-converter/commit/0b1df75927bb10755be1fa028134f8bddd7dc804))
+* add userProfilePath option for serverless environments ([241394e](https://github.com/matbeedotcom/libreoffice-document-converter/commit/241394ec34da808b054cda5776a7c4572d654f83))
+
 # [1.11.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.10.2...v1.11.0) (2025-12-15)
 
 
