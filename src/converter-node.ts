@@ -282,6 +282,37 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     tryMkdir('/tmp');
     tryMkdir('/tmp/input');
     tryMkdir('/tmp/output');
+
+    // Create user profile directory EARLY - before LOK initialization
+    // This is critical because LOK runs on pthreads and may try to read
+    // the registry file asynchronously during initialization
+    if (this.options.userProfilePath) {
+      const userProfilePath = this.options.userProfilePath;
+      if (this.options.verbose) {
+        console.log('[FS] Creating user profile directory early:', userProfilePath);
+      }
+      tryMkdir(userProfilePath);
+
+      const userDir = `${userProfilePath}/user`;
+      tryMkdir(userDir);
+
+      // Create empty registrymodifications.xcu - LibreOffice needs this file to exist
+      // to avoid stalling when trying to read/write user configuration
+      const registryModificationsPath = `${userDir}/registrymodifications.xcu`;
+      const emptyRegistryXml = `<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+</oor:items>`;
+      try {
+        emFs.writeFile(registryModificationsPath, emptyRegistryXml);
+        if (this.options.verbose) {
+          console.log('[FS] Created:', registryModificationsPath);
+        }
+      } catch (e) {
+        if (this.options.verbose) {
+          console.log('[FS] Failed to create registrymodifications.xcu:', e);
+        }
+      }
+    }
   }
 
   /**
@@ -402,54 +433,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     this.lokBindings = new LOKBindings(this.module, this.options.verbose);
 
     try {
-      // Create user profile directory if specified (for serverless environments)
-      if (this.options.userProfilePath && this.module.FS) {
-        if (this.options.verbose) {
-          console.log('[LOK] Creating user profile directory:', this.options.userProfilePath);
-        }
-        try {
-          this.module.FS.mkdir(this.options.userProfilePath);
-          if (this.options.verbose) {
-            console.log('[LOK] Created:', this.options.userProfilePath);
-          }
-        } catch {
-          // Directory may already exist
-          if (this.options.verbose) {
-            console.log('[LOK] Directory already exists:', this.options.userProfilePath);
-          }
-        }
-        // LibreOffice expects a 'user' subdirectory for config writes
-        const userDir = `${this.options.userProfilePath}/user`;
-        try {
-          this.module.FS.mkdir(userDir);
-          if (this.options.verbose) {
-            console.log('[LOK] Created:', userDir);
-          }
-        } catch {
-          // Directory may already exist
-          if (this.options.verbose) {
-            console.log('[LOK] Directory already exists:', userDir);
-          }
-        }
-
-        // Create empty registrymodifications.xcu - LibreOffice needs this file to exist
-        // to avoid stalling when trying to read/write user configuration
-        const registryModificationsPath = `${userDir}/registrymodifications.xcu`;
-        const emptyRegistryXml = `<?xml version="1.0" encoding="UTF-8"?>
-<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-</oor:items>`;
-        try {
-          this.module.FS.writeFile(registryModificationsPath, emptyRegistryXml);
-          if (this.options.verbose) {
-            console.log('[LOK] Created:', registryModificationsPath);
-          }
-        } catch (e) {
-          if (this.options.verbose) {
-            console.log('[LOK] Failed to create registrymodifications.xcu:', e);
-          }
-        }
-      }
-
+      // User profile directory is already created in setupFileSystem()
       // Initialize LibreOfficeKit through the bindings
       this.lokBindings.initialize('/instdir/program', this.options.userProfilePath);
 
