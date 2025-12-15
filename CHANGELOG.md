@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.17.0...v1.18.0) (2025-12-15)
+
+
+### Features
+
+* improve converter cleanup and reinitialization process ([60e7550](https://github.com/matbeedotcom/libreoffice-document-converter/commit/60e7550b6ff164a7a1e96d79eec9a8fe0151e4a3))
+
 # [1.17.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.16.0...v1.17.0) (2025-12-15)
 
 
