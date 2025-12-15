@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.18.0...v1.19.0) (2025-12-15)
+
+
+### Features
+
+* add test for converter destruction and reinitialization ([b15becb](https://github.com/matbeedotcom/libreoffice-document-converter/commit/b15becbb91f398a2c20516a4ec4187b0e3bc2707))
+
 # [1.18.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.17.0...v1.18.0) (2025-12-15)
 
 
