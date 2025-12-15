@@ -164,6 +164,8 @@ export interface ConversionResult {
  */
 export interface WasmLoaderModule {
   createModule: (config: Record<string, unknown>) => Promise<EmscriptenModule>;
+  /** Clear cached WASM binary and compiled module */
+  clearCache?: () => void;
 }
 
 /**

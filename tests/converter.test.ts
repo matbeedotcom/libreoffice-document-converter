@@ -180,3 +180,109 @@ describe('Format constants', () => {
   });
 });
 
+describe('Destroy and reinitialize (requires WASM build)', () => {
+  // Helper to initialize with a timeout
+  const initializeWithTimeout = async (converter: LibreOfficeConverter, timeoutMs = 5000) => {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Initialization timed out after ${timeoutMs}ms - likely hung on PThread reuse`)), timeoutMs);
+    });
+    return Promise.race([converter.initialize(), timeoutPromise]);
+  };
+
+  it('should allow creating a new converter after destroy', async () => {
+    // First converter - initialize and use
+    const converter1 = new LibreOfficeConverter({
+      wasmPath: './wasm',
+      verbose: false,
+      wasmLoader,
+    });
+
+    // First init can take longer (cold start)
+    await converter1.initialize();
+    expect(converter1.isReady()).toBe(true);
+
+    // Do a conversion to ensure it's working
+    const textContent = new TextEncoder().encode('Test document 1');
+    const result1 = await converter1.convert(
+      textContent,
+      { outputFormat: 'pdf' },
+      'test1.txt'
+    );
+    expect(result1.data.length).toBeGreaterThan(0);
+
+    // Destroy the first converter
+    await converter1.destroy();
+    expect(converter1.isReady()).toBe(false);
+
+    // Second converter - should initialize successfully after first was destroyed
+    // This is the critical test: if destroy() doesn't clean up properly,
+    // this will hang trying to reuse the corrupted PThread state
+    const converter2 = new LibreOfficeConverter({
+      wasmPath: './wasm',
+      verbose: false,
+      wasmLoader,
+    });
+
+    // Second init should be fast since WASM binary is cached, but module is fresh
+    // If this hangs, destroy() didn't clean up properly
+    await initializeWithTimeout(converter2, 5000);
+    expect(converter2.isReady()).toBe(true);
+
+    // Do a conversion with the second converter
+    const textContent2 = new TextEncoder().encode('Test document 2');
+    const result2 = await converter2.convert(
+      textContent2,
+      { outputFormat: 'pdf' },
+      'test2.txt'
+    );
+    expect(result2.data.length).toBeGreaterThan(0);
+    expect(result2.mimeType).toBe('application/pdf');
+
+    // Clean up
+    await converter2.destroy();
+    expect(converter2.isReady()).toBe(false);
+  }, 120000); // 2 minute total timeout (mostly for first cold init)
+
+  it('should allow reinitializing the same converter instance after destroy', async () => {
+    const converter = new LibreOfficeConverter({
+      wasmPath: './wasm',
+      verbose: false,
+      wasmLoader,
+    });
+
+    // First initialization (cold start)
+    await converter.initialize();
+    expect(converter.isReady()).toBe(true);
+
+    const textContent1 = new TextEncoder().encode('First conversion');
+    const result1 = await converter.convert(
+      textContent1,
+      { outputFormat: 'pdf' },
+      'first.txt'
+    );
+    expect(result1.data.length).toBeGreaterThan(0);
+
+    // Destroy
+    await converter.destroy();
+    expect(converter.isReady()).toBe(false);
+
+    // Reinitialize the same instance - this should NOT hang
+    // If destroy() didn't clean up, this will hang on PThread abort
+    await initializeWithTimeout(converter, 5000);
+    expect(converter.isReady()).toBe(true);
+
+    // Convert again
+    const textContent2 = new TextEncoder().encode('Second conversion');
+    const result2 = await converter.convert(
+      textContent2,
+      { outputFormat: 'pdf' },
+      'second.txt'
+    );
+    expect(result2.data.length).toBeGreaterThan(0);
+    expect(result2.mimeType).toBe('application/pdf');
+
+    // Final cleanup
+    await converter.destroy();
+  }, 120000); // 2 minute total timeout (mostly for first cold init)
+});
+

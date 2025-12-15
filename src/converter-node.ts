@@ -1470,8 +1470,35 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       }
     }
 
+    // Clear global.Module to prevent reuse of corrupted module
+    if (typeof globalThis !== 'undefined') {
+      (globalThis as Record<string, unknown>).Module = undefined;
+    }
+
+    // Clear Node.js require cache for soffice.cjs to force fresh load on next init
+    // This is necessary because the WASM module state is corrupted after PThread termination
+    if (typeof require !== 'undefined' && typeof require.cache !== 'undefined') {
+      const cacheKeys = Object.keys(require.cache);
+      for (const key of cacheKeys) {
+        if (key.includes('soffice.cjs') || key.includes('soffice.js')) {
+          delete require.cache[key];
+        }
+      }
+    }
+
+    // Also call clearCache on the wasmLoader if available to clear cached WASM binary
+    // This ensures a completely fresh start on next initialization
+    if (this.options.wasmLoader?.clearCache) {
+      try {
+        this.options.wasmLoader.clearCache();
+      } catch {
+        // Ignore
+      }
+    }
+
     this.module = null;
     this.initialized = false;
+    this.fsTracked = false; // Reset FS tracking so hooks can be reinstalled
     return Promise.resolve();
   }
 
