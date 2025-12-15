@@ -414,11 +414,39 @@ function isCached() {
 }
 
 /**
- * Clear cached data (for memory cleanup)
+ * Clear cached data (for memory cleanup and reinitialization)
+ * This must be called before creating a new module after destroy()
+ * to prevent PThread corruption errors.
  */
 function clearCache() {
   cachedWasmBinary = null;
   cachedWasmModule = null;
+
+  // Clear global.Module to prevent reuse of corrupted state
+  if (typeof global !== 'undefined' && global.Module) {
+    global.Module = undefined;
+  }
+
+  // Clear require cache for soffice.cjs to force fresh module load
+  // This is critical because the Emscripten module holds PThread state
+  // that becomes corrupted after terminateAllThreads()
+  const sofficePathCjs = path.join(wasmDir, 'soffice.cjs');
+  const sofficePathJs = path.join(wasmDir, 'soffice.js');
+
+  if (require.cache[sofficePathCjs]) {
+    delete require.cache[sofficePathCjs];
+  }
+  if (require.cache[sofficePathJs]) {
+    delete require.cache[sofficePathJs];
+  }
+
+  // Also clear any other cached paths that might reference soffice
+  const cacheKeys = Object.keys(require.cache);
+  for (const key of cacheKeys) {
+    if (key.includes('soffice.cjs') || key.includes('soffice.js')) {
+      delete require.cache[key];
+    }
+  }
 }
 
 /**
