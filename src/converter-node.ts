@@ -196,6 +196,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       // Load WASM module (progress 0-45% handled by loader)
       this.module = await this.loadModule();
 
+      // Install FS hooks early (before setupFileSystem) so all FS operations are logged
+      this.installFsHooks();
+
       this.emitProgress('initializing', 50, 'Setting up virtual filesystem...');
 
       // Create directories in virtual filesystem
@@ -256,6 +259,96 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     };
 
     return await this.options.wasmLoader.createModule(config);
+  }
+
+  /**
+   * Install FS hooks for verbose logging (must be called early, before setupFileSystem)
+   */
+  private installFsHooks(): void {
+    if (!this.options.verbose || !this.module?.FS || this.fsTracked) {
+      return;
+    }
+
+    this.fsTracked = true;
+
+    const emFs = this.module.FS as typeof this.module.FS & {
+      trackingDelegate?: Record<string, unknown>;
+      open: (...args: unknown[]) => unknown;
+      writeFile: (path: string, data: unknown, opts?: unknown) => void;
+      readFile: (path: string, opts?: unknown) => unknown;
+      mkdir: (path: string, mode?: number) => void;
+      unlink: (path: string) => void;
+    };
+
+    if (!emFs.trackingDelegate) {
+      emFs.trackingDelegate = {
+        onOpen: (filePath: string) => {
+          console.log('[FS OPEN]', filePath);
+        },
+        onOpenFile: (filePath: string) => {
+          console.log('[FS OPEN FILE]', filePath);
+        },
+      };
+    }
+
+    // Hook FS.open
+    if (typeof emFs.open === 'function') {
+      const originalOpen = emFs.open.bind(emFs);
+      emFs.open = ((filePath: string, flags?: unknown, mode?: unknown) => {
+        console.log('[FS OPEN]', filePath, 'flags:', flags);
+        try {
+          return originalOpen(filePath, flags as never, mode as never);
+        } catch (err) {
+          const error = err as { code?: string; message?: string };
+          if (error?.code === 'ENOENT') {
+            console.log('[FS ENOENT]', filePath);
+          }
+          throw err;
+        }
+      }) as typeof emFs.open;
+    }
+
+    // Hook FS.writeFile
+    if (typeof emFs.writeFile === 'function') {
+      const originalWriteFile = emFs.writeFile.bind(emFs);
+      emFs.writeFile = ((path: string, data: unknown, opts?: unknown) => {
+        const size = data instanceof Uint8Array ? data.length :
+                    typeof data === 'string' ? data.length : 'unknown';
+        console.log('[FS WRITE]', path, 'size:', size);
+        return originalWriteFile(path, data, opts);
+      }) as typeof emFs.writeFile;
+    }
+
+    // Hook FS.readFile
+    if (typeof emFs.readFile === 'function') {
+      const originalReadFile = emFs.readFile.bind(emFs);
+      emFs.readFile = ((path: string, opts?: unknown) => {
+        console.log('[FS READ]', path);
+        const result = originalReadFile(path, opts);
+        const size = result instanceof Uint8Array ? result.length :
+                    typeof result === 'string' ? result.length : 'unknown';
+        console.log('[FS READ DONE]', path, 'size:', size);
+        return result;
+      }) as typeof emFs.readFile;
+    }
+
+    // Hook FS.mkdir
+    if (typeof emFs.mkdir === 'function') {
+      const originalMkdir = emFs.mkdir.bind(emFs);
+      emFs.mkdir = ((path: string, mode?: number) => {
+        console.log('[FS MKDIR]', path);
+        return originalMkdir(path, mode);
+      }) as typeof emFs.mkdir;
+    }
+
+    // Hook FS.unlink
+    if (typeof emFs.unlink === 'function') {
+      const originalUnlink = emFs.unlink.bind(emFs);
+      emFs.unlink = ((path: string) => {
+        console.log('[FS UNLINK]', path);
+        return originalUnlink(path);
+      }) as typeof emFs.unlink;
+    }
   }
 
   /**
@@ -328,88 +421,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
     // Debug filesystem contents before LOK init
     if (this.options.verbose && this.module.FS) {
-      const emFs = this.module.FS as typeof this.module.FS & {
-        trackingDelegate?: Record<string, unknown>;
-        open: (...args: unknown[]) => unknown;
-        writeFile: (path: string, data: unknown, opts?: unknown) => void;
-        readFile: (path: string, opts?: unknown) => unknown;
-        mkdir: (path: string, mode?: number) => void;
-        unlink: (path: string) => void;
-      };
-
-      if (!this.fsTracked) {
-        this.fsTracked = true;
-
-        if (!emFs.trackingDelegate) {
-          emFs.trackingDelegate = {
-            onOpen: (filePath: string) => {
-              console.log('[FS OPEN]', filePath);
-            },
-            onOpenFile: (filePath: string) => {
-              console.log('[FS OPEN FILE]', filePath);
-            },
-          };
-        }
-
-        // Hook FS.open
-        if (typeof emFs.open === 'function') {
-          const originalOpen = emFs.open.bind(emFs);
-          emFs.open = ((filePath: string, flags?: unknown, mode?: unknown) => {
-            console.log('[FS OPEN]', filePath, 'flags:', flags);
-            try {
-              return originalOpen(filePath, flags as never, mode as never);
-            } catch (err) {
-              const error = err as { code?: string; message?: string };
-              if (error?.code === 'ENOENT') {
-                console.log('[FS ENOENT]', filePath);
-              }
-              throw err;
-            }
-          }) as typeof emFs.open;
-        }
-
-        // Hook FS.writeFile
-        if (typeof emFs.writeFile === 'function') {
-          const originalWriteFile = emFs.writeFile.bind(emFs);
-          emFs.writeFile = ((path: string, data: unknown, opts?: unknown) => {
-            const size = data instanceof Uint8Array ? data.length :
-                        typeof data === 'string' ? data.length : 'unknown';
-            console.log('[FS WRITE]', path, 'size:', size);
-            return originalWriteFile(path, data, opts);
-          }) as typeof emFs.writeFile;
-        }
-
-        // Hook FS.readFile
-        if (typeof emFs.readFile === 'function') {
-          const originalReadFile = emFs.readFile.bind(emFs);
-          emFs.readFile = ((path: string, opts?: unknown) => {
-            console.log('[FS READ]', path);
-            const result = originalReadFile(path, opts);
-            const size = result instanceof Uint8Array ? result.length :
-                        typeof result === 'string' ? result.length : 'unknown';
-            console.log('[FS READ DONE]', path, 'size:', size);
-            return result;
-          }) as typeof emFs.readFile;
-        }
-
-        // Hook FS.mkdir
-        if (typeof emFs.mkdir === 'function') {
-          const originalMkdir = emFs.mkdir.bind(emFs);
-          emFs.mkdir = ((path: string, mode?: number) => {
-            console.log('[FS MKDIR]', path);
-            return originalMkdir(path, mode);
-          }) as typeof emFs.mkdir;
-        }
-
-        // Hook FS.unlink
-        if (typeof emFs.unlink === 'function') {
-          const originalUnlink = emFs.unlink.bind(emFs);
-          emFs.unlink = ((path: string) => {
-            console.log('[FS UNLINK]', path);
-            return originalUnlink(path);
-          }) as typeof emFs.unlink;
-        }
-      }
+      const emFs = this.module.FS;
 
       const logDir = (label: string, dirPath: string) => {
         try {
