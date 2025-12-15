@@ -11,6 +11,16 @@ on:
         required: false
         type: boolean
         default: false
+      release_type:
+        description: 'Force release type (leave empty to auto-detect from commits)'
+        required: false
+        type: choice
+        default: ''
+        options:
+          - ''
+          - patch
+          - minor
+          - major
 
 jobs:
   release:
@@ -33,6 +43,25 @@ jobs:
         run: |
           git fetch origin main
           git reset --hard origin/main
+
+      - name: Force release commit
+        if: github.event_name == 'workflow_dispatch' && inputs.release_type != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          case "${{ inputs.release_type }}" in
+            patch)
+              git commit --allow-empty -m "fix: force patch release [workflow_dispatch]"
+              ;;
+            minor)
+              git commit --allow-empty -m "feat: force minor release [workflow_dispatch]"
+              ;;
+            major)
+              git commit --allow-empty -m "feat!: force major release [workflow_dispatch]
+
+          BREAKING CHANGE: Manual major release triggered via workflow_dispatch"
+              ;;
+          esac
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
