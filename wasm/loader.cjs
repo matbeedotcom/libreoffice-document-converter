@@ -331,9 +331,28 @@ function createModule(config = {}) {
     };
 
     try {
-      // Load the soffice module
-      // This is a patched version that uses global.Module
-      require('./soffice.cjs');
+      // Load the soffice module (ESM)
+      // Use dynamic import for ESM module
+      import('./soffice.mjs').then(({ default: createSofficeModule }) => {
+        createSofficeModule(global.Module).then(module => {
+          Object.assign(global.Module, module);
+          if (changedDir) {
+            process.chdir(origCwd);
+          }
+        }).catch(err => {
+          if (changedDir) {
+            process.chdir(origCwd);
+          }
+          currentProgressCallback = null;
+          reject(err);
+        });
+      }).catch(err => {
+        if (changedDir) {
+          process.chdir(origCwd);
+        }
+        currentProgressCallback = null;
+        reject(err);
+      });
     } catch (err) {
       if (changedDir) {
         process.chdir(origCwd);
@@ -348,8 +367,8 @@ function createModule(config = {}) {
  * Synchronous module initialization
  * Returns a Module object that will be populated when ready
  */
-function createModuleSync(config = {}) {
-  global.Module = {
+async function createModuleSync(config = {}) {
+  const moduleConfig = {
     wasmBinary: config.wasmBinary,
     locateFile: (filename) => path.join(wasmDir, filename),
     onRuntimeInitialized: config.onRuntimeInitialized || (() => {}),
@@ -358,9 +377,11 @@ function createModuleSync(config = {}) {
     ...config,
   };
 
-  require('./soffice.cjs');
+  const { default: createSofficeModule } = await import('./soffice.mjs');
+  const module = await createSofficeModule(moduleConfig);
+  global.Module = module;
   
-  return global.Module;
+  return module;
 }
 
 /**
@@ -427,15 +448,13 @@ function clearCache() {
     global.Module = undefined;
   }
 
-  // Clear require cache for soffice.cjs to force fresh module load
+  // Clear require cache for soffice modules to force fresh module load
   // This is critical because the Emscripten module holds PThread state
   // that becomes corrupted after terminateAllThreads()
-  const sofficePathCjs = path.join(wasmDir, 'soffice.cjs');
+  // Note: ES modules (soffice.mjs) are cached separately and cannot be
+  // easily cleared, but the WASM module state is what matters most
   const sofficePathJs = path.join(wasmDir, 'soffice.js');
 
-  if (require.cache[sofficePathCjs]) {
-    delete require.cache[sofficePathCjs];
-  }
   if (require.cache[sofficePathJs]) {
     delete require.cache[sofficePathJs];
   }
@@ -443,7 +462,7 @@ function clearCache() {
   // Also clear any other cached paths that might reference soffice
   const cacheKeys = Object.keys(require.cache);
   for (const key of cacheKeys) {
-    if (key.includes('soffice.cjs') || key.includes('soffice.js')) {
+    if (key.includes('soffice.js')) {
       delete require.cache[key];
     }
   }

@@ -300,7 +300,7 @@ describe('WorkerConverter', () => {
         expect(result.mimeType).toBe('application/pdf');
       });
 
-      // Skip: PPTX has threading issues in worker_threads (works in subprocess)
+      // Skip: PPTX/Impress has "unreachable" WASM errors in worker_threads (works in subprocess)
       it.skip('should convert PPTX to PDF', async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
@@ -338,8 +338,7 @@ describe('WorkerConverter', () => {
         expect(pageCount).toBeGreaterThanOrEqual(1);
       });
 
-      // Skip: PPTX has threading issues in worker_threads
-      it.skip('should get slide count for PPTX', async () => {
+      it('should get slide count for PPTX', { retry: 3 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
@@ -375,8 +374,7 @@ describe('WorkerConverter', () => {
         expect(Array.isArray(info.validOutputFormats)).toBe(true);
       });
 
-      // Skip: PPTX has threading issues in worker_threads
-      it.skip('should get document info for PPTX', async () => {
+      it('should get document info for PPTX', { retry: 3 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
@@ -444,8 +442,7 @@ describe('WorkerConverter', () => {
         }
       });
 
-      // Skip: Uses PPTX which has threading issues in worker_threads
-      it.skip('should render specific pages', async () => {
+      it('should render specific pages', { retry: 3 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
@@ -496,8 +493,7 @@ describe('WorkerConverter', () => {
     });
 
     describe('getPageNames', () => {
-      // Skip: PPTX has threading issues in worker_threads
-      it.skip('should get slide names from PPTX', async () => {
+      it('should get slide names from PPTX', { retry: 3 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
@@ -596,8 +592,7 @@ describe('WorkerConverter', () => {
         await converter.closeDocument(session.sessionId);
       });
 
-      // Skip: PPTX has threading issues in worker_threads
-      it.skip('should open PPTX for editing', async () => {
+      it('should open PPTX for editing', { retry: 3 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
         const pptxData = fs.readFileSync(testPptxPath);
@@ -923,9 +918,9 @@ describe('WorkerConverter', () => {
         });
       });
 
-      // Impress editor operations - Skip: PPTX has threading issues in worker_threads
-      describe.skip('Impress editor operations', () => {
-        it('should get structure from PPTX', async () => {
+      // Impress editor operations
+      describe('Impress editor operations', () => {
+        it('should get structure from PPTX', { retry: 3 }, async () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
@@ -949,7 +944,7 @@ describe('WorkerConverter', () => {
           }
         });
 
-        it('should get slide count from PPTX', async () => {
+        it('should get slide count from PPTX', { retry: 3 }, async () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
@@ -971,7 +966,7 @@ describe('WorkerConverter', () => {
           }
         });
 
-        it('should get slide data from PPTX', async () => {
+        it('should get slide data from PPTX', { retry: 3 }, async () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
@@ -1035,7 +1030,7 @@ describe('WorkerConverter', () => {
           }
         });
 
-        it('should duplicate slide in PPTX', async () => {
+        it('should duplicate slide in PPTX', { retry: 3 }, async () => {
           if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);

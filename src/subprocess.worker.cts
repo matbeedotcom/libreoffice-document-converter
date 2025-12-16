@@ -79,35 +79,21 @@ import { createEditor, OfficeEditor } from './editor/index.js';
 import type { ConversionOptions, InputFormatOptions, WasmLoaderModule, EmscriptenModule } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
-// Import createSofficeModule from ESM - marked as external in tsup.config.ts
+// Import ES6 loader - marked as external in tsup.config.ts
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore - soffice.mjs is in wasm/ directory at runtime
-import createSofficeModule from '../wasm/soffice.mjs';
+// @ts-ignore - loader.mjs is in wasm/ directory at runtime
+import wasmLoaderModule from '../wasm/loader.mjs';
 
-// Create wasmLoader compatible interface using soffice.mjs
+// Use the ES6 loader
 const wasmLoader: WasmLoaderModule = {
   async createModule(config: Record<string, unknown>): Promise<EmscriptenModule> {
-    const moduleConfig: Record<string, unknown> = {
-      locateFile: (filename: string) => path.join(wasmDir, filename),
-      print: verbose ? (msg: string) => console.log('[LO]', msg) : () => {},
-      printErr: verbose ? (msg: string) => console.error('[LO ERR]', msg) : () => {},
-      ...config,
-    };
-    
-    if (typeof config.onProgress === 'function') {
-      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 0, 'Starting WASM load...');
-    }
-    
-    const module = await (createSofficeModule as (config: Record<string, unknown>) => Promise<EmscriptenModule>)(moduleConfig);
-    
-    if (typeof config.onProgress === 'function') {
-      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 100, 'WASM loaded');
-    }
-    
-    return module;
+    return wasmLoaderModule.createModule(config) as Promise<EmscriptenModule>;
   },
   clearCache() {
-    // No caching with ES modules
+    wasmLoaderModule.clearCache();
+  },
+  isCached() {
+    return wasmLoaderModule.isCached();
   },
 };
 
