@@ -8,15 +8,108 @@
  * directly - the same implementation used by the main thread converter.
  */
 
-import { parentPort } from 'worker_threads';
+import { parentPort, Worker as NodeWorker } from 'worker_threads';
+import { resolve, join, isAbsolute, basename } from 'path';
+import * as fs from 'fs';
 import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
+import type { ConversionOptions, InputFormatOptions, WasmLoaderModule, EmscriptenModule } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
-// Import the WASM loader - path is relative to dist/ after build
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
+// wasmDir is set during init
+let wasmDir = '';
+
+// Custom Worker wrapper that resolves paths to absolute paths in wasmDir
+// This is needed for Emscripten pthreads to find the worker script
+class WasmWorker extends NodeWorker {
+  constructor(filename: string | URL, options?: ConstructorParameters<typeof NodeWorker>[1]) {
+    let resolvedPath = typeof filename === 'string' ? filename : filename.toString();
+    if (!isAbsolute(resolvedPath)) {
+      resolvedPath = join(wasmDir, basename(resolvedPath));
+    }
+    super(resolvedPath, options);
+  }
+}
+
+// Make Worker globally available for Emscripten pthreads
+(globalThis as Record<string, unknown>).Worker = WasmWorker;
+
+// XMLHttpRequest polyfill for Emscripten
+class NodeXHR {
+  readyState = 0;
+  status = 0;
+  responseType = '';
+  response: unknown = null;
+  responseText = '';
+  onload: (() => void) | null = null;
+  onerror: ((err: Error) => void) | null = null;
+  onreadystatechange: (() => void) | null = null;
+  private _url = '';
+
+  open(_method: string, url: string) {
+    this._url = url;
+    this.readyState = 1;
+  }
+
+  overrideMimeType() {}
+  setRequestHeader() {}
+
+  send() {
+    try {
+      const data = fs.readFileSync(this._url);
+      this.status = 200;
+      this.readyState = 4;
+      if (this.responseType === 'arraybuffer') {
+        this.response = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      } else {
+        this.responseText = data.toString('utf8');
+        this.response = this.responseText;
+      }
+      if (this.onload) this.onload();
+      if (this.onreadystatechange) this.onreadystatechange();
+    } catch (err) {
+      this.status = 404;
+      this.readyState = 4;
+      if (this.onerror) this.onerror(err as Error);
+    }
+  }
+}
+
+(globalThis as Record<string, unknown>).XMLHttpRequest = NodeXHR;
+
+// Import createSofficeModule from ESM - marked as external in tsup.config.ts
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - soffice.mjs is in wasm/ directory at runtime
+import createSofficeModule from '../wasm/soffice.mjs';
+
+// Create wasmLoader compatible interface using soffice.mjs
+const wasmLoader: WasmLoaderModule = {
+  async createModule(config: Record<string, unknown>): Promise<EmscriptenModule> {
+    const verbose = config.verbose as boolean;
+    
+    const moduleConfig: Record<string, unknown> = {
+      locateFile: (filename: string) => join(wasmDir, filename),
+      print: verbose ? (msg: string) => console.log('[LO]', msg) : () => {},
+      printErr: verbose ? (msg: string) => console.error('[LO ERR]', msg) : () => {},
+      ...config,
+    };
+    
+    if (typeof config.onProgress === 'function') {
+      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 0, 'Starting WASM load...');
+    }
+    
+    const module = await (createSofficeModule as (config: Record<string, unknown>) => Promise<EmscriptenModule>)(moduleConfig);
+    
+    if (typeof config.onProgress === 'function') {
+      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 100, 'WASM loaded');
+    }
+    
+    return module;
+  },
+  clearCache() {
+    // No caching with ES modules
+  },
+};
 
 interface WorkerMessage {
   type: string;
@@ -105,6 +198,10 @@ async function handleInit(payload: InitPayload): Promise<void> {
   if (converter?.isReady()) {
     return;
   }
+
+  // Set wasmDir for the loader before creating converter
+  wasmDir = resolve(payload.wasmPath);
+  // Note: No need for process.chdir() - locateFile in wasmLoader uses absolute paths
 
   converter = new LibreOfficeConverter({
     wasmPath: payload.wasmPath,

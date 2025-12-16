@@ -15,9 +15,9 @@ import {
   WasmLoaderModule,
 } from '../src/types.js';
 
-// Import the WASM loader for tests
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
+// Import the test WASM loader (uses createSofficeModule directly)
+import testWasmLoader from './test-wasm-loader.mjs';
+const wasmLoader = testWasmLoader as unknown as WasmLoaderModule;
 
 describe('LibreOfficeConverter', () => {
   describe('Static methods', () => {

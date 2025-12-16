@@ -498,6 +498,52 @@ export class BrowserConverter {
     return this.initialized && this._lokInstance >= 0;
   }
 
+  // ============================================
+  // Abort API Methods
+  // ============================================
+
+  /**
+   * Abort the currently running operation.
+   */
+  abortOperation(): void {
+    if (!this.lokBindings) return;
+    this.lokBindings.abortOperation();
+  }
+
+  /**
+   * Set a timeout for operations in milliseconds.
+   * @param timeoutMs Timeout in milliseconds (0 = no timeout)
+   */
+  setOperationTimeout(timeoutMs: number): void {
+    if (!this.lokBindings) return;
+    this.lokBindings.setOperationTimeout(timeoutMs);
+  }
+
+  /**
+   * Get the current operation state.
+   * @returns One of: 'idle', 'running', 'aborted', 'timed_out', 'completed', 'error', or 'unknown'
+   */
+  getOperationState(): string {
+    if (!this.lokBindings) return 'unknown';
+    return this.lokBindings.getOperationState();
+  }
+
+  /**
+   * Reset the abort state before starting a new operation.
+   */
+  resetAbort(): void {
+    if (!this.lokBindings) return;
+    this.lokBindings.resetAbort();
+  }
+
+  /**
+   * Check if the abort API is available.
+   */
+  hasAbortSupport(): boolean {
+    if (!this.lokBindings) return false;
+    return this.lokBindings.hasAbortSupport();
+  }
+
   static getSupportedOutputFormats(): OutputFormat[] {
     return Object.keys(FORMAT_FILTERS) as OutputFormat[];
   }
@@ -1324,6 +1370,52 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
 
   isReady(): boolean {
     return this.initialized && this.worker !== null;
+  }
+
+  // ============================================
+  // Abort API Methods
+  // ============================================
+
+  /**
+   * Abort the currently running operation.
+   * Sends abort command to the worker.
+   */
+  abortOperation(): void {
+    if (!this.worker) return;
+    // Send abort message to worker (fire and forget)
+    this.worker.postMessage({ type: 'abort' });
+  }
+
+  /**
+   * Set a timeout for operations in milliseconds.
+   * @param timeoutMs Timeout in milliseconds (0 = no timeout)
+   */
+  async setOperationTimeout(timeoutMs: number): Promise<void> {
+    await this.sendMessage('setOperationTimeout', { timeoutMs });
+  }
+
+  /**
+   * Get the current operation state.
+   * @returns One of: 'idle', 'running', 'aborted', 'timed_out', 'completed', 'error', or 'unknown'
+   */
+  async getOperationState(): Promise<string> {
+    const result = await this.sendMessage('getOperationState');
+    return result as string;
+  }
+
+  /**
+   * Reset the abort state before starting a new operation.
+   */
+  async resetAbort(): Promise<void> {
+    await this.sendMessage('resetAbort');
+  }
+
+  /**
+   * Check if the abort API is available.
+   */
+  async hasAbortSupport(): Promise<boolean> {
+    const result = await this.sendMessage('hasAbortSupport');
+    return result as boolean;
   }
 
   static getSupportedOutputFormats(): OutputFormat[] {

@@ -245,8 +245,9 @@ function installProgressInterceptors() {
 }
 
 interface WorkerMessage {
-  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'renderPageFullQuality' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument';
+  type: 'init' | 'convert' | 'destroy' | 'getPageCount' | 'renderPreviews' | 'renderSinglePage' | 'renderPageViaConvert' | 'renderPageFullQuality' | 'getDocumentInfo' | 'getLokInfo' | 'editText' | 'renderPageRectangles' | 'testLokOperations' | 'openDocument' | 'editorOperation' | 'closeDocument' | 'abort' | 'setOperationTimeout' | 'getOperationState' | 'resetAbort' | 'hasAbortSupport';
   id: number;
+  timeoutMs?: number; // For setOperationTimeout
   // Explicit WASM file paths (required for init)
   sofficeJs?: string;
   sofficeWasm?: string;
@@ -2577,6 +2578,39 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       break;
     case 'destroy':
       handleDestroy(msg);
+      break;
+    // Abort API handlers
+    case 'abort':
+      if (lokBindings?.hasAbortSupport()) {
+        lokBindings.abortOperation();
+      }
+      // Fire and forget - no response needed
+      break;
+    case 'setOperationTimeout':
+      if (lokBindings?.hasAbortSupport() && msg.timeoutMs !== undefined) {
+        lokBindings.setOperationTimeout(msg.timeoutMs);
+      }
+      postResponse({ type: 'ready', id: msg.id });
+      break;
+    case 'getOperationState':
+      postResponse({
+        type: 'result',
+        id: msg.id,
+        data: new TextEncoder().encode(lokBindings?.getOperationState() || 'unknown')
+      });
+      break;
+    case 'resetAbort':
+      if (lokBindings?.hasAbortSupport()) {
+        lokBindings.resetAbort();
+      }
+      postResponse({ type: 'ready', id: msg.id });
+      break;
+    case 'hasAbortSupport':
+      postResponse({
+        type: 'result',
+        id: msg.id,
+        data: new TextEncoder().encode(lokBindings?.hasAbortSupport() ? 'true' : 'false')
+      });
       break;
   }
 };

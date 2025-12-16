@@ -19,7 +19,7 @@ export default defineConfig([
     outDir: 'dist',
     external: ['path', 'url', 'fs', 'fs/promises', 'http', 'worker_threads', 'crypto', 'module'],
   },
-  // Worker thread (separate build, no DTS)
+  // Worker thread (separate build, no DTS) - ESM format to support soffice.mjs import
   {
     entry: {
       'node.worker': 'src/node.worker.ts',
@@ -27,7 +27,7 @@ export default defineConfig([
       'fork-worker': 'src/fork-worker.cts',
       'subprocess.worker': 'src/subprocess.worker.cts',
     },
-    format: ['cjs'],
+    format: ['esm'],
     dts: false,
     sourcemap: true,
     clean: false,
@@ -37,7 +37,8 @@ export default defineConfig([
     treeshake: true,
     minify: false,
     outDir: 'dist',
-    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads', '../wasm/loader.cjs'],
+    outExtension: () => ({ js: '.mjs' }),
+    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads', '../wasm/soffice.mjs'],
     // Bundle converter and editor into subprocess-worker so it's self-contained
     noExternal: ['./converter-node.js', './editor/index.js'],
   },

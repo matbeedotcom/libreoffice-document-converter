@@ -22,9 +22,7 @@ const wasmPath = process.env.WASM_PATH || './wasm';
 const verbose = process.env.VERBOSE === 'true';
 const userProfilePath = process.env.USER_PROFILE_PATH || undefined;
 const wasmDir = path.resolve(wasmPath);
-
-// Change to wasm directory for soffice.data path resolution
-process.chdir(wasmDir);
+// Note: No need for process.chdir() - locateFile in wasmLoader uses absolute paths
 
 function log(...args: unknown[]) {
   if (verbose) console.error('[SubprocessWorker]', ...args);
@@ -78,12 +76,40 @@ class NodeXHR {
 // Import converter and editor - these will be bundled by tsup
 import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
+import type { ConversionOptions, InputFormatOptions, WasmLoaderModule, EmscriptenModule } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
-// Import the WASM loader - path is relative to dist/ after build
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const wasmLoader = require('../wasm/loader.cjs') as WasmLoaderModule;
+// Import createSofficeModule from ESM - marked as external in tsup.config.ts
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - soffice.mjs is in wasm/ directory at runtime
+import createSofficeModule from '../wasm/soffice.mjs';
+
+// Create wasmLoader compatible interface using soffice.mjs
+const wasmLoader: WasmLoaderModule = {
+  async createModule(config: Record<string, unknown>): Promise<EmscriptenModule> {
+    const moduleConfig: Record<string, unknown> = {
+      locateFile: (filename: string) => path.join(wasmDir, filename),
+      print: verbose ? (msg: string) => console.log('[LO]', msg) : () => {},
+      printErr: verbose ? (msg: string) => console.error('[LO ERR]', msg) : () => {},
+      ...config,
+    };
+    
+    if (typeof config.onProgress === 'function') {
+      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 0, 'Starting WASM load...');
+    }
+    
+    const module = await (createSofficeModule as (config: Record<string, unknown>) => Promise<EmscriptenModule>)(moduleConfig);
+    
+    if (typeof config.onProgress === 'function') {
+      (config.onProgress as (phase: string, percent: number, message: string) => void)('loading', 100, 'WASM loaded');
+    }
+    
+    return module;
+  },
+  clearCache() {
+    // No caching with ES modules
+  },
+};
 
 // Converter state
 let converter: LibreOfficeConverter | null = null;

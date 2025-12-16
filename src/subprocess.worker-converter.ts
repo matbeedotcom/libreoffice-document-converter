@@ -103,13 +103,13 @@ export class SubprocessConverter implements ILibreOfficeConverter {
         // Check if running from src (development/test) or dist (production)
         if (currentDir.endsWith('/src') || currentDir.endsWith('\\src')) {
           // Running from source - worker is in dist/
-          this.workerPath = join(currentDir, '..', 'dist', 'subprocess.worker.cjs');
+          this.workerPath = join(currentDir, '..', 'dist', 'subprocess.worker.mjs');
         } else {
           // Running from dist
-          this.workerPath = join(currentDir, 'subprocess.worker.cjs');
+          this.workerPath = join(currentDir, 'subprocess.worker.mjs');
         }
       } catch {
-        this.workerPath = join(__dirname, 'subprocess.worker.cjs');
+        this.workerPath = join(__dirname, 'subprocess.worker.mjs');
       }
     }
 

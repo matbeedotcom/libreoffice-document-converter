@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { Worker: NodeWorker } = require('worker_threads');
 const zlib = require('zlib');
 
@@ -59,13 +60,19 @@ global.Worker = Worker;
 // Cache for WASM binary only (immutable, safe to share)
 let cachedWasmBinary = null;
 
+// Cache for compiled WebAssembly.Module (immutable, safe to share)
+// This separates Module compilation from Instance creation per GitHub issue #1396
+// The Module contains compiled code only; Instance contains memory
+let cachedWasmModule = null;
+
 // Track active modules for debugging
 let activeModuleCount = 0;
 
 // Mutex to prevent concurrent createModule calls from interfering
 // Since they share global.Module, only one can run at a time
-let createModuleLock = Promise.resolve();
-let lockQueue = 0;
+// Using a simple queue-based approach to avoid promise chain accumulation
+let isCreatingModule = false;
+const pendingCreations = [];
 
 /**
  * Clear the require cache for soffice.cjs to force fresh module load
@@ -229,7 +236,7 @@ function createPatchedReadFile(emitProgress) {
 function createModule(config = {}) {
   // Use mutex to prevent concurrent createModule calls from interfering
   // Since they all use global.Module, only one can initialize at a time
-  const queuePosition = ++lockQueue;
+  const queuePosition = activeModuleCount + 1; // For logging purposes
 
   const doCreateModule = () => new Promise((resolve, reject) => {
     let lastProgress = 0;
@@ -302,10 +309,56 @@ function createModule(config = {}) {
     // Create fresh Module object
     const moduleId = ++activeModuleCount;
 
+    // Track the WebAssembly.Instance for this module (for disposal)
+    let wasmInstance = null;
+
     global.Module = {
       _isolatedModuleId: moduleId,
       wasmBinary,
       preRun: [],
+
+      // Custom instantiateWasm hook to separate Module compilation from Instance creation
+      // Per GitHub issue #1396: keep Module cached, create fresh Instance with Memory each time
+      // This allows Instance/Memory to be GC'd when disposed
+      instantiateWasm: (info, receiveInstance) => {
+        (async () => {
+          try {
+            // Compile Module once and cache it (immutable, safe to share)
+            if (!cachedWasmModule) {
+              if (config.verbose) {
+                console.log(`[WASM-${moduleId}] Compiling WebAssembly.Module...`);
+              }
+              emitProgress('compiling', 16, 'Compiling WebAssembly module...');
+              cachedWasmModule = await WebAssembly.compile(wasmBinary);
+              emitProgress('compiling', 20, 'WebAssembly module compiled');
+            } else {
+              if (config.verbose) {
+                console.log(`[WASM-${moduleId}] Using cached WebAssembly.Module`);
+              }
+              emitProgress('compiling', 20, 'Using cached WebAssembly module');
+            }
+
+            // Create fresh Instance with the imports (includes fresh Memory)
+            if (config.verbose) {
+              console.log(`[WASM-${moduleId}] Creating WebAssembly.Instance...`);
+            }
+            emitProgress('instantiating', 22, 'Creating WebAssembly instance...');
+
+            wasmInstance = await WebAssembly.instantiate(cachedWasmModule, info);
+
+            emitProgress('instantiating', 25, 'WebAssembly instance created');
+
+            // Pass instance to Emscripten
+            receiveInstance(wasmInstance, cachedWasmModule);
+          } catch (err) {
+            console.error(`[WASM-${moduleId}] instantiateWasm failed:`, err);
+            throw err;
+          }
+        })();
+
+        // Return empty exports - Emscripten will use the ones from receiveInstance
+        return {};
+      },
 
       locateFile: (filename) => {
         const resolved = path.join(wasmDir, filename);
@@ -358,6 +411,12 @@ function createModule(config = {}) {
             // Get reference to the module
             const moduleRef = global.Module;
 
+            // Store the WebAssembly.Instance reference for disposal
+            // This is critical for memory cleanup per GitHub issue #1396
+            if (wasmInstance) {
+              moduleRef._wasmInstance = wasmInstance;
+            }
+
             // Call user's callback
             if (config.onRuntimeInitialized) {
               config.onRuntimeInitialized();
@@ -390,8 +449,107 @@ function createModule(config = {}) {
     }
 
     try {
-      // Load the soffice module fresh
-      require('./soffice.cjs');
+      // Load soffice.cjs in an isolated VM context
+      // This ensures all module-level variables (wasmMemory, HEAP8, etc.)
+      // are contained in a separate context that can be fully GC'd
+      const sofficeCode = fs.readFileSync(path.join(wasmDir, 'soffice.cjs'), 'utf8');
+
+      // Create isolated context with necessary globals
+      // The context object itself becomes 'global' and 'globalThis' within the VM
+      const contextObj = {
+        // Provide the Module object we configured
+        Module: global.Module,
+        // Node.js globals needed by Emscripten
+        process: process,
+        console: console,
+        require: require,
+        __dirname: wasmDir,
+        __filename: path.join(wasmDir, 'soffice.cjs'),
+        // Web APIs Emscripten might use
+        Worker: Worker,
+        XMLHttpRequest: global.XMLHttpRequest,
+        WebAssembly: WebAssembly,
+        URL: URL,
+        Blob: typeof Blob !== 'undefined' ? Blob : undefined,
+        // Standard JS globals
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+        setInterval: setInterval,
+        clearInterval: clearInterval,
+        setImmediate: setImmediate,
+        clearImmediate: clearImmediate,
+        Buffer: Buffer,
+        ArrayBuffer: ArrayBuffer,
+        SharedArrayBuffer: SharedArrayBuffer,
+        Uint8Array: Uint8Array,
+        Int8Array: Int8Array,
+        Uint16Array: Uint16Array,
+        Int16Array: Int16Array,
+        Uint32Array: Uint32Array,
+        Int32Array: Int32Array,
+        Float32Array: Float32Array,
+        Float64Array: Float64Array,
+        BigInt64Array: BigInt64Array,
+        BigUint64Array: BigUint64Array,
+        DataView: DataView,
+        TextEncoder: TextEncoder,
+        TextDecoder: TextDecoder,
+        Error: Error,
+        TypeError: TypeError,
+        RangeError: RangeError,
+        Math: Math,
+        Date: Date,
+        JSON: JSON,
+        Object: Object,
+        Array: Array,
+        String: String,
+        Number: Number,
+        Boolean: Boolean,
+        Symbol: Symbol,
+        Map: Map,
+        Set: Set,
+        WeakMap: WeakMap,
+        WeakRef: WeakRef,
+        FinalizationRegistry: FinalizationRegistry,
+        Promise: Promise,
+        Proxy: Proxy,
+        Reflect: Reflect,
+        Atomics: Atomics,
+        queueMicrotask: queueMicrotask,
+        performance: typeof performance !== 'undefined' ? performance : { now: () => Date.now() },
+        // Critical: Function constructor is needed by Emscripten's embind
+        Function: Function,
+        eval: eval,
+        // Additional globals that might be needed
+        RegExp: RegExp,
+        parseInt: parseInt,
+        parseFloat: parseFloat,
+        isNaN: isNaN,
+        isFinite: isFinite,
+        encodeURIComponent: encodeURIComponent,
+        decodeURIComponent: decodeURIComponent,
+        encodeURI: encodeURI,
+        decodeURI: decodeURI,
+        NaN: NaN,
+        Infinity: Infinity,
+        undefined: undefined,
+      };
+
+      // Create the VM context
+      const isolatedContext = vm.createContext(contextObj);
+
+      // Make 'global' and 'globalThis' point to the context itself
+      // This is critical for Emscripten which does things like global.Module = ...
+      contextObj.global = contextObj;
+      contextObj.globalThis = contextObj;
+
+      // Store context reference for cleanup
+      global.Module._vmContext = isolatedContext;
+
+      // Run soffice.cjs in the isolated context
+      vm.runInContext(sofficeCode, isolatedContext, {
+        filename: path.join(wasmDir, 'soffice.cjs'),
+      });
     } catch (err) {
       // Cleanup on error
       if (changedDir) {
@@ -407,28 +565,59 @@ function createModule(config = {}) {
     }
   });
 
-  // Chain this module creation after any pending ones complete
-  // This ensures only one module initializes at a time (they share global.Module)
-  if (config.verbose) {
-    console.log(`[WASM] Queue position: ${queuePosition}, waiting for lock...`);
-  }
+  // Queue-based mutex: ensures only one module initializes at a time
+  // This avoids the promise-chain accumulation issue of the previous implementation
+  return new Promise((resolveOuter, rejectOuter) => {
+    const executeCreation = async () => {
+      if (config.verbose) {
+        console.log(`[WASM] Queue position: ${queuePosition}, lock acquired`);
+      }
 
-  const previousLock = createModuleLock;
-  let releaseLock;
-  createModuleLock = new Promise((resolve) => {
-    releaseLock = resolve;
-  });
+      try {
+        const module = await doCreateModule();
 
-  return previousLock.then(() => {
-    if (config.verbose) {
-      console.log(`[WASM] Queue position: ${queuePosition}, lock acquired`);
+        // Clean up closures on the module to help GC
+        // These were only needed during initialization
+        if (module) {
+          // Note: Don't delete essential Emscripten properties
+          // Only clean up our custom initialization callbacks
+          delete module.onRuntimeInitialized;
+
+          // Make the module disposable for explicit resource management
+          // This enables: `using module = await createModule()` syntax
+          makeDisposable(module);
+        }
+
+        resolveOuter(module);
+      } catch (err) {
+        rejectOuter(err);
+      } finally {
+        // Release lock and process next in queue
+        isCreatingModule = false;
+
+        if (config.verbose) {
+          console.log(`[WASM] Queue position: ${queuePosition}, releasing lock`);
+        }
+
+        // Process next pending creation
+        if (pendingCreations.length > 0) {
+          const next = pendingCreations.shift();
+          next();
+        }
+      }
+    };
+
+    if (isCreatingModule) {
+      // Queue this creation
+      if (config.verbose) {
+        console.log(`[WASM] Queue position: ${queuePosition}, waiting for lock...`);
+      }
+      pendingCreations.push(executeCreation);
+    } else {
+      // Acquire lock and execute immediately
+      isCreatingModule = true;
+      executeCreation();
     }
-    return doCreateModule();
-  }).finally(() => {
-    if (config.verbose) {
-      console.log(`[WASM] Queue position: ${queuePosition}, releasing lock`);
-    }
-    releaseLock();
   });
 }
 
@@ -455,11 +644,16 @@ function preloadWasmBinary() {
 }
 
 /**
- * Pre-compile the WASM module
+ * Pre-compile the WASM module and cache it
+ * This is useful for warming up the cache before the first conversion
  */
 async function precompileWasm() {
+  if (cachedWasmModule) {
+    return cachedWasmModule;
+  }
   const binary = preloadWasmBinary();
-  return await WebAssembly.compile(binary);
+  cachedWasmModule = await WebAssembly.compile(binary);
+  return cachedWasmModule;
 }
 
 /**
@@ -470,21 +664,182 @@ function isCached() {
 }
 
 /**
+ * Clean up a module instance to help garbage collection
+ * Call this before setting your module reference to null
+ *
+ * Per GitHub issue #1396: The key to freeing WebAssembly memory is disposing
+ * the WebAssembly.Instance and all references to it. The WebAssembly.Module
+ * can be kept cached since it's just compiled code with no memory attached.
+ *
+ * This performs aggressive cleanup of Emscripten module internals:
+ * - Disposes the WebAssembly.Instance (critical for memory release)
+ * - Removes initialization callbacks that hold closures
+ * - Clears HEAP arrays to release ArrayBuffer references
+ * - Clears the virtual filesystem cache
+ * - Terminates any pthread workers
+ *
+ * @param {Object} module - The Emscripten module to clean up
+ */
+function cleanupModule(module) {
+  if (!module) return;
+
+  // Remove initialization callbacks that may hold closures
+  // Use try/catch for each access since Emscripten getters can throw
+  try { delete module.onRuntimeInitialized; } catch {}
+  try { delete module.onAbort; } catch {}
+  try { delete module.instantiateWasm; } catch {}
+
+  // Terminate pthread workers if present
+  // Must wrap ALL property access in try/catch due to Emscripten's getters
+  try {
+    const pThread = module.PThread;
+    if (pThread) {
+      if (pThread.terminateAllThreads) {
+        pThread.terminateAllThreads();
+      }
+      if (pThread.runningWorkers) {
+        for (const worker of pThread.runningWorkers) {
+          try { if (worker?.terminate) worker.terminate(); } catch {}
+        }
+        pThread.runningWorkers = [];
+      }
+      if (pThread.unusedWorkers) {
+        for (const worker of pThread.unusedWorkers) {
+          try { if (worker?.terminate) worker.terminate(); } catch {}
+        }
+        pThread.unusedWorkers = [];
+      }
+    }
+  } catch {
+    // Ignore pthread cleanup errors - PThread access may throw
+  }
+
+  // CRITICAL: Dispose the WebAssembly.Instance to allow memory GC
+  // Per GitHub issue #1396, the Instance holds the Memory reference
+  // Releasing the Instance allows the Memory to be garbage collected
+  try {
+    if (module._wasmInstance) {
+      // Clear exports reference which holds functions that reference memory
+      if (module._wasmInstance.exports) {
+        // Try to null out all exports to break references
+        for (const key of Object.keys(module._wasmInstance.exports)) {
+          try {
+            module._wasmInstance.exports[key] = null;
+          } catch {}
+        }
+      }
+      module._wasmInstance = null;
+    }
+  } catch {
+    // Ignore instance cleanup errors
+  }
+
+  // Clear HEAP arrays and other references to release ArrayBuffer references
+  // These reference the WebAssembly.Memory buffer
+  // Note: Emscripten uses getters that can throw if accessed in certain states,
+  // so we use Object.defineProperty to safely override them without triggering getters
+  const propsToNull = [
+    'HEAP8', 'HEAP16', 'HEAP32', 'HEAPU8', 'HEAPU16', 'HEAPU32',
+    'HEAPF32', 'HEAPF64', 'HEAP64', 'HEAPU64',
+    'wasmMemory', 'buffer', 'FS', 'PThread',
+    // Also clear Emscripten's WASM-related references
+    'wasmExports', 'wasmTable', 'wasmModule'
+  ];
+
+  for (const prop of propsToNull) {
+    try {
+      Object.defineProperty(module, prop, { value: null, writable: true, configurable: true });
+    } catch {
+      // Ignore - property may not be configurable
+    }
+  }
+
+  // Clear all function exports that might hold references to memory
+  try {
+    const exportKeys = Object.keys(module).filter(k => k.startsWith('_') && typeof module[k] === 'function');
+    for (const key of exportKeys) {
+      try {
+        Object.defineProperty(module, key, { value: null, writable: true, configurable: true });
+      } catch {}
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+/**
+ * Add Symbol.dispose support to a module for explicit resource management
+ * This enables the `using` syntax: `using module = await createModule()`
+ *
+ * @param {Object} module - The Emscripten module to make disposable
+ * @returns {Object} - The same module with Symbol.dispose added
+ */
+function makeDisposable(module) {
+  if (!module) return module;
+
+  // Add Symbol.dispose for sync disposal (using syntax)
+  if (typeof Symbol !== 'undefined' && Symbol.dispose) {
+    module[Symbol.dispose] = () => {
+      cleanupModule(module);
+      clearSofficeCache();
+    };
+  }
+
+  // Add Symbol.asyncDispose for async disposal (await using syntax)
+  if (typeof Symbol !== 'undefined' && Symbol.asyncDispose) {
+    module[Symbol.asyncDispose] = async () => {
+      cleanupModule(module);
+      clearSofficeCache();
+    };
+  }
+
+  // Also add a regular dispose method for environments without Symbol support
+  module.dispose = () => {
+    cleanupModule(module);
+    clearSofficeCache();
+  };
+
+  return module;
+}
+
+/**
  * Clear cached data and prepare for fresh module creation
  *
  * IMPORTANT: Call this after destroying a converter and before creating a new one.
  * This clears:
- * - The cached WASM binary
+ * - The cached WASM binary (optional, controlled by clearWasmBinary param)
+ * - The cached compiled WebAssembly.Module (optional, same as above)
  * - The soffice.cjs require cache
  * - global.Module reference
+ * - Pending creation queue
+ *
+ * Note: Per GitHub issue #1396, keeping the WebAssembly.Module cached is safe
+ * and improves performance. The Module is just compiled code with no memory.
+ * Only the Instance (which contains Memory) needs to be disposed.
+ *
+ * @param {boolean} clearWasmBinary - Whether to clear the cached WASM binary AND
+ *                                    compiled Module (default: false)
+ *                                    Set to true for complete cleanup, false to keep cached
  */
-function clearCache() {
-  cachedWasmBinary = null;
+function clearCache(clearWasmBinary = false) {
+  // Only clear WASM binary and compiled Module if explicitly requested
+  // Both are immutable and safe to share, so keeping them cached improves performance
+  if (clearWasmBinary) {
+    cachedWasmBinary = null;
+    cachedWasmModule = null;
+  }
+
   clearSofficeCache();
 
   if (typeof global !== 'undefined' && global.Module) {
+    // Clean up the module before clearing
+    cleanupModule(global.Module);
     global.Module = undefined;
   }
+
+  // Clear pending queue (shouldn't have any, but just in case)
+  pendingCreations.length = 0;
+  isCreatingModule = false;
 }
 
 /**
@@ -521,6 +876,8 @@ module.exports = {
   isCached,
   clearCache,
   clearSofficeCache,
+  cleanupModule,
+  makeDisposable,
   getFileSizes,
   getActiveModuleCount,
   wasmDir,

@@ -101,15 +101,15 @@ export class WorkerConverter implements ILibreOfficeConverter {
         // Auto-detect worker path
         try {
           const currentDir = dirname(fileURLToPath(import.meta.url));
-          workerPath = join(currentDir, 'node.worker.cjs');
+          workerPath = join(currentDir, 'node.worker.mjs');
         } catch {
-          workerPath = join(__dirname, 'node.worker.cjs');
+          workerPath = join(__dirname, 'node.worker.mjs');
         }
 
         // If worker doesn't exist at computed path, try dist/ relative to cwd
         // (handles vitest running source files directly)
         if (!existsSync(workerPath)) {
-          const distWorkerPath = resolve(process.cwd(), 'dist', 'node.worker.cjs');
+          const distWorkerPath = resolve(process.cwd(), 'dist', 'node.worker.mjs');
           if (existsSync(distWorkerPath)) {
             workerPath = distWorkerPath;
           }

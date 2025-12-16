@@ -53,9 +53,11 @@ export {
   // Browser WASM path helpers (also useful for understanding paths)
   createWasmPaths,
   DEFAULT_WASM_BASE_URL,
+  // Abort API constants
+  OPERATION_STATE,
 } from './types.js';
 
-export type { DocumentCategory, WasmLoadPhase, WasmLoadProgress } from './types.js';
+export type { DocumentCategory, WasmLoadPhase, WasmLoadProgress, OperationState } from './types.js';
 
 // Export LOK constants for advanced usage
 export {

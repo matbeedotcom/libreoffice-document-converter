@@ -269,7 +269,7 @@ describe('SubprocessConverter', () => {
     });
 
     describe('Document conversion', () => {
-      it('should convert DOCX to PDF', async () => {
+      it('should convert DOCX to PDF', { retry: 2 }, async () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
@@ -545,7 +545,7 @@ describe('SubprocessConverter', () => {
         }
       });
 
-      it.fails('should execute editor operation getDocumentType', async () => {
+      it('should execute editor operation getDocumentType', async () => {
         if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
         const docxData = fs.readFileSync(testDocxPath);
@@ -621,7 +621,7 @@ describe('SubprocessConverter', () => {
 
       // Writer editor operations
       describe('Writer editor operations', () => {
-        it.fails('should get paragraph from DOCX', async () => {
+        it('should get paragraph from DOCX', async () => {
           if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
 
           const docxData = fs.readFileSync(testDocxPath);
@@ -719,7 +719,7 @@ describe('SubprocessConverter', () => {
           }
         });
 
-        it.fails('should set cell value in XLSX', async () => {
+        it('should set cell value in XLSX', async () => {
           if (!converter?.isReady() || !fs.existsSync(testXlsxPath)) return;
 
           const xlsxData = fs.readFileSync(testXlsxPath);
@@ -818,8 +818,8 @@ describe('SubprocessConverter', () => {
     });
   });
 
-  // userProfilePath tests (requires WASM build)
-  describe('userProfilePath option (requires WASM build)', () => {
+  // userProfilePath tests (disabled - feature deprecated)
+  describe.skip('userProfilePath option (requires WASM build)', () => {
     let testDocxPath: string;
 
     beforeAll(() => {

@@ -80,6 +80,22 @@ export interface ConversionOptions {
    * Password for encrypted documents
    */
   password?: string;
+
+  /**
+   * Timeout for the conversion operation in milliseconds.
+   * If the conversion takes longer than this, it will be aborted.
+   * Default: 0 (no timeout)
+   *
+   * @example
+   * ```typescript
+   * // Abort if conversion takes longer than 30 seconds
+   * await converter.convert(input, {
+   *   outputFormat: 'pdf',
+   *   timeout: 30000,
+   * });
+   * ```
+   */
+  timeout?: number;
 }
 
 /**
@@ -403,7 +419,28 @@ export enum ConversionErrorCode {
   WASM_NOT_INITIALIZED = 'WASM_NOT_INITIALIZED',
   CONVERSION_FAILED = 'CONVERSION_FAILED',
   LOAD_FAILED = 'LOAD_FAILED',
+  OPERATION_ABORTED = 'OPERATION_ABORTED',
+  OPERATION_TIMED_OUT = 'OPERATION_TIMED_OUT',
 }
+
+/**
+ * Operation states for the abort API
+ */
+export type OperationState = 'idle' | 'running' | 'aborted' | 'timed_out' | 'completed' | 'error' | 'unknown';
+
+/**
+ * Constants for operation states
+ */
+export const OPERATION_STATE = {
+  NONE: 'none' as const,
+  IDLE: 'idle' as const,
+  RUNNING: 'running' as const,
+  ABORTED: 'aborted' as const,
+  TIMED_OUT: 'timed_out' as const,
+  COMPLETED: 'completed' as const,
+  ERROR: 'error' as const,
+  UNKNOWN: 'unknown' as const,
+};
 
 /**
  * Custom error class for conversion errors

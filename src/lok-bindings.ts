@@ -23,6 +23,11 @@ interface LOKModule extends EmscriptenModule {
   _lok_documentDestroy?: (doc: number) => void;
   _lok_getError?: (lok: number) => number;
   _lok_destroy?: (lok: number) => void;
+  // Abort API shims
+  _lok_abortOperation?: () => void;
+  _lok_setOperationTimeout?: (timeoutMs: number) => void;
+  _lok_getOperationState?: () => number;
+  _lok_resetAbort?: () => void;
   // Page rendering shims
   _lok_documentGetParts?: (doc: number) => number;
   _lok_documentGetPart?: (doc: number) => number;
@@ -588,6 +593,90 @@ export class LOKBindings {
    */
   isUsingShims(): boolean {
     return this.useShims;
+  }
+
+  // ==========================================
+  // Abort API Methods
+  // ==========================================
+
+  /**
+   * Operation states returned by getOperationState()
+   */
+  static readonly OPERATION_STATE = {
+    IDLE: 'idle',
+    RUNNING: 'running',
+    ABORTED: 'aborted',
+    TIMED_OUT: 'timed_out',
+    COMPLETED: 'completed',
+    ERROR: 'error',
+  } as const;
+
+  /**
+   * Abort the currently running operation.
+   * Call this from another thread/worker to cancel a long-running operation.
+   * The operation will throw an error when it detects the abort.
+   */
+  abortOperation(): void {
+    if (this.module._lok_abortOperation) {
+      this.log('abortOperation: aborting current operation');
+      this.module._lok_abortOperation();
+    } else {
+      this.log('abortOperation: shim not available');
+    }
+  }
+
+  /**
+   * Set a timeout for operations in milliseconds.
+   * Must be called before starting an operation.
+   * After the timeout, the operation will be automatically aborted.
+   * @param timeoutMs Timeout in milliseconds (0 = no timeout)
+   */
+  setOperationTimeout(timeoutMs: number): void {
+    if (this.module._lok_setOperationTimeout) {
+      this.log(`setOperationTimeout: setting timeout to ${timeoutMs}ms`);
+      this.module._lok_setOperationTimeout(timeoutMs);
+    } else {
+      this.log('setOperationTimeout: shim not available');
+    }
+  }
+
+  /**
+   * Get the current operation state.
+   * @returns One of: 'idle', 'running', 'aborted', 'timed_out', 'completed', 'error'
+   */
+  getOperationState(): string {
+    if (this.module._lok_getOperationState) {
+      const statePtr = this.module._lok_getOperationState();
+      const state = this.readString(statePtr);
+      return state || 'unknown';
+    }
+    this.log('getOperationState: shim not available');
+    return 'unknown';
+  }
+
+  /**
+   * Reset the abort state before starting a new operation.
+   * Must be called before each operation to clear any previous abort/timeout state.
+   */
+  resetAbort(): void {
+    if (this.module._lok_resetAbort) {
+      this.log('resetAbort: resetting abort state');
+      this.module._lok_resetAbort();
+    } else {
+      this.log('resetAbort: shim not available');
+    }
+  }
+
+  /**
+   * Check if the abort API is available
+   */
+  hasAbortSupport(): boolean {
+    return !!(
+      this.module._lok_abortOperation &&
+      this.module._lok_setOperationTimeout &&
+      this.module._lok_getOperationState &&
+      this.module._lok_resetAbort
+    );
   }
 
   // ==========================================

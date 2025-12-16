@@ -514,6 +514,23 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     const inputPath = `/tmp/input/doc.${inputExt}`;
     const outputPath = `/tmp/output/doc.${outputExt}`;
 
+    // Set up abort API if available and timeout is specified
+    if (this.lokBindings?.hasAbortSupport()) {
+      // Reset abort state before starting the operation
+      this.lokBindings.resetAbort();
+
+      // Set timeout if specified
+      if (options.timeout && options.timeout > 0) {
+        this.lokBindings.setOperationTimeout(options.timeout);
+        if (this.options.verbose) {
+          console.log(`[LibreOfficeConverter] Set operation timeout to ${options.timeout}ms`);
+        }
+      } else {
+        // Clear any previous timeout
+        this.lokBindings.setOperationTimeout(0);
+      }
+    }
+
     try {
       this.emitProgress('converting', 10, 'Writing input document...');
 
@@ -524,6 +541,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
       // Perform conversion
       const result = await this.performConversion(inputPath, outputPath, options);
+
+      // Check if operation was aborted or timed out
+      this.checkAbortState();
 
       this.emitProgress('complete', 100, 'Conversion complete');
 
@@ -537,6 +557,23 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
         duration: Date.now() - startTime,
       };
     } catch (error) {
+      // Check if this was an abort/timeout
+      if (this.lokBindings?.hasAbortSupport()) {
+        const state = this.lokBindings.getOperationState();
+        if (state === 'aborted') {
+          throw new ConversionError(
+            ConversionErrorCode.OPERATION_ABORTED,
+            'Conversion was aborted'
+          );
+        }
+        if (state === 'timed_out') {
+          throw new ConversionError(
+            ConversionErrorCode.OPERATION_TIMED_OUT,
+            `Conversion timed out after ${options.timeout}ms`
+          );
+        }
+      }
+
       // Check if this error indicates corruption
       if (error instanceof Error && this.isCorruptionError(error)) {
         this.corrupted = true;
@@ -557,6 +594,29 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       } catch {
         // Ignore
       }
+    }
+  }
+
+  /**
+   * Check if the operation was aborted or timed out and throw appropriate error
+   */
+  private checkAbortState(): void {
+    if (!this.lokBindings?.hasAbortSupport()) {
+      return;
+    }
+
+    const state = this.lokBindings.getOperationState();
+    if (state === 'aborted') {
+      throw new ConversionError(
+        ConversionErrorCode.OPERATION_ABORTED,
+        'Operation was aborted'
+      );
+    }
+    if (state === 'timed_out') {
+      throw new ConversionError(
+        ConversionErrorCode.OPERATION_TIMED_OUT,
+        'Operation timed out'
+      );
     }
   }
 
@@ -1403,6 +1463,116 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     return this.lokBindings;
   }
 
+  // ============================================
+  // Abort API Methods
+  // ============================================
+
+  /**
+   * Abort the currently running operation.
+   * Call this from another thread/worker to cancel a long-running operation.
+   * The operation will throw an error when it detects the abort.
+   *
+   * @example
+   * ```typescript
+   * // From another thread/worker:
+   * converter.abortOperation();
+   * ```
+   */
+  abortOperation(): void {
+    if (!this.lokBindings) {
+      if (this.options.verbose) {
+        console.log('[LibreOfficeConverter] abortOperation: not initialized');
+      }
+      return;
+    }
+    this.lokBindings.abortOperation();
+  }
+
+  /**
+   * Set a timeout for operations in milliseconds.
+   * Must be called before starting an operation.
+   * After the timeout, the operation will be automatically aborted.
+   *
+   * @param timeoutMs Timeout in milliseconds (0 = no timeout)
+   *
+   * @example
+   * ```typescript
+   * // Set a 30-second timeout
+   * converter.setOperationTimeout(30000);
+   *
+   * // Reset abort state before starting
+   * converter.resetAbort();
+   *
+   * // Now run the conversion - will abort if it takes > 30s
+   * await converter.convert(input, options);
+   * ```
+   */
+  setOperationTimeout(timeoutMs: number): void {
+    if (!this.lokBindings) {
+      if (this.options.verbose) {
+        console.log('[LibreOfficeConverter] setOperationTimeout: not initialized');
+      }
+      return;
+    }
+    this.lokBindings.setOperationTimeout(timeoutMs);
+  }
+
+  /**
+   * Get the current operation state.
+   *
+   * @returns One of: 'idle', 'running', 'aborted', 'timed_out', 'completed', 'error', or 'unknown'
+   *
+   * @example
+   * ```typescript
+   * const state = converter.getOperationState();
+   * if (state === 'aborted') {
+   *   console.log('Operation was cancelled');
+   * } else if (state === 'timed_out') {
+   *   console.log('Operation timed out');
+   * }
+   * ```
+   */
+  getOperationState(): string {
+    if (!this.lokBindings) {
+      return 'unknown';
+    }
+    return this.lokBindings.getOperationState();
+  }
+
+  /**
+   * Reset the abort state before starting a new operation.
+   * Must be called before each operation to clear any previous abort/timeout state.
+   *
+   * @example
+   * ```typescript
+   * // Reset before each conversion
+   * converter.resetAbort();
+   * await converter.convert(input, options);
+   * ```
+   */
+  resetAbort(): void {
+    if (!this.lokBindings) {
+      if (this.options.verbose) {
+        console.log('[LibreOfficeConverter] resetAbort: not initialized');
+      }
+      return;
+    }
+    this.lokBindings.resetAbort();
+  }
+
+  /**
+   * Check if the abort API is available.
+   * The abort API requires the WASM module to be built with abort support.
+   *
+   * @returns true if abort methods are available
+   */
+  hasAbortSupport(): boolean {
+    if (!this.lokBindings) {
+      return false;
+    }
+    return this.lokBindings.hasAbortSupport();
+  }
+
   destroy(): Promise<void> {
     if (this.lokBindings) {
       try {
@@ -1413,40 +1583,51 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       this.lokBindings = null;
     }
 
-    // Terminate Emscripten pthread workers to allow process to exit
+    // Use the module's dispose method if available (from loader-isolated)
+    // This performs comprehensive cleanup including HEAP arrays, FS, and pthreads
     if (this.module) {
-      try {
-        const mod = this.module as EmscriptenModuleWithPThread;
+      const mod = this.module as EmscriptenModuleWithPThread & { dispose?: () => void };
 
-        if (mod.PThread?.terminateAllThreads) {
-          mod.PThread.terminateAllThreads();
+      // Use dispose() if available (added by makeDisposable in loader-isolated)
+      if (mod.dispose) {
+        try {
+          mod.dispose();
+        } catch {
+          // Ignore dispose errors
         }
-
-        if (mod.PThread?.runningWorkers) {
-          for (const worker of mod.PThread.runningWorkers) {
-            if (worker?.unref) {
-              worker.unref();
-            }
-            if (worker?.terminate) {
-              worker.terminate();
-            }
+      } else {
+        // Fallback: manual pthread cleanup for modules without dispose
+        try {
+          if (mod.PThread?.terminateAllThreads) {
+            mod.PThread.terminateAllThreads();
           }
-          mod.PThread.runningWorkers = [];
-        }
 
-        if (mod.PThread?.unusedWorkers) {
-          for (const worker of mod.PThread.unusedWorkers) {
-            if (worker?.unref) {
-              worker.unref();
+          if (mod.PThread?.runningWorkers) {
+            for (const worker of mod.PThread.runningWorkers) {
+              if (worker?.unref) {
+                worker.unref();
+              }
+              if (worker?.terminate) {
+                worker.terminate();
+              }
             }
-            if (worker?.terminate) {
-              worker.terminate();
-            }
+            mod.PThread.runningWorkers = [];
           }
-          mod.PThread.unusedWorkers = [];
+
+          if (mod.PThread?.unusedWorkers) {
+            for (const worker of mod.PThread.unusedWorkers) {
+              if (worker?.unref) {
+                worker.unref();
+              }
+              if (worker?.terminate) {
+                worker.terminate();
+              }
+            }
+            mod.PThread.unusedWorkers = [];
+          }
+        } catch {
+          // Ignore pthread cleanup errors
         }
-      } catch {
-        // Ignore pthread cleanup errors
       }
     }
 
@@ -1500,6 +1681,22 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     this.initialized = false;
     this.fsTracked = false; // Reset FS tracking so hooks can be reinstalled
     return Promise.resolve();
+  }
+
+  /**
+   * Symbol.dispose implementation for explicit resource management
+   * Enables: `using converter = new LibreOfficeConverter(...)`
+   */
+  [Symbol.dispose](): void {
+    this.destroy();
+  }
+
+  /**
+   * Symbol.asyncDispose implementation for async explicit resource management
+   * Enables: `await using converter = new LibreOfficeConverter(...)`
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.destroy();
   }
 
   isReady(): boolean {

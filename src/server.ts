@@ -102,6 +102,8 @@ export type {
   EmscriptenModule,
   EmscriptenFS,
   WasmLoaderModule,
+  // Abort API
+  OperationState,
 } from './types.js';
 
 export {
@@ -120,6 +122,8 @@ export {
   getOutputFormatsForDocType,
   createWasmPaths,
   DEFAULT_WASM_BASE_URL,
+  // Abort API
+  OPERATION_STATE,
 } from './types.js';
 
 // ============================================
