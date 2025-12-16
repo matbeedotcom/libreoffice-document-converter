@@ -38,7 +38,7 @@ export default defineConfig([
     minify: false,
     outDir: 'dist',
     outExtension: () => ({ js: '.mjs' }),
-    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads', '../wasm/soffice.mjs'],
+    external: ['path', 'url', 'fs', 'fs/promises', 'worker_threads', '../wasm/loader.mjs'],
     // Bundle converter and editor into subprocess-worker so it's self-contained
     noExternal: ['./converter-node.js', './editor/index.js'],
   },
