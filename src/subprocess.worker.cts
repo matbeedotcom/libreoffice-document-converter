@@ -41,8 +41,8 @@ class NodeXHR {
     this.readyState = 1;
   }
 
-  overrideMimeType() {}
-  setRequestHeader() {}
+  overrideMimeType() { }
+  setRequestHeader() { }
 
   send() {
     try {
@@ -613,4 +613,4 @@ log('Subprocess worker started, waiting for init message...');
 process.send?.({ type: 'ready' });
 
 // Keep process alive
-setInterval(() => {}, 60000);
+setInterval(() => { }, 60000);

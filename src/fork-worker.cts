@@ -27,8 +27,8 @@ class NodeXHR {
   private _url = '';
 
   open(_m: string, url: string) { this._url = url; this.readyState = 1; }
-  overrideMimeType() {}
-  setRequestHeader() {}
+  overrideMimeType() { }
+  setRequestHeader() { }
   send() {
     try {
       const data = fs.readFileSync(this._url);
@@ -92,9 +92,9 @@ function convert(
   const inputPath = `/tmp/input/doc.${inputExt}`;
   const outputPath = `/tmp/output/doc.${outputFormat}`;
 
-  try { Module.FS.mkdir('/tmp'); } catch {}
-  try { Module.FS.mkdir('/tmp/input'); } catch {}
-  try { Module.FS.mkdir('/tmp/output'); } catch {}
+  try { Module.FS.mkdir('/tmp'); } catch { }
+  try { Module.FS.mkdir('/tmp/input'); } catch { }
+  try { Module.FS.mkdir('/tmp/output'); } catch { }
 
   Module.FS.writeFile(inputPath, new Uint8Array(inputData));
   log('Input written');
@@ -128,8 +128,8 @@ function convert(
     log('Document saved');
 
     const output = Module.FS.readFile(outputPath) as Uint8Array;
-    try { Module.FS.unlink(inputPath); } catch {}
-    try { Module.FS.unlink(outputPath); } catch {}
+    try { Module.FS.unlink(inputPath); } catch { }
+    try { Module.FS.unlink(outputPath); } catch { }
 
     return Array.from(output);
   } finally {
@@ -171,8 +171,8 @@ process.on('message', (msg: { type: string; id: string; payload?: any }) => {
 // Configure module
 (global as any).Module = {
   locateFile: (f: string) => f,
-  print: verbose ? console.log : () => {},
-  printErr: verbose ? console.error : () => {},
+  print: verbose ? console.log : () => { },
+  printErr: verbose ? console.error : () => { },
 };
 
 log('Loading WASM module from:', wasmDir);
@@ -186,7 +186,7 @@ log('Module loaded, polling for ready state...');
 // Poll for the module to be ready
 function checkReady() {
   Module = (global as any).Module;
-  
+
   if (Module._malloc && Module._libreofficekit_hook) {
     log('Module functions available');
     try {
@@ -207,4 +207,4 @@ function checkReady() {
 setTimeout(checkReady, 500);
 
 // Keep process alive
-setInterval(() => {}, 60000);
+setInterval(() => { }, 60000);
