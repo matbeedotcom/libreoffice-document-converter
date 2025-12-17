@@ -18,13 +18,17 @@ globalThis.Worker = Worker;
 
 // Import createSofficeModule
 const createSofficeModule = (await import(join(wasmDir, 'soffice.mjs'))).default;
-
 /**
  * Create module using createSofficeModule directly
  */
 async function createModule(config = {}) {
+  console.log("test-wasm-loader.mjs", "createModule", config);
   const moduleConfig = {
-    locateFile: (filename) => join(wasmDir, filename),
+    locateFile: (filename) => {
+      const resolved = join(wasmDir, filename);
+      console.log("test-wasm-loader.mjs", "locateFile", filename, "->", resolved);
+      return resolved;
+    },
     print: config.verbose ? (msg) => console.log('[LO]', msg) : () => {},
     printErr: config.verbose ? (msg) => console.error('[LO ERR]', msg) : () => {},
     ...config,
@@ -40,7 +44,7 @@ async function createModule(config = {}) {
   if (config.onProgress) {
     config.onProgress('loading', 100, 'WASM loaded');
   }
-
+  console.log("test-wasm-loader.mjs", "createModule", Object.keys(module));
   return module;
 }
 

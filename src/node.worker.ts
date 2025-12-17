@@ -539,6 +539,46 @@ async function handleDestroy(): Promise<void> {
 }
 
 /**
+ * Abort the current operation
+ */
+function handleAbortOperation(): void {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+  converter.abortOperation();
+}
+
+/**
+ * Set operation timeout
+ */
+function handleSetOperationTimeout(payload: { timeout: number }): void {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+  converter.setOperationTimeout(payload.timeout);
+}
+
+/**
+ * Get operation state
+ */
+function handleGetOperationState(): string {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+  return converter.getOperationState();
+}
+
+/**
+ * Reset abort state
+ */
+function handleResetAbort(): void {
+  if (!converter?.isReady()) {
+    throw new Error('Worker not initialized');
+  }
+  converter.resetAbort();
+}
+
+/**
  * Main message handler
  */
 parentPort?.on('message', async (message: WorkerMessage) => {
@@ -596,6 +636,22 @@ parentPort?.on('message', async (message: WorkerMessage) => {
 
       case 'destroy':
         await handleDestroy();
+        break;
+
+      case 'abortOperation':
+        handleAbortOperation();
+        break;
+
+      case 'setOperationTimeout':
+        handleSetOperationTimeout(message.payload as { timeout: number });
+        break;
+
+      case 'getOperationState':
+        result = handleGetOperationState();
+        break;
+
+      case 'resetAbort':
+        handleResetAbort();
         break;
 
       default:

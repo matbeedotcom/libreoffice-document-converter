@@ -615,29 +615,51 @@ export class LOKBindings {
    * Abort the currently running operation.
    * Call this from another thread/worker to cancel a long-running operation.
    * The operation will throw an error when it detects the abort.
+   * 
+   * NOTE: Only aborts if an operation is actually running. Calling abort when
+   * idle is a no-op to prevent WASM corruption.
    */
   abortOperation(): void {
-    if (this.module._lok_abortOperation) {
-      this.log('abortOperation: aborting current operation');
-      this.module._lok_abortOperation();
-    } else {
+    if (!this.module._lok_abortOperation) {
       this.log('abortOperation: shim not available');
+      return;
     }
+
+    // Check if there's actually an operation running before aborting
+    // Aborting when idle can corrupt WASM state
+    const state = this.getOperationState();
+    if (state !== 'running' && state !== 'load' && state !== 'save') {
+      this.log(`abortOperation: no operation running (state: ${state}), skipping abort`);
+      return;
+    }
+
+    this.log('abortOperation: aborting current operation');
+    this.module._lok_abortOperation();
   }
 
   /**
    * Set a timeout for operations in milliseconds.
-   * Must be called before starting an operation.
+   * Must be called BEFORE starting an operation (when idle).
    * After the timeout, the operation will be automatically aborted.
    * @param timeoutMs Timeout in milliseconds (0 = no timeout)
+   * 
+   * NOTE: Only sets timeout when idle. Setting during an operation is a no-op.
    */
   setOperationTimeout(timeoutMs: number): void {
-    if (this.module._lok_setOperationTimeout) {
-      this.log(`setOperationTimeout: setting timeout to ${timeoutMs}ms`);
-      this.module._lok_setOperationTimeout(timeoutMs);
-    } else {
+    if (!this.module._lok_setOperationTimeout) {
       this.log('setOperationTimeout: shim not available');
+      return;
     }
+
+    // Only set timeout when idle to prevent WASM state issues
+    const state = this.getOperationState();
+    if (state !== 'idle' && state !== 'none' && state !== 'unknown' && state !== 'completed') {
+      this.log(`setOperationTimeout: operation in progress (state: ${state}), skipping`);
+      return;
+    }
+
+    this.log(`setOperationTimeout: setting timeout to ${timeoutMs}ms`);
+    this.module._lok_setOperationTimeout(timeoutMs);
   }
 
   /**

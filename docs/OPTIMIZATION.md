@@ -393,3 +393,128 @@ chmod +x scripts/compress-wasm.sh
 ./scripts/compress-wasm.sh
 ```
 
+---
+
+## 7. Serverless Optimization (Vercel, AWS Lambda, etc.)
+
+Serverless environments like Vercel have specific constraints that require additional optimization.
+
+### Challenge: Font Cache Initialization
+
+LibreOffice uses fontconfig to discover available fonts. On the **first document load**, fontconfig scans all fonts (70+ font files) to build a cache. This font scanning:
+- Happens synchronously during document load (not during WASM init)
+- Can take 10-30+ seconds on serverless environments with slower I/O
+- May exceed Vercel's function execution timeout (10s hobby, 60s pro)
+
+### Solution: Pre-warming
+
+Use the `prewarm` option to trigger font scanning during initialization (which has a longer timeout) instead of during the first conversion:
+
+```typescript
+import { createSubprocessConverter } from '@matbee/libreoffice-converter';
+
+// Recommended for Vercel/serverless
+const converter = await createSubprocessConverter({
+  wasmPath: './wasm',
+  userProfilePath: '/tmp/libreoffice-user',
+  prewarm: true,  // <-- Pre-warm font cache during init
+  verbose: true,
+});
+
+// First conversion will be fast because fonts are already scanned
+const result = await converter.convert(docBuffer, { outputFormat: 'pdf' });
+```
+
+### Additional Options
+
+```typescript
+const converter = await createSubprocessConverter({
+  wasmPath: './wasm',
+  userProfilePath: '/tmp/libreoffice-user',
+  
+  // Pre-warm font cache during initialization
+  prewarm: true,
+  
+  // Skip LibreOffice preload operations (slightly faster init)
+  skipPreload: true,
+  
+  // Increase timeout for slower serverless I/O
+  conversionTimeout: 120000, // 2 minutes
+  
+  // Retry on memory errors (common in constrained environments)
+  maxConversionRetries: 3,
+  restartOnMemoryError: true,
+});
+```
+
+### Manual Pre-warming
+
+If you can't use the `prewarm` option during initialization, you can call it manually:
+
+```typescript
+const converter = await createSubprocessConverter({
+  wasmPath: './wasm',
+  userProfilePath: '/tmp/libreoffice-user',
+});
+
+// Pre-warm after initialization
+await converter.prewarm();
+
+// Now convert
+const result = await converter.convert(docBuffer, { outputFormat: 'pdf' });
+```
+
+### Vercel Configuration
+
+For Vercel, ensure you have adequate memory and timeout:
+
+```json
+// vercel.json
+{
+  "functions": {
+    "api/*": {
+      "memory": 3008,
+      "maxDuration": 60
+    }
+  }
+}
+```
+
+### Keep-Alive Strategy
+
+For best performance on serverless, keep the converter initialized:
+
+```typescript
+// api/convert.ts
+let converter: SubprocessConverter | null = null;
+
+async function getConverter() {
+  if (!converter || !converter.isReady()) {
+    converter = await createSubprocessConverter({
+      wasmPath: process.env.WASM_PATH || './wasm',
+      userProfilePath: '/tmp/libreoffice-user',
+      prewarm: true,
+    });
+  }
+  return converter;
+}
+
+export default async function handler(req, res) {
+  const conv = await getConverter();
+  const result = await conv.convert(req.body.data, { outputFormat: 'pdf' });
+  res.send(result.data);
+}
+```
+
+### Timing Breakdown (Serverless)
+
+| Phase | Cold Start | Warm Start |
+|-------|------------|------------|
+| WASM Load | ~3-5s | 0 (cached) |
+| LibreOffice Init | ~2-3s | 0 |
+| **Font Scanning** | **10-30s** | 0 |
+| Document Convert | 1-5s | 1-5s |
+| **Total** | **16-43s** | **1-5s** |
+
+With `prewarm: true`, font scanning happens during the initialization phase (covered by the 3-minute timeout), ensuring document conversion doesn't unexpectedly take 30+ seconds.
+

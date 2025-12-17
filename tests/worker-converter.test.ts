@@ -20,6 +20,7 @@ import {
 import { ConversionError, EditorOperationResult } from '../src/types.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import testWasmLoader from './test-wasm-loader.mjs';
 
 describe('WorkerConverter', () => {
   describe('Instance creation', () => {
@@ -37,8 +38,8 @@ describe('WorkerConverter', () => {
       const onError = vi.fn();
 
       const converter = new WorkerConverter({
-        wasmPath: '/custom/path',
-        verbose: false,
+        wasmPath: './wasm',
+        verbose: true,
         onProgress,
         onReady,
         onError,
@@ -252,16 +253,17 @@ describe('WorkerConverter', () => {
 
       converter = new WorkerConverter({
         wasmPath: './wasm',
-        workerPath: './dist/node.worker.mjs',
-        verbose: false,
+        wasmLoader: testWasmLoader,
+        // workerPath: './dist/node.worker.mjs',
+        verbose: true,
       });
       await converter.initialize();
     }, 120000); // 120s timeout for WASM initialization
 
     afterAll(async () => {
-      if (converter?.isReady()) {
-        await converter.destroy();
-      }
+      // if (converter?.isReady()) {
+      //   await converter.destroy();
+      // }
     });
 
     it('should initialize successfully', () => {
@@ -921,7 +923,7 @@ describe('WorkerConverter', () => {
       // Impress editor operations
       describe('Impress editor operations', () => {
         it('should get structure from PPTX', { retry: 3 }, async () => {
-          if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
+          // if (!converter?.isReady() || !fs.existsSync(testPptxPath)) return;
 
           const pptxData = fs.readFileSync(testPptxPath);
           const session = await converter.openDocument(pptxData, { inputFormat: 'pptx' });

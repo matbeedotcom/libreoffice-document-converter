@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:subagent-driven-development)",
+      "Skill(superpowers:executing-plans)",
+      "Bash(npx vitest:*)",
+      "Bash(du:*)",
+      "Bash(ls:*)",
+      "Bash(node --expose-gc:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

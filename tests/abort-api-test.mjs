@@ -18,7 +18,7 @@ const __dirname = dirname(__filename);
 
 // Import the converter types
 const { LibreOfficeConverter, ConversionErrorCode, OPERATION_STATE } = await import(join(__dirname, '..', 'dist', 'server.js'));
-
+import testWasmLoader from './test-wasm-loader.mjs';
 // Import createSofficeModule directly
 const wasmDir = join(__dirname, '..', 'wasm');
 const createSofficeModule = (await import(join(wasmDir, 'soffice.mjs'))).default;
@@ -31,6 +31,8 @@ function testAPIMethodsExist() {
   
   const converter = new LibreOfficeConverter({
     wasmPath: wasmDir,
+    wasmLoader: testWasmLoader,
+    verbose: true,
   });
   
   // Check methods exist

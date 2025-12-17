@@ -30,9 +30,9 @@
       "default": "./dist/types-entry.js"
     },
     "./wasm/loader": {
-      "import": "./wasm/loader.cjs",
+      "import": "./wasm/loader.mjs",
       "require": "./wasm/loader.cjs",
-      "default": "./wasm/loader.cjs"
+      "default": "./wasm/loader.mjs"
     },
     "./wasm/loader-isolated": {
       "import": "./wasm/loader-isolated.cjs",
@@ -56,10 +56,13 @@
   },
   "files": [
     "dist",
+    "wasm/loader.mjs",
     "wasm/loader.cjs",
     "wasm/loader-isolated.cjs",
     "wasm/soffice.cjs",
     "wasm/soffice.js",
+    "wasm/soffice.mjs",
+    "wasm/uri-encode.mjs",
     "wasm/soffice.data.gz",
     "wasm/soffice.wasm.gz",
     "wasm/soffice.worker.cjs",

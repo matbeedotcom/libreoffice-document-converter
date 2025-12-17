@@ -181,9 +181,12 @@ export async function createModule(config = {}) {
     
     locateFile: (filename) => {
       const resolved = path.join(wasmDir, filename);
+      console.log("wasm/loader.mjs", "locateFile", filename, "->", resolved);
       if (!fs.existsSync(resolved)) {
         const gzResolved = resolved + '.gz';
+        console.log("wasm/loader.mjs", "gzResolved", gzResolved, "->", fs.existsSync(gzResolved));
         if (fs.existsSync(gzResolved)) {
+          console.log("wasm/loader.mjs", "gzResolved exists", gzResolved, "->", fs.existsSync(gzResolved));
           if (config.verbose) {
             console.log('[WASM] locateFile:', filename, '->', gzResolved, '(compressed)');
           }

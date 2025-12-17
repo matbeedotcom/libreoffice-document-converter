@@ -242,7 +242,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       throw new ConversionError(
         ConversionErrorCode.WASM_NOT_INITIALIZED,
         'wasmLoader option is required. Import the loader and pass it:\n' +
-        '  import wasmLoader from "@matbee/libreoffice-converter/wasm/loader.cjs";\n' +
+        '  import wasmLoader from "@matbee/libreoffice-converter/wasm/loader";\n' +
         '  new LibreOfficeConverter({ wasmLoader })'
       );
     }
@@ -355,6 +355,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
    * Set up the virtual filesystem
    */
   private setupFileSystem(): void {
+    console.log("ConverterNode", "setupFileSystem");
     if (!this.module?.FS) {
       throw new ConversionError(
         ConversionErrorCode.WASM_NOT_INITIALIZED,
@@ -412,6 +413,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
    * Initialize LibreOfficeKit
    */
   private initializeLibreOfficeKit(): void {
+    console.log("ConverterNode", "initializeLibreOfficeKit");
     if (!this.module) {
       throw new ConversionError(
         ConversionErrorCode.WASM_NOT_INITIALIZED,
@@ -471,6 +473,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     options: ConversionOptions,
     filename = 'document'
   ): Promise<ConversionResult> {
+    console.log("ConverterNode", "convert");
     // Check if we need to reinitialize due to previous corruption
     if (this.corrupted) {
       await this.reinitialize();
@@ -601,6 +604,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
    * Check if the operation was aborted or timed out and throw appropriate error
    */
   private checkAbortState(): void {
+    console.log("ConverterNode", "checkAbortState");
     if (!this.lokBindings?.hasAbortSupport()) {
       return;
     }
@@ -1760,4 +1764,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   ): void {
     this.options.onProgress?.({ phase, percent, message });
   }
+}
+
+export async function createMainThreadConverter(options: LibreOfficeWasmOptions = {}): Promise<LibreOfficeConverter> {
+  const c = new LibreOfficeConverter(options);
+  await c.initialize();
+  return c;
 }

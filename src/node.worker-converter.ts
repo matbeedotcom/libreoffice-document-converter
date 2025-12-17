@@ -97,6 +97,8 @@ export class WorkerConverter implements ILibreOfficeConverter {
       if (this.options.workerPath) {
         // Use explicit worker path if provided
         workerPath = resolve(this.options.workerPath);
+        console.log("node.worker-converter.ts", "using explicit worker path", workerPath);
+        console.log("node.worker-converter.ts", "existsSync", workerPath, existsSync(workerPath));
       } else {
         // Auto-detect worker path
         try {
@@ -105,6 +107,8 @@ export class WorkerConverter implements ILibreOfficeConverter {
         } catch {
           workerPath = join(__dirname, 'node.worker.mjs');
         }
+        console.log("node.worker-converter.ts", "using auto-detected worker path", workerPath);
+        console.log("node.worker-converter.ts", "existsSync", workerPath, existsSync(workerPath));
 
         // If worker doesn't exist at computed path, try dist/ relative to cwd
         // (handles vitest running source files directly)
@@ -124,7 +128,7 @@ export class WorkerConverter implements ILibreOfficeConverter {
         if ('type' in response && response.type === 'ready') {
           return; // Worker ready signal
         }
-
+        console.log("node.worker-converter.ts", "worker message", response);
         const res = response as WorkerResponse;
         const pending = this.pending.get(res.id);
         if (pending) {
@@ -545,6 +549,49 @@ export class WorkerConverter implements ILibreOfficeConverter {
    */
   isReady(): boolean {
     return this.initialized && this.worker !== null;
+  }
+
+  /**
+   * Abort the current operation
+   * This can be called from another thread/async context to interrupt ongoing operations
+   */
+  async abortOperation(): Promise<void> {
+    if (!this.worker) {
+      throw new Error('Worker not initialized');
+    }
+    await this.sendMessage('abortOperation');
+  }
+
+  /**
+   * Set operation timeout in milliseconds
+   * Must be called before starting an operation
+   */
+  async setOperationTimeout(timeoutMs: number): Promise<void> {
+    if (!this.worker) {
+      throw new Error('Worker not initialized');
+    }
+    await this.sendMessage('setOperationTimeout', { timeout: timeoutMs });
+  }
+
+  /**
+   * Get the current operation state
+   * Returns: 'idle', 'running', 'aborted', 'timed_out', 'completed', or 'error'
+   */
+  async getOperationState(): Promise<string> {
+    if (!this.worker) {
+      throw new Error('Worker not initialized');
+    }
+    return this.sendMessage('getOperationState') as Promise<string>;
+  }
+
+  /**
+   * Reset abort state before starting a new operation
+   */
+  async resetAbort(): Promise<void> {
+    if (!this.worker) {
+      throw new Error('Worker not initialized');
+    }
+    await this.sendMessage('resetAbort');
   }
 
   private normalizeInput(input: Uint8Array | ArrayBuffer | Buffer): Uint8Array {

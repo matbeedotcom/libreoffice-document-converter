@@ -619,6 +619,49 @@ export class SubprocessConverter implements ILibreOfficeConverter {
   }
 
   isReady(): boolean { return this.initialized && this.child !== null; }
+
+  /**
+   * Abort the current operation
+   * This can be called from another async context to interrupt ongoing operations
+   */
+  async abortOperation(): Promise<void> {
+    if (!this.child) {
+      throw new Error('Subprocess not initialized');
+    }
+    await this.send('abortOperation');
+  }
+
+  /**
+   * Set operation timeout in milliseconds
+   * Must be called before starting an operation
+   */
+  async setOperationTimeout(timeoutMs: number): Promise<void> {
+    if (!this.child) {
+      throw new Error('Subprocess not initialized');
+    }
+    await this.send('setOperationTimeout', { timeout: timeoutMs });
+  }
+
+  /**
+   * Get the current operation state
+   * Returns: 'idle', 'running', 'aborted', 'timed_out', 'completed', or 'error'
+   */
+  async getOperationState(): Promise<string> {
+    if (!this.child) {
+      throw new Error('Subprocess not initialized');
+    }
+    return this.send('getOperationState') as Promise<string>;
+  }
+
+  /**
+   * Reset abort state before starting a new operation
+   */
+  async resetAbort(): Promise<void> {
+    if (!this.child) {
+      throw new Error('Subprocess not initialized');
+    }
+    await this.send('resetAbort');
+  }
 }
 
 export async function createSubprocessConverter(options: SubprocessConverterOptions = {}): Promise<SubprocessConverter> {

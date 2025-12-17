@@ -176,12 +176,14 @@ export interface ConversionResult {
 
 /**
  * WASM loader module interface
- * This is the interface for the loader.cjs module that creates the Emscripten module
+ * This is the interface for the WASM loader module that creates the Emscripten module
  */
 export interface WasmLoaderModule {
   createModule: (config: Record<string, unknown>) => Promise<EmscriptenModule>;
   /** Clear cached WASM binary and compiled module */
   clearCache?: () => void;
+  /** Optional helper used by some loaders/workers to report whether the WASM binary is cached */
+  isCached?: () => boolean;
 }
 
 /**
@@ -210,13 +212,13 @@ export interface LibreOfficeWasmOptions {
 
   /**
    * Pre-loaded WASM loader module
-   * When provided, bypasses dynamic require of loader.cjs
+   * When provided, bypasses dynamic loading of the loader module.
    * This is useful for bundlers like Turbopack that can't handle dynamic requires
    *
    * @example
    * ```typescript
    * // In your code, import the loader statically
-   * import * as wasmLoader from '@matbee/libreoffice-converter/wasm/loader.cjs';
+   * import wasmLoader from '@matbee/libreoffice-converter/wasm/loader';
    *
    * const converter = new LibreOfficeConverter({
    *   wasmPath: './wasm',

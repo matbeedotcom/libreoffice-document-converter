@@ -552,6 +552,46 @@ async function handleDestroy(): Promise<void> {
 }
 
 /**
+ * Handle abort operation request
+ */
+function handleAbortOperation(): void {
+  if (!converter?.isReady()) {
+    throw new Error('Subprocess not initialized');
+  }
+  converter.abortOperation();
+}
+
+/**
+ * Handle set operation timeout request
+ */
+function handleSetOperationTimeout(payload: { timeout: number }): void {
+  if (!converter?.isReady()) {
+    throw new Error('Subprocess not initialized');
+  }
+  converter.setOperationTimeout(payload.timeout);
+}
+
+/**
+ * Handle get operation state request
+ */
+function handleGetOperationState(): string {
+  if (!converter?.isReady()) {
+    throw new Error('Subprocess not initialized');
+  }
+  return converter.getOperationState();
+}
+
+/**
+ * Handle reset abort request
+ */
+function handleResetAbort(): void {
+  if (!converter?.isReady()) {
+    throw new Error('Subprocess not initialized');
+  }
+  converter.resetAbort();
+}
+
+/**
  * Handle init message - initialize the converter
  */
 async function handleInit(prewarm = false): Promise<void> {
@@ -732,6 +772,22 @@ process.on('message', async (msg: WorkerMessage) => {
 
       case 'destroy':
         await handleDestroy();
+        break;
+
+      case 'abortOperation':
+        handleAbortOperation();
+        break;
+
+      case 'setOperationTimeout':
+        handleSetOperationTimeout(msg.payload as { timeout: number });
+        break;
+
+      case 'getOperationState':
+        result = handleGetOperationState();
+        break;
+
+      case 'resetAbort':
+        handleResetAbort();
         break;
 
       default:

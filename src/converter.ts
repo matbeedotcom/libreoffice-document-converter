@@ -74,6 +74,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   private fsTracked = false;
 
   constructor(options: LibreOfficeWasmOptions = {}) {
+    console.log("LibreOfficeConverter", "constructor options", options);
     this.options = {
       wasmPath: './wasm',
       verbose: false,
@@ -1739,4 +1740,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   ): void {
     this.options.onProgress?.({ phase, percent, message });
   }
+}
+
+export async function createMainThreadConverter(options: LibreOfficeWasmOptions = {}): Promise<LibreOfficeConverter> {
+  const c = new LibreOfficeConverter(options);
+  await c.initialize();
+  return c;
 }
