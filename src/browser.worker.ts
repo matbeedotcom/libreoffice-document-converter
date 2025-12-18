@@ -127,7 +127,7 @@ function installProgressInterceptors() {
 
   // Intercept fetch for progress tracking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (self).fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  (self).fetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
     // Identify which file is being downloaded
@@ -147,6 +147,18 @@ function installProgressInterceptors() {
       return response;
     }
 
+    // CRITICAL: Do NOT wrap .wasm file responses!
+    // WebAssembly.instantiateStreaming() requires the raw Response with its original body stream.
+    // Wrapping it in a custom ReadableStream breaks streaming compilation with:
+    // "WebAssembly compilation aborted: Network error: Failed to read from a ReadableStream"
+    // For .wasm files, just log that we're downloading and return the original response.
+    if (phase === 'download-wasm') {
+      console.log(`[Worker] Returning original response for soffice.wasm (streaming compile requires raw Response)`);
+      // We can't track byte-level progress for .wasm, but we mark it complete when compile phase starts
+      return response;
+    }
+
+    // For .data files, we can safely wrap with progress tracking
     // Get content length for progress calculation
     const contentLength = response.headers.get('Content-Length');
     const total = contentLength ? parseInt(contentLength, 10) : 0;
@@ -157,7 +169,7 @@ function installProgressInterceptors() {
       return response;
     }
 
-    // Create a new response with progress tracking
+    // Create a new response with progress tracking (only for .data files now)
     const reader = response.body.getReader();
     let loaded = 0;
 
@@ -167,7 +179,7 @@ function installProgressInterceptors() {
           const { done, value } = await reader.read();
 
           if (done) {
-            console.log(`[Worker] Finished fetch download: ${phase === 'download-wasm' ? 'soffice.wasm' : 'soffice.data'}`);
+            console.log(`[Worker] Finished fetch download: soffice.data`);
             controller.close();
             break;
           }
@@ -192,19 +204,19 @@ function installProgressInterceptors() {
   const OriginalXHR = self.XMLHttpRequest;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ProgressXMLHttpRequest = function(this: XMLHttpRequest) {
+  const ProgressXMLHttpRequest = function (this: XMLHttpRequest) {
     const xhr = new OriginalXHR();
     let requestUrl = '';
 
     const originalOpen = xhr.open.bind(xhr);
-    (xhr).open = function(method: string, url: string | URL, async?: boolean, username?: string | null, password?: string | null) {
+    (xhr).open = function (method: string, url: string | URL, async?: boolean, username?: string | null, password?: string | null) {
       requestUrl = String(url);
       return originalOpen(method, url, async ?? true, username, password);
     };
 
     const originalSend = xhr.send.bind(xhr);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (xhr).send = function(body?: any) {
+    (xhr).send = function (body?: any) {
       let phase: WasmLoadPhase | null = null;
       if (requestUrl.includes('soffice.wasm')) {
         phase = 'download-wasm';
@@ -252,6 +264,7 @@ interface WorkerMessage {
   sofficeWasm?: string;
   sofficeData?: string;
   sofficeWorkerJs?: string;
+  enableProgressTracking?: boolean;  // Opt-in: enable download progress tracking (disabled by default)
   verbose?: boolean;
   inputData?: Uint8Array;
   inputExt?: string;
@@ -536,9 +549,14 @@ async function handleInit(msg: WorkerMessage) {
   }
   lastEmittedPercent = 0;
 
-  // Install XHR interceptor BEFORE any Emscripten code loads
-  // This intercepts soffice.wasm and soffice.data downloads
-  installProgressInterceptors();
+  // Only install progress interceptors if explicitly enabled
+  // Default is OFF because wrapping fetch responses can break WebAssembly streaming compilation
+  if (msg.enableProgressTracking) {
+    console.log('[Worker] Progress tracking enabled, installing interceptors...');
+    installProgressInterceptors();
+  } else {
+    console.log('[Worker] Progress tracking disabled (default)');
+  }
 
   // Emit initial progress
   emitPhaseProgress('download-wasm', 'Preparing to download WebAssembly...');
@@ -988,24 +1006,24 @@ async function handleRenderPreviews(msg: WorkerMessage) {
 
   try {
     postProgress(msg.id, 10, 'Loading document for preview...');
-    
+
     // Use cached document
     const { docPtr, pageCount } = getOrLoadDocument(inputData, inputExt || 'docx');
     postProgress(msg.id, 20, `Rendering ${pageCount} pages...`);
 
     const previews: PagePreview[] = [];
-    
+
     for (let i = 0; i < pageCount; i++) {
       const progress = 20 + Math.round((i / pageCount) * 70);
       postProgress(msg.id, progress, `Rendering page ${i + 1}/${pageCount}...`);
-      
+
       // Render the page - let renderPage handle page selection and sizing
       const rendered = lokBindings.renderPage(docPtr, i, maxWidth);
-      
+
       // Copy from SharedArrayBuffer to regular ArrayBuffer
       const dataCopy = new Uint8Array(rendered.data.length);
       dataCopy.set(rendered.data);
-      
+
       previews.push({
         page: i + 1,
         data: dataCopy,
@@ -1015,7 +1033,7 @@ async function handleRenderPreviews(msg: WorkerMessage) {
     }
 
     postProgress(msg.id, 100, 'Preview complete');
-    
+
     // Transfer all preview buffers
     const transfers = previews.map(p => p.data.buffer);
     self.postMessage({ type: 'previews', id: msg.id, previews }, transfers);
@@ -1078,11 +1096,11 @@ async function handleRenderSinglePage(msg: WorkerMessage) {
     console.log(`[Worker] handleRenderSinglePage: calling renderPage for page ${pageIndex} at maxWidth=${maxWidth}...`);
     const rendered = lokBindings.renderPage(docPtr, pageIndex, maxWidth);
     console.log(`[Worker] handleRenderSinglePage: renderPage returned ${rendered.data.length} bytes (${rendered.width}x${rendered.height})`);
-    
+
     // Copy from SharedArrayBuffer to regular ArrayBuffer
     const dataCopy = new Uint8Array(rendered.data.length);
     dataCopy.set(rendered.data);
-    
+
     const preview: PagePreview = {
       page: pageIndex + 1,
       data: dataCopy,
@@ -1144,7 +1162,7 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
 
     // Get document type to determine how to handle page selection
     const docType = lokBindings.documentGetDocumentType(docPtr);
-    
+
     if (pageIndex < 0 || pageIndex >= pageCount) {
       throw new Error(`Page index ${pageIndex} out of range (0-${pageCount - 1})`);
     }
@@ -1168,12 +1186,12 @@ async function handleRenderPageViaConvert(msg: WorkerMessage) {
     if (docType === 0) { // TEXT document
       filterOpts += `;PageRange=${pageIndex + 1}-${pageIndex + 1}`;
     }
-    
+
     lokBindings.documentSaveAs(docPtr, outPath, 'png', filterOpts);
 
     // Read the PNG file
     const pngData = module.FS.readFile(outPath) as Uint8Array;
-    
+
     if (pngData.length === 0) {
       throw new Error('PNG export produced empty output');
     }
@@ -2516,11 +2534,11 @@ function handleDestroy(msg: WorkerMessage) {
       (module as unknown as { PThread: { terminateAllThreads: () => void } }).PThread.terminateAllThreads();
     } catch { /* ignore */ }
   }
-  
+
   module = null;
   initialized = false;
   postResponse({ type: 'ready', id: msg.id });
-  
+
   // Close this worker after a short delay to ensure response is sent
   setTimeout(() => self.close(), 100);
 }
