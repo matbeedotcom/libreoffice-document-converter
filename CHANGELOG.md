@@ -1,3 +1,12 @@
+# [2.1.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.0.1...v2.1.0) (2025-12-18)
+
+
+### Features
+
+* fix ([457f400](https://github.com/matbeedotcom/libreoffice-document-converter/commit/457f4002c68eb7a9a60c56cb59af96d61775e53d))
+* integration skip test ([371ef8e](https://github.com/matbeedotcom/libreoffice-document-converter/commit/371ef8e993324f02d268b5748f694effcf9b415e))
+* skip test ([f11e364](https://github.com/matbeedotcom/libreoffice-document-converter/commit/f11e3642ddf262e5760718d7bdb5c24953fadf9f))
+
 # [1.8.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.7.0...v1.8.0) (2025-12-18)
 
 
