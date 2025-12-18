@@ -1,6 +1,6 @@
 {
   "name": "@matbee/libreoffice-converter",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "LibreOffice WASM document conversion toolkit - headless document format conversion",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
