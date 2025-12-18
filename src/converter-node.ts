@@ -97,10 +97,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   private isCorruptionError(error: Error | string): boolean {
     const msg = error instanceof Error ? error.message : error;
     return msg.includes('memory access out of bounds') ||
-           msg.includes('ComponentContext is not avail') ||
-           msg.includes('unreachable') ||
-           msg.includes('table index is out of bounds') ||
-           msg.includes('null function');
+      msg.includes('ComponentContext is not avail') ||
+      msg.includes('unreachable') ||
+      msg.includes('table index is out of bounds') ||
+      msg.includes('null function');
   }
 
   /**
@@ -164,9 +164,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
         error instanceof ConversionError
           ? error
           : new ConversionError(
-              ConversionErrorCode.WASM_NOT_INITIALIZED,
-              `Failed to initialize with module: ${String(error)}`
-            );
+            ConversionErrorCode.WASM_NOT_INITIALIZED,
+            `Failed to initialize with module: ${String(error)}`
+          );
       this.options.onError?.(convError);
       throw convError;
     } finally {
@@ -217,9 +217,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
         error instanceof ConversionError
           ? error
           : new ConversionError(
-              ConversionErrorCode.WASM_NOT_INITIALIZED,
-              `Failed to initialize WASM module: ${String(error)}`
-            );
+            ConversionErrorCode.WASM_NOT_INITIALIZED,
+            `Failed to initialize WASM module: ${String(error)}`
+          );
       this.options.onError?.(convError);
       throw convError;
     } finally {
@@ -232,7 +232,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
    * Requires wasmLoader option to be provided for bundler compatibility
    */
   private async loadModule(): Promise<EmscriptenModule> {
-    console.log('[LibreOfficeConverter] Loading WASM module...');
+    console.log('[LibreOfficeConverter] Loading WASM module...', this.options.wasmPath, this.options.workerPath, this.options.wasmLoader);
 
     // wasmLoader must be provided - no dynamic require
     if (!this.options.wasmLoader) {
@@ -247,8 +247,8 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     // Build loader config
     const config = {
       verbose: this.options.verbose,
-      print: this.options.verbose ? console.log : () => {},
-      printErr: this.options.verbose ? console.error : () => {},
+      print: this.options.verbose ? console.log : () => { },
+      printErr: this.options.verbose ? console.error : () => { },
       onProgress: (_phase: string, percent: number, message: string) => {
         // Map loader progress to our progress phases
         this.emitProgress('loading', percent, message);
