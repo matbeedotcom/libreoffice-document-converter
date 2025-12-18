@@ -1,3 +1,10 @@
+# [2.3.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.2.0...v2.3.0) (2025-12-18)
+
+
+### Features
+
+* Introduce `enableProgressTracking` option for WASM download progress in worker. ([017f498](https://github.com/matbeedotcom/libreoffice-document-converter/commit/017f4981367531b867e735a0b6074f8b7579a7d7))
+
 # [2.2.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.1.0...v2.2.0) (2025-12-18)
 
 
