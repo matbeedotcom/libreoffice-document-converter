@@ -1,3 +1,10 @@
+## [2.3.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.3.0...v2.3.1) (2025-12-18)
+
+
+### Bug Fixes
+
+* bugs ([27577bd](https://github.com/matbeedotcom/libreoffice-document-converter/commit/27577bde20177af132da5dd255b414b0fe713996))
+
 # [2.3.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.2.0...v2.3.0) (2025-12-18)
 
 
