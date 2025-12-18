@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.7.0...v1.8.0) (2025-12-18)
+
+
+### Features
+
+* Implement LibreOffice WASM build system, data bundling, and worker integration ([f51c277](https://github.com/matbeedotcom/libreoffice-document-converter/commit/f51c27714c2dad3710301d6c6e89325d5f33040f))
+
 # [1.7.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v1.6.0...v1.7.0) (2025-12-11)
 
 
