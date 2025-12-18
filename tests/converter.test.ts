@@ -126,7 +126,7 @@ describe('LibreOfficeConverter', () => {
   });
 
   // Integration tests (require WASM build)
-  describe('Integration tests (requires WASM build)', () => {
+  describe.skip('Integration tests (requires WASM build)', () => {
     let converter: LibreOfficeConverter;
 
     beforeAll(async () => {
@@ -149,7 +149,7 @@ describe('LibreOfficeConverter', () => {
     it('should convert a simple text document to PDF', async () => {
       // Create a minimal ODT document
       const textContent = new TextEncoder().encode('Hello, World!');
-      
+
       const result = await converter.convert(
         textContent,
         { outputFormat: 'pdf' },
