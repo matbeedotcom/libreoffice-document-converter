@@ -280,6 +280,17 @@ export interface BrowserConverterOptions {
 export interface WorkerBrowserConverterOptions extends BrowserConverterOptions {
   /** URL to browser.worker.js - defaults to /dist/browser.worker.global.js */
   browserWorkerJs?: string;
+  /**
+   * Enable download progress tracking during WASM initialization
+   * When enabled, intercepts fetch/XHR to track download progress for soffice.wasm and soffice.data
+   * 
+   * **WARNING**: This is disabled by default because the fetch interceptor can break
+   * WebAssembly streaming compilation in some environments. Only enable if you need
+   * detailed download progress and have tested it works in your target browsers.
+   * 
+   * @default false
+   */
+  enableProgressTracking?: boolean;
 }
 
 /**
@@ -557,7 +568,7 @@ export function getFilterForDocType(outputFormat: OutputFormat, docType: LOKDocu
   if (docTypeFilters && docTypeFilters[outputFormat]) {
     return docTypeFilters[outputFormat];
   }
-  
+
   // Fall back to the default filter
   return FORMAT_FILTERS[outputFormat];
 }
@@ -747,12 +758,12 @@ export const CATEGORY_OUTPUT_FORMATS: Record<DocumentCategory, OutputFormat[]> =
 export function getValidOutputFormats(inputFormat: InputFormat | string): OutputFormat[] {
   const format = inputFormat.toLowerCase() as InputFormat;
   const category = INPUT_FORMAT_CATEGORY[format];
-  
+
   if (!category) {
     // Unknown format - allow PDF as a safe default
     return ['pdf'];
   }
-  
+
   return CATEGORY_OUTPUT_FORMATS[category];
 }
 
@@ -783,9 +794,9 @@ export function getConversionErrorMessage(
   const input = inputFormat.toLowerCase();
   const output = outputFormat.toLowerCase();
   const validOutputs = getValidOutputFormats(input as InputFormat);
-  
+
   const category = INPUT_FORMAT_CATEGORY[input as InputFormat] || 'unknown';
-  
+
   let reason = '';
   if (category === 'drawing' && ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(output)) {
     reason = `PDF files are imported as Draw documents and cannot be exported to Office formats. `;
@@ -796,7 +807,7 @@ export function getConversionErrorMessage(
   } else if (category === 'text' && ['xlsx', 'xls', 'pptx', 'ppt'].includes(output)) {
     reason = `Text documents cannot be converted to spreadsheet or presentation formats. `;
   }
-  
+
   return `Cannot convert ${input.toUpperCase()} to ${output.toUpperCase()}. ${reason}Valid output formats for ${input.toUpperCase()}: ${validOutputs.join(', ')}`;
 }
 

@@ -214,8 +214,8 @@ export class BrowserConverter {
           const baseUrl = sofficeJs.substring(0, sofficeJs.lastIndexOf('/') + 1);
           return `${baseUrl}${path}`;
         },
-        print: this.options.verbose ? console.log : () => {},
-        printErr: this.options.verbose ? console.error : () => {},
+        print: this.options.verbose ? console.log : () => { },
+        printErr: this.options.verbose ? console.error : () => { },
         onRuntimeInitialized: () => {
           if (this.options.verbose) console.log('[Browser] WASM runtime initialized');
           resolve(win.Module as EmscriptenModule);
@@ -584,6 +584,7 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
         sofficeWasm: this.options.sofficeWasm,
         sofficeData: this.options.sofficeData,
         sofficeWorkerJs: this.options.sofficeWorkerJs,
+        enableProgressTracking: this.options.enableProgressTracking,
         verbose: this.options.verbose,
       });
 
