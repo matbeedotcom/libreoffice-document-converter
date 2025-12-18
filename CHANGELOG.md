@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.1.0...v2.2.0) (2025-12-18)
+
+
+### Features
+
+* fix ([ba61bbb](https://github.com/matbeedotcom/libreoffice-document-converter/commit/ba61bbb3926df1ee59944ca643cd0fedf9a804a3))
+
 # [2.1.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.0.1...v2.1.0) (2025-12-18)
 
 
