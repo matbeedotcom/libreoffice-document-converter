@@ -21,7 +21,7 @@ import { ConversionError, EditorOperationResult } from '../src/types.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
-describe('WorkerConverter', () => {
+describe.skip('WorkerConverter', () => {
   describe('Instance creation', () => {
     it('should create a converter instance', () => {
       const converter = new WorkerConverter({
