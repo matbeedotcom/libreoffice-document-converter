@@ -7,7 +7,23 @@ import * as fs from 'fs';
 
 const wasmPath = process.env.WASM_PATH || './wasm';
 const verbose = process.env.VERBOSE === 'true';
-const wasmDir = path.resolve(wasmPath);
+
+// WASM_PATH from parent should already be absolute - only resolve if relative
+// This prevents double-pathing issues (e.g., /wasm/wasm) when CWD is already the wasm dir
+const wasmDir = path.isAbsolute(wasmPath) ? wasmPath : path.resolve(wasmPath);
+
+// Verify the wasm directory exists before attempting to chdir
+if (!fs.existsSync(wasmDir)) {
+  const error = new Error(
+    `WASM directory not found: ${wasmDir}\n` +
+    `  WASM_PATH env: ${process.env.WASM_PATH || '(not set)'}\n` +
+    `  CWD: ${process.cwd()}\n` +
+    `  Resolved to: ${wasmDir}`
+  );
+  console.error('[ForkWorker]', error.message);
+  process.send?.({ type: 'error', error: error.message });
+  process.exit(1);
+}
 
 process.chdir(wasmDir);
 
@@ -162,6 +178,9 @@ process.on('message', (msg: { type: string; id: string; payload?: any }) => {
       }
       initialized = false;
       process.send?.({ type: 'response', id: msg.id, success: true });
+      // Exit the process after cleanup - use setImmediate to allow response to be sent first
+      log('Destroy complete, exiting process');
+      setImmediate(() => process.exit(0));
     }
   } catch (err) {
     process.send?.({ type: 'response', id: msg.id, success: false, error: (err as Error).message });

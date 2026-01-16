@@ -351,6 +351,35 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       logDir('IMPRESS MODULES', '/instdir/share/config/soffice.cfg/modules/simpress');
     }
 
+    // Create required directories for LibreOffice user profile
+    // These are needed for temp files, locks, and user settings during LOK initialization
+    const emFs = this.module.FS;
+    const createDir = (dirPath: string) => {
+      try {
+        emFs.mkdir(dirPath);
+        if (this.options.verbose) {
+          console.log('[FS] Created directory:', dirPath);
+        }
+      } catch (e) {
+        // Directory might already exist - ignore EEXIST errors
+        const err = e as { code?: string };
+        if (err.code !== 'EEXIST') {
+          if (this.options.verbose) {
+            console.log('[FS] mkdir failed:', dirPath, (e as Error).message);
+          }
+        }
+      }
+    };
+
+    // Create user profile directories that LibreOffice needs
+    createDir('/instdir/user');
+    createDir('/instdir/user/temp');
+    createDir('/instdir/user/temp/embeddedfonts');
+    createDir('/instdir/user/temp/embeddedfonts/fromdocs');
+    createDir('/instdir/user/temp/embeddedfonts/fromsystem');
+    createDir('/instdir/user/registry');
+    createDir('/instdir/user/registry/data');
+
     // Create LOK bindings wrapper
     this.lokBindings = new LOKBindings(this.module, this.options.verbose);
 

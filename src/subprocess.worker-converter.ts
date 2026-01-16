@@ -533,9 +533,22 @@ export class SubprocessConverter implements ILibreOfficeConverter {
 
   async destroy(): Promise<void> {
     if (this.child) {
-      try { await this.send('destroy'); } catch {}
-      this.child.kill();
-      this.child = null;
+      // Send destroy message (child will exit after cleanup)
+      try { 
+        await this.send('destroy'); 
+      } catch {
+        // Child may have already exited, that's fine
+      }
+      
+      // Force kill if still running (child should have exited via process.exit)
+      if (this.child) {
+        try { 
+          this.child.kill('SIGKILL'); 
+        } catch {
+          // Already dead, that's fine
+        }
+        this.child = null;
+      }
     }
     this.initialized = false;
     this.pending.clear();
