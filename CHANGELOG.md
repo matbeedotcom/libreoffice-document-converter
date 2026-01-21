@@ -1,3 +1,11 @@
+# [2.4.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.3.1...v2.4.0) (2026-01-16)
+
+
+### Features
+
+* Enhance worker management and directory setup for LibreOffice conversion ([515a294](https://github.com/matbeedotcom/libreoffice-document-converter/commit/515a2940a0b172265f022b358d58bf760f18412a))
+* Update  test configuration ([cd69525](https://github.com/matbeedotcom/libreoffice-document-converter/commit/cd69525bc60f225e8da92d8a14d8f4ab83fe30a1))
+
 ## [2.3.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.3.0...v2.3.1) (2025-12-18)
 
 
