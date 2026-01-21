@@ -1,3 +1,10 @@
+# [2.5.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.4.0...v2.5.0) (2026-01-21)
+
+
+### Features
+
+* Implement CSV import filter options for LibreOffice conversion ([6fffed5](https://github.com/matbeedotcom/libreoffice-document-converter/commit/6fffed534edc4e306585c8227959ba07f0e20416))
+
 # [2.4.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.3.1...v2.4.0) (2026-01-16)
 
 
