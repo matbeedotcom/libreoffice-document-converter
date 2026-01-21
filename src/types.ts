@@ -695,6 +695,53 @@ export const FORMAT_FILTER_OPTIONS: Partial<Record<OutputFormat, string>> = {
 };
 
 /**
+ * CSV Import filter options for loading CSV files as spreadsheets.
+ * 
+ * The FilterOptions token format (15 tokens, comma-separated):
+ * Token 0: Field separator ASCII code (44 = comma, 9 = tab, 59 = semicolon)
+ * Token 1: Text delimiter ASCII code (34 = double quote)
+ * Token 2: Character set (76 = UTF-8)
+ * Token 3: Start row (1 = first row)
+ * Token 4: Column format info (empty = auto-detect)
+ * Token 5: Language ID (1033 = English US, 0 = system)
+ * Token 6: Quoted field as text (true/false)
+ * Token 7: Detect special numbers (true/false)
+ * Token 8: Save as shown - export only (false)
+ * Token 9: Save formulas - export only (false)
+ * Token 10: Trim spaces (false)
+ * Token 11: Sheet to export - export only (0)
+ * Token 12: Evaluate formulas (true)
+ * Token 13: Include BOM - export only (false)
+ * Token 14: Detect scientific numbers (true)
+ * 
+ * This ensures LibreOffice loads CSV files as Calc spreadsheet documents
+ * in headless mode without triggering dialogs.
+ */
+export const CSV_IMPORT_FILTER_OPTIONS = 'FilterName=Text - txt - csv (StarCalc),FilterOptions=44,34,76,1,,1033,false,true,false,false,false,0,true,false,true';
+
+/**
+ * Build load options for a document based on format and other options
+ * @param inputFormat The input document format
+ * @param password Optional password for encrypted documents
+ * @returns Load options string for documentLoadWithOptions, or empty string for documentLoad
+ */
+export function buildLoadOptions(inputFormat?: string, password?: string): string {
+  const options: string[] = [];
+  
+  // CSV files need explicit import filter to be recognized as spreadsheets
+  if (inputFormat?.toLowerCase() === 'csv') {
+    options.push(CSV_IMPORT_FILTER_OPTIONS);
+  }
+  
+  // Password-protected documents
+  if (password) {
+    options.push(`Password=${password}`);
+  }
+  
+  return options.join(',');
+}
+
+/**
  * Document type categories for determining valid conversions
  */
 export type DocumentCategory = 'text' | 'spreadsheet' | 'presentation' | 'drawing' | 'other';

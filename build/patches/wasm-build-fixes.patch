@@ -1,3 +1,61 @@
+diff --git a/.clangd b/.clangd
+new file mode 100644
+index 000000000..3d41f1f26
+--- /dev/null
++++ b/.clangd
+@@ -0,0 +1,52 @@
++CompileFlags:
++  Add:
++    # Target wasm32 to match Emscripten's type sizes
++    - --target=wasm32-unknown-emscripten
++    
++    # Emscripten defines
++    - -DEMSCRIPTEN
++    - -D__EMSCRIPTEN__
++    - -DEMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
++    
++    # LibreOffice-specific defines
++    - -DLIBO_INTERNAL_ONLY
++    - -DSAL_LOG_INFO
++    - -DSAL_LOG_WARN
++    
++    # Force libc++ instead of libstdc++
++    - -stdlib=libc++
++    
++    # Emscripten libc++ headers (must come first) - relative to project root
++    - -isystem../emsdk/upstream/emscripten/cache/sysroot/include/c++/v1
++    - -isystem../emsdk/upstream/emscripten/cache/sysroot/include
++    
++    # LibreOffice main include path
++    - -Iinclude
++    
++    # Generated config headers
++    - -Iconfig_host
++    
++    # UNO API headers (comprehensive has more headers than normal)
++    - -Iworkdir/UnoApiHeadersTarget/udkapi/comprehensive
++    - -Iworkdir/UnoApiHeadersTarget/offapi/comprehensive
++    - -Iworkdir/UnoApiHeadersTarget/oovbaapi/comprehensive
++    
++    # Generated officecfg headers
++    - -Iworkdir/CustomTarget/officecfg/registry
++    
++    # External libraries
++    - -Iexternal/boost/include
++    - -Iworkdir/UnpackedTarball/boost
++    - -Iworkdir/UnpackedTarball/icu/source/common
++    - -Iworkdir/UnpackedTarball/icu/source/i18n
++    
++    # Module include directories
++    - -Idesktop/inc
++    - -Idesktop/source/lib
++    
++    # C++ standard
++    - -std=c++20
++
++Diagnostics:
++  UnusedIncludes: None
++  MissingIncludes: None
 diff --git a/.gitignore b/.gitignore
 index 7bd30210a..2f7f91cde 100644
 --- a/.gitignore
@@ -40,6 +98,19 @@ index 4a505655d..9e103a493 100644
  ))
  
  $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,onlineupdate, \
+diff --git a/RepositoryFixes.mk b/RepositoryFixes.mk
+index 2139b2f82..3dc542536 100644
+--- a/RepositoryFixes.mk
++++ b/RepositoryFixes.mk
+@@ -38,7 +38,7 @@ ifeq ($(OS),EMSCRIPTEN)
+ ifeq ($(ENABLE_QT6),TRUE)
+ gb_Executable_FILENAMES := $(patsubst soffice_bin:soffice_bin%,soffice_bin:soffice.js,$(gb_Executable_FILENAMES))
+ else
+-gb_Executable_FILENAMES := $(patsubst soffice_bin:soffice_bin%,soffice_bin:soffice.html,$(gb_Executable_FILENAMES))
++gb_Executable_FILENAMES := $(patsubst soffice_bin:soffice_bin%,soffice_bin:soffice.mjs,$(gb_Executable_FILENAMES))
+ endif
+ else
+ gb_Executable_FILENAMES := $(patsubst soffice_bin:soffice_bin%,soffice_bin:soffice.bin,$(gb_Executable_FILENAMES))
 diff --git a/autogen.input b/autogen.input
 new file mode 100644
 index 000000000..c7aa6ef85
@@ -156,6 +227,143 @@ index 000000000..20f901181
 +--disable-gui
 +--with-main-module=writer
 +--with-parallelism=32
+diff --git a/comphelper/source/misc/lok.cxx b/comphelper/source/misc/lok.cxx
+index 36898debc..9da1f5208 100644
+--- a/comphelper/source/misc/lok.cxx
++++ b/comphelper/source/misc/lok.cxx
+@@ -8,10 +8,14 @@
+  */
+ 
+ #include <comphelper/lok.hxx>
++#include <com/sun/star/util/CloseVetoException.hpp>
+ #include <osl/process.h>
+ #include <i18nlangtag/languagetag.hxx>
+ #include <sal/log.hxx>
+ 
++#include <atomic>
++#include <chrono>
++#include <cstdint>
+ #include <iostream>
+ 
+ namespace comphelper::LibreOfficeKit
+@@ -35,6 +39,14 @@ static bool g_bViewIdForVisCursorInvalidation(false);
+ 
+ static bool g_bLocalRendering(false);
+ 
++// Operation abort state (atomic for thread safety with Web Workers)
++// NOTE: Use only 32-bit atomics for WASM SharedArrayBuffer compatibility
++// 64-bit atomics can cause alignment issues in pthread shared memory
++alignas(4) static std::atomic<int> g_eCurrentOperation{0}; // OperationType as int
++alignas(4) static std::atomic<int> g_bAbortOperation{0};   // Use int instead of bool for alignment
++alignas(4) static std::atomic<int> g_nOperationTimeoutMs{0};
++alignas(4) static std::atomic<int> g_nOperationStartMs{0}; // Start time offset (low 32 bits of epoch)
++
+ static Compat g_eCompatFlags(Compat::none);
+ 
+ namespace
+@@ -305,6 +317,16 @@ void statusIndicatorStart(const OUString& sText)
+ 
+ void statusIndicatorSetValue(int percent)
+ {
++    // TEMPORARILY DISABLED: Abort mechanism causing WASM memory issues
++    // TODO: Re-enable once SharedArrayBuffer alignment is fixed
++    // if (shouldAbortOperation())
++    // {
++    //     SAL_INFO("comphelper.lok", "statusIndicatorSetValue: abort requested, throwing exception");
++    //     throw css::util::CloseVetoException(
++    //         u"Operation aborted"_ustr,
++    //         css::uno::Reference<css::uno::XInterface>());
++    // }
++
+     if (pStatusIndicatorCallback)
+         pStatusIndicatorCallback(pStatusIndicatorCallbackData, statusIndicatorCallbackType::SetValue, percent, nullptr);
+ }
+@@ -315,6 +337,85 @@ void statusIndicatorFinish()
+         pStatusIndicatorCallback(pStatusIndicatorCallbackData, statusIndicatorCallbackType::Finish, 0, nullptr);
+ }
+ 
++// Helper to get current time in milliseconds (lower 32 bits for wrapping)
++static int getCurrentTimeMs32()
++{
++    return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
++        std::chrono::steady_clock::now().time_since_epoch()).count() & 0x7FFFFFFF);
++}
++
++void setCurrentOperation(OperationType type)
++{
++    g_eCurrentOperation.store(static_cast<int>(type), std::memory_order_relaxed);
++    if (type != OperationType::None)
++    {
++        // Reset abort flag when starting a new operation
++        g_bAbortOperation.store(0, std::memory_order_relaxed);
++        // Record start time if timeout is configured
++        int timeoutMs = g_nOperationTimeoutMs.load(std::memory_order_relaxed);
++        if (timeoutMs > 0)
++        {
++            g_nOperationStartMs.store(getCurrentTimeMs32(), std::memory_order_relaxed);
++        }
++        else
++        {
++            g_nOperationStartMs.store(0, std::memory_order_relaxed);
++        }
++    }
++}
++
++OperationType getCurrentOperation()
++{
++    return static_cast<OperationType>(g_eCurrentOperation.load(std::memory_order_relaxed));
++}
++
++void setAbortOperation(bool bAbort)
++{
++    g_bAbortOperation.store(bAbort ? 1 : 0, std::memory_order_relaxed);
++    SAL_INFO("comphelper.lok", "setAbortOperation: " << bAbort);
++}
++
++bool isAbortOperation()
++{
++    return g_bAbortOperation.load(std::memory_order_relaxed) != 0;
++}
++
++void resetAbortOperation()
++{
++    g_bAbortOperation.store(0, std::memory_order_relaxed);
++    g_eCurrentOperation.store(static_cast<int>(OperationType::None), std::memory_order_relaxed);
++    g_nOperationStartMs.store(0, std::memory_order_relaxed);
++}
++
++void setOperationTimeout(int timeoutMs)
++{
++    g_nOperationTimeoutMs.store(timeoutMs, std::memory_order_relaxed);
++    SAL_INFO("comphelper.lok", "setOperationTimeout: " << timeoutMs << "ms");
++}
++
++bool isOperationTimedOut()
++{
++    int timeoutMs = g_nOperationTimeoutMs.load(std::memory_order_relaxed);
++    if (timeoutMs <= 0)
++        return false;
++
++    int startMs = g_nOperationStartMs.load(std::memory_order_relaxed);
++    if (startMs == 0)
++        return false;
++
++    int elapsed = getCurrentTimeMs32() - startMs;
++    // Handle wrap-around for 31-bit positive integers
++    if (elapsed < 0)
++        elapsed += 0x7FFFFFFF;
++
++    return elapsed >= timeoutMs;
++}
++
++bool shouldAbortOperation()
++{
++    return isAbortOperation() || isOperationTimedOut();
++}
++
+ } // namespace
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/comphelper/source/misc/threadpool.cxx b/comphelper/source/misc/threadpool.cxx
 index f0a71eb05..185d7e58d 100644
 --- a/comphelper/source/misc/threadpool.cxx
@@ -181,6 +389,14 @@ index f0a71eb05..185d7e58d 100644
      }();
  
      return ThreadCount;
+diff --git a/compile_flags.txt b/compile_flags.txt
+new file mode 100644
+index 000000000..51af3f658
+--- /dev/null
++++ b/compile_flags.txt
+@@ -0,0 +1,2 @@
++# Empty file to make clangd resolve paths relative to this directory
++
 diff --git a/config_host.mk.in b/config_host.mk.in
 index a3a965364..d991d5611 100644
 --- a/config_host.mk.in
@@ -238,18 +454,32 @@ index 04f8e7f80..3ef86f6a5 100644
  # Use -isystem (gcc) if possible, to avoid warnings in 3rd party headers.
  # NOTE: must _not_ be used for bundled external libraries!
 diff --git a/desktop/Executable_soffice_bin.mk b/desktop/Executable_soffice_bin.mk
-index d6a271dec..930ebc883 100644
+index d6a271dec..5bd492926 100644
 --- a/desktop/Executable_soffice_bin.mk
 +++ b/desktop/Executable_soffice_bin.mk
-@@ -62,7 +62,7 @@ $(call gb_LinkTarget_get_headers_target,$(call gb_Executable_get_linktarget,soff
+@@ -62,14 +62,18 @@ $(call gb_LinkTarget_get_headers_target,$(call gb_Executable_get_linktarget,soff
  $(call gb_LinkTarget__static_lib_dummy_depend,unoembind)
  
  $(eval $(call gb_Executable_add_ldflags,soffice_bin,\
 -	-s EXPORTED_FUNCTIONS=["_main"$(COMMA)"_libreofficekit_hook"$(COMMA)"_libreofficekit_hook_2"$(COMMA)"_lok_preinit"$(COMMA)"_lok_preinit_2"$(COMMA)"_malloc"$(COMMA)"_free"] -Wl$(COMMA)--whole-archive $(call gb_StaticLibrary_get_target,unoembind) -Wl$(COMMA)--no-whole-archive \
-+	-s EXPORTED_FUNCTIONS=["_main"$(COMMA)"_libreofficekit_hook"$(COMMA)"_libreofficekit_hook_2"$(COMMA)"_lok_preinit"$(COMMA)"_lok_preinit_2"$(COMMA)"_lok_documentLoad"$(COMMA)"_lok_documentLoadWithOptions"$(COMMA)"_lok_documentSaveAs"$(COMMA)"_lok_documentDestroy"$(COMMA)"_lok_destroy"$(COMMA)"_lok_getError"$(COMMA)"_lok_documentGetParts"$(COMMA)"_lok_documentGetPart"$(COMMA)"_lok_documentSetPart"$(COMMA)"_lok_documentGetDocumentType"$(COMMA)"_lok_documentGetDocumentSize"$(COMMA)"_lok_documentInitializeForRendering"$(COMMA)"_lok_documentPaintTile"$(COMMA)"_lok_documentGetTileMode"$(COMMA)"_lok_documentGetTextSelection"$(COMMA)"_lok_documentSetTextSelection"$(COMMA)"_lok_documentGetSelectionType"$(COMMA)"_lok_documentResetSelection"$(COMMA)"_lok_documentPostMouseEvent"$(COMMA)"_lok_documentPostKeyEvent"$(COMMA)"_lok_documentPostUnoCommand"$(COMMA)"_lok_documentGetCommandValues"$(COMMA)"_lok_documentGetPartPageRectangles"$(COMMA)"_lok_documentGetPartInfo"$(COMMA)"_lok_documentGetPartName"$(COMMA)"_lok_documentPaste"$(COMMA)"_lok_documentSetClientZoom"$(COMMA)"_lok_documentSetClientVisibleArea"$(COMMA)"_lok_documentGetA11yFocusedParagraph"$(COMMA)"_lok_documentGetA11yCaretPosition"$(COMMA)"_lok_documentSetAccessibilityState"$(COMMA)"_lok_documentGetDataArea"$(COMMA)"_lok_documentGetEditMode"$(COMMA)"_lok_documentSetEditMode"$(COMMA)"_lok_documentCreateView"$(COMMA)"_lok_documentCreateViewWithOptions"$(COMMA)"_lok_documentDestroyView"$(COMMA)"_lok_documentSetView"$(COMMA)"_lok_documentGetView"$(COMMA)"_lok_documentGetViewsCount"$(COMMA)"_lok_enableSyncEvents"$(COMMA)"_lok_disableSyncEvents"$(COMMA)"_lok_runLoop"$(COMMA)"_lok_documentRegisterCallback"$(COMMA)"_lok_documentUnregisterCallback"$(COMMA)"_lok_hasCallbackEvents"$(COMMA)"_lok_getCallbackEventCount"$(COMMA)"_lok_pollCallback"$(COMMA)"_lok_clearCallbackQueue"$(COMMA)"_lok_flushCallbacks"$(COMMA)"_malloc"$(COMMA)"_free"] -Wl$(COMMA)--whole-archive $(call gb_StaticLibrary_get_target,unoembind) -Wl$(COMMA)--no-whole-archive \
++	-s EXPORTED_FUNCTIONS=["_main"$(COMMA)"_libreofficekit_hook"$(COMMA)"_libreofficekit_hook_2"$(COMMA)"_lok_preinit"$(COMMA)"_lok_preinit_2"$(COMMA)"_lok_documentLoad"$(COMMA)"_lok_documentLoadWithOptions"$(COMMA)"_lok_documentSaveAs"$(COMMA)"_lok_documentDestroy"$(COMMA)"_lok_destroy"$(COMMA)"_lok_getError"$(COMMA)"_lok_documentGetParts"$(COMMA)"_lok_documentGetPart"$(COMMA)"_lok_documentSetPart"$(COMMA)"_lok_documentGetDocumentType"$(COMMA)"_lok_documentGetDocumentSize"$(COMMA)"_lok_documentInitializeForRendering"$(COMMA)"_lok_documentPaintTile"$(COMMA)"_lok_documentGetTileMode"$(COMMA)"_lok_documentGetTextSelection"$(COMMA)"_lok_documentSetTextSelection"$(COMMA)"_lok_documentGetSelectionType"$(COMMA)"_lok_documentResetSelection"$(COMMA)"_lok_documentPostMouseEvent"$(COMMA)"_lok_documentPostKeyEvent"$(COMMA)"_lok_documentPostUnoCommand"$(COMMA)"_lok_documentGetCommandValues"$(COMMA)"_lok_documentGetPartPageRectangles"$(COMMA)"_lok_documentGetPartInfo"$(COMMA)"_lok_documentGetPartName"$(COMMA)"_lok_documentPaste"$(COMMA)"_lok_documentSetClientZoom"$(COMMA)"_lok_documentSetClientVisibleArea"$(COMMA)"_lok_documentGetA11yFocusedParagraph"$(COMMA)"_lok_documentGetA11yCaretPosition"$(COMMA)"_lok_documentSetAccessibilityState"$(COMMA)"_lok_documentGetDataArea"$(COMMA)"_lok_documentGetEditMode"$(COMMA)"_lok_documentSetEditMode"$(COMMA)"_lok_documentCreateView"$(COMMA)"_lok_documentCreateViewWithOptions"$(COMMA)"_lok_documentDestroyView"$(COMMA)"_lok_documentSetView"$(COMMA)"_lok_documentGetView"$(COMMA)"_lok_documentGetViewsCount"$(COMMA)"_lok_enableSyncEvents"$(COMMA)"_lok_disableSyncEvents"$(COMMA)"_lok_runLoop"$(COMMA)"_lok_documentRegisterCallback"$(COMMA)"_lok_documentUnregisterCallback"$(COMMA)"_lok_hasCallbackEvents"$(COMMA)"_lok_getCallbackEventCount"$(COMMA)"_lok_pollCallback"$(COMMA)"_lok_clearCallbackQueue"$(COMMA)"_lok_flushCallbacks"$(COMMA)"_lok_abortOperation"$(COMMA)"_lok_setOperationTimeout"$(COMMA)"_lok_getOperationState"$(COMMA)"_lok_resetAbort"$(COMMA)"_malloc"$(COMMA)"_free"] -Wl$(COMMA)--whole-archive $(call gb_StaticLibrary_get_target,unoembind) -Wl$(COMMA)--no-whole-archive \
  ))
- ifeq ($(ENABLE_QT6),TRUE)
+-ifeq ($(ENABLE_QT6),TRUE)
++# MODULARIZE wraps the Emscripten output in a factory function, allowing
++# proper async initialization and multiple instantiations if needed.
++# EXPORT_ES6 outputs ES6 module format with import/export syntax.
++# EXPORT_NAME defines the name for the default export factory function.
  $(eval $(call gb_Executable_add_ldflags,soffice_bin, \
+     -s MODULARIZE=1 \
+-    -s EXPORT_NAME=soffice_entry \
++    -s EXPORT_ES6=1 \
++    -s EXPORT_NAME=createSofficeModule \
++    --minify 0 \
+ ))
+-endif
+ 
+ $(call gb_Executable_get_linktarget_target,soffice_bin): \
+     $(gb_CustomTarget_workdir)/static/unoembind/bindings_uno.js \
 diff --git a/desktop/inc/lib/init.hxx b/desktop/inc/lib/init.hxx
 index 25169b4e0..52a429321 100644
 --- a/desktop/inc/lib/init.hxx
@@ -267,10 +497,26 @@ index 25169b4e0..52a429321 100644
          void removeViewStates(int viewId);
  
 diff --git a/desktop/source/lib/init.cxx b/desktop/source/lib/init.cxx
-index ece81f035..7f09fd590 100644
+index ece81f035..eb3037281 100644
 --- a/desktop/source/lib/init.cxx
 +++ b/desktop/source/lib/init.cxx
-@@ -134,7 +134,7 @@
+@@ -51,6 +51,7 @@
+ #endif
+ 
+ #include <algorithm>
++#include <cstring>
+ #include <memory>
+ #include <iostream>
+ #include <string_view>
+@@ -105,6 +106,7 @@
+ #include <com/sun/star/lang/XComponent.hpp>
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
++#include <com/sun/star/util/CloseVetoException.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/datatransfer/clipboard/XClipboard.hpp>
+ #include <com/sun/star/datatransfer/UnsupportedFlavorException.hpp>
+@@ -134,7 +136,7 @@
  #include <com/sun/star/view/XSelectionSupplier.hpp>
  
  #include <editeng/flstitem.hxx>
@@ -279,7 +525,80 @@ index ece81f035..7f09fd590 100644
  #include <sfx2/app.hxx>
  #endif
  #include <sfx2/objsh.hxx>
-@@ -7564,6 +7564,14 @@ void setLanguageToolConfig();
+@@ -230,6 +232,7 @@
+ #include <svtools/acceleratorexecute.hxx>
+ 
+ #include <tools/hostfilter.hxx>
++#include <tools/debug.hxx>
+ 
+ using namespace css;
+ using namespace vcl;
+@@ -2654,6 +2657,14 @@ static LibreOfficeKitDocument* lo_documentLoadWithOptions(LibreOfficeKit* pThis,
+ 
+     SolarMutexGuard aGuard;
+ 
++    // TEMPORARILY DISABLED: Abort mechanism causing WASM memory issues
++    // TODO: Re-enable once SharedArrayBuffer alignment is fixed
++    // comphelper::LibreOfficeKit::setCurrentOperation(
++    //     comphelper::LibreOfficeKit::OperationType::Load);
++    // comphelper::ScopeGuard operationCleanup([&]() {
++    //     comphelper::LibreOfficeKit::resetAbortOperation();
++    // });
++
+     static int nDocumentIdCounter = 0;
+ 
+     LibLibreOffice_Impl* pLib = static_cast<LibLibreOffice_Impl*>(pThis);
+@@ -2916,6 +2927,17 @@ static LibreOfficeKitDocument* lo_documentLoadWithOptions(LibreOfficeKit* pThis,
+ 
+         return pDocument;
+     }
++    catch (const css::util::CloseVetoException&)
++    {
++        if (comphelper::LibreOfficeKit::isAbortOperation())
++            pLib->maLastExceptionMsg = u"Operation aborted by user"_ustr;
++        else if (comphelper::LibreOfficeKit::isOperationTimedOut())
++            pLib->maLastExceptionMsg = u"Operation timed out"_ustr;
++        else
++            pLib->maLastExceptionMsg = u"Operation aborted"_ustr;
++        SAL_INFO("lok", "Document load aborted: " << pLib->maLastExceptionMsg);
++        return nullptr;
++    }
+     catch (const uno::Exception& exception)
+     {
+         pLib->maLastExceptionMsg = exception.Message;
+@@ -3398,6 +3420,13 @@ static int doc_saveAs(LibreOfficeKitDocument* pThis, const char* sUrl, const cha
+     SolarMutexGuard aGuard;
+     SetLastExceptionMsg();
+ 
++    // Set operation type and prepare for potential abort
++    comphelper::LibreOfficeKit::setCurrentOperation(
++        comphelper::LibreOfficeKit::OperationType::Save);
++    comphelper::ScopeGuard operationCleanup([&]() {
++        comphelper::LibreOfficeKit::resetAbortOperation();
++    });
++
+     LibLODocument_Impl* pDocument = static_cast<LibLODocument_Impl*>(pThis);
+ 
+     OUString sFormat = getUString(pFormat);
+@@ -3616,6 +3645,17 @@ static int doc_saveAs(LibreOfficeKitDocument* pThis, const char* sUrl, const cha
+ 
+         return true;
+     }
++    catch (const css::util::CloseVetoException&)
++    {
++        if (comphelper::LibreOfficeKit::isAbortOperation())
++            SetLastExceptionMsg(u"Operation aborted by user"_ustr);
++        else if (comphelper::LibreOfficeKit::isOperationTimedOut())
++            SetLastExceptionMsg(u"Operation timed out"_ustr);
++        else
++            SetLastExceptionMsg(u"Operation aborted"_ustr);
++        SAL_INFO("lok", "Document save aborted");
++        return false;
++    }
+     catch (const uno::Exception& exception)
+     {
+         SetLastExceptionMsg("exception: " + exception.Message);
+@@ -7564,6 +7604,14 @@ void setLanguageToolConfig();
  /// Used only by LibreOfficeKit when used by Online to pre-initialize
  static void preloadData()
  {
@@ -294,7 +613,7 @@ index ece81f035..7f09fd590 100644
      comphelper::ProfileZone aZone("preload data");
  
      // Create user profile in the temp directory for loading the dictionaries
-@@ -7904,7 +7912,15 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
+@@ -7904,7 +7952,15 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
  
      // Did we do a pre-initialize
      static bool bPreInited = false;
@@ -310,7 +629,7 @@ index ece81f035..7f09fd590 100644
      static bool bProfileZones = false;
      static bool bNotebookbar = false;
  
-@@ -8202,7 +8218,13 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
+@@ -8202,7 +8258,13 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
                  SAL_INFO("lok", "RequestHandler ready -- continuing");
              }
              else
@@ -324,7 +643,7 @@ index ece81f035..7f09fd590 100644
          }
  
          if (eStage != SECOND_INIT)
-@@ -8266,23 +8288,31 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
+@@ -8266,23 +8328,31 @@ static int lo_initialize(LibreOfficeKit* pThis, const char* pAppPath, const char
  SAL_JNI_EXPORT
  LibreOfficeKit *libreofficekit_hook_2(const char* install_path, const char* user_profile_url)
  {
@@ -357,7 +676,7 @@ index ece81f035..7f09fd590 100644
      return static_cast<LibreOfficeKit*>(gImpl);
  }
  
-@@ -8343,6 +8373,1300 @@ static void lo_destroy(LibreOfficeKit* pThis)
+@@ -8343,6 +8413,1364 @@ static void lo_destroy(LibreOfficeKit* pThis)
      SAL_INFO("lok", "LO Destroy Done");
  }
  
@@ -1655,9 +1974,204 @@ index ece81f035..7f09fd590 100644
 +    fflush(stderr);
 +}
 +
++// Operation abort API for WASM
++SAL_JNI_EXPORT
++void lok_abortOperation()
++{
++    SAL_INFO("lok.shim", "lok_abortOperation called");
++    fprintf(stderr, "[LOK C++] lok_abortOperation\n");
++    fflush(stderr);
++    comphelper::LibreOfficeKit::setAbortOperation(true);
++}
++
++SAL_JNI_EXPORT
++void lok_setOperationTimeout(int timeoutMs)
++{
++    SAL_INFO("lok.shim", "lok_setOperationTimeout: " << timeoutMs << "ms");
++    fprintf(stderr, "[LOK C++] lok_setOperationTimeout(%d)\n", timeoutMs);
++    fflush(stderr);
++    comphelper::LibreOfficeKit::setOperationTimeout(timeoutMs);
++}
++
++SAL_JNI_EXPORT
++const char* lok_getOperationState()
++{
++    static char sState[16];
++
++    if (comphelper::LibreOfficeKit::isAbortOperation())
++    {
++        strcpy(sState, "aborted");
++    }
++    else if (comphelper::LibreOfficeKit::isOperationTimedOut())
++    {
++        strcpy(sState, "timedout");
++    }
++    else
++    {
++        switch (comphelper::LibreOfficeKit::getCurrentOperation())
++        {
++            case comphelper::LibreOfficeKit::OperationType::None:
++                strcpy(sState, "none");
++                break;
++            case comphelper::LibreOfficeKit::OperationType::Load:
++                strcpy(sState, "load");
++                break;
++            case comphelper::LibreOfficeKit::OperationType::Save:
++                strcpy(sState, "save");
++                break;
++            case comphelper::LibreOfficeKit::OperationType::Export:
++                strcpy(sState, "export");
++                break;
++        }
++    }
++
++    SAL_INFO("lok.shim", "lok_getOperationState: " << sState);
++    return sState;
++}
++
++SAL_JNI_EXPORT
++void lok_resetAbort()
++{
++    SAL_INFO("lok.shim", "lok_resetAbort called");
++    fprintf(stderr, "[LOK C++] lok_resetAbort\n");
++    fflush(stderr);
++    comphelper::LibreOfficeKit::resetAbortOperation();
++}
++
  } // extern "C"
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/desktop/source/lib/lokinteractionhandler.cxx b/desktop/source/lib/lokinteractionhandler.cxx
+index 0680a9dd9..532dfcd47 100644
+--- a/desktop/source/lib/lokinteractionhandler.cxx
++++ b/desktop/source/lib/lokinteractionhandler.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include "lokinteractionhandler.hxx"
+ 
++#include <comphelper/lok.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <cppuhelper/supportsservice.hxx>
+ 
+@@ -41,6 +42,7 @@
+ #include <com/sun/star/task/DocumentMSPasswordRequest2.hpp>
+ 
+ #include <com/sun/star/document/FilterOptionsRequest.hpp>
++#include <com/sun/star/document/XInteractionFilterOptions.hpp>
+ 
+ #include "../../inc/lib/init.hxx"
+ 
+@@ -342,11 +344,10 @@ bool LOKInteractionHandler::handleMacroConfirmationRequest(const uno::Reference<
+     task::DocumentMacroConfirmationRequest aConfirmRequest;
+     if (request >>= aConfirmRequest)
+     {
+-        auto xInteraction(task::InteractionHandler::createWithParent(comphelper::getProcessComponentContext(), nullptr));
+-
+-        if (xInteraction.is())
+-            xInteraction->handleInteractionRequest(xRequest);
+-
++        // In headless/API mode, we don't show macro confirmation dialogs.
++        // Just approve to continue (macros will be disabled by default security settings anyway).
++        uno::Sequence<uno::Reference<task::XInteractionContinuation>> const &rContinuations = xRequest->getContinuations();
++        selectApproved(rContinuations);
+         return true;
+     }
+     return false;
+@@ -359,11 +360,10 @@ bool LOKInteractionHandler::handlePackageReparationRequest(const uno::Reference<
+     document::BrokenPackageRequest aBrokenPackageRequest;
+     if (request >>= aBrokenPackageRequest)
+     {
+-        auto xInteraction(task::InteractionHandler::createWithParent(comphelper::getProcessComponentContext(), nullptr));
+-
+-        if (xInteraction.is())
+-            xInteraction->handleInteractionRequest(xRequest);
+-
++        // In headless/API mode, we don't show package reparation dialogs.
++        // Just approve to attempt repair automatically.
++        uno::Sequence<uno::Reference<task::XInteractionContinuation>> const &rContinuations = xRequest->getContinuations();
++        selectApproved(rContinuations);
+         return true;
+     }
+     return false;
+@@ -379,11 +379,10 @@ bool LOKInteractionHandler::handleLoadReadOnlyRequest(const uno::Reference<task:
+         aLoadReadOnlyRequest.Name == "LoadReadOnlyRequest" &&
+         (aLoadReadOnlyRequest.Value >>= aFileName))
+     {
+-        auto xInteraction(task::InteractionHandler::createWithParent(comphelper::getProcessComponentContext(), nullptr));
+-
+-        if (xInteraction.is())
+-            xInteraction->handleInteractionRequest(xRequest);
+-
++        // In headless/API mode, we don't show load read-only dialogs.
++        // Just approve to continue loading (read-only if necessary).
++        uno::Sequence<uno::Reference<task::XInteractionContinuation>> const &rContinuations = xRequest->getContinuations();
++        selectApproved(rContinuations);
+         return true;
+     }
+     return false;
+@@ -395,13 +394,31 @@ bool LOKInteractionHandler::handleFilterOptionsRequest(const uno::Reference<task
+     uno::Any const request(xRequest->getRequest());
+     if (request >>= aFilterOptionsRequest)
+     {
+-        uno::Reference< task::XInteractionHandler2 > xInteraction(
+-            task::InteractionHandler::createWithParent(
+-                ::comphelper::getProcessComponentContext(), nullptr));
+-
+-        if (xInteraction.is())
+-            xInteraction->handleInteractionRequest(xRequest);
+-
++        // In headless/API mode, we don't show filter dialogs.
++        // Just select the filter options continuation to proceed with defaults
++        // (the filter options should have been provided via load options).
++        uno::Sequence<uno::Reference<task::XInteractionContinuation>> const &rContinuations = xRequest->getContinuations();
++        for (auto const & cont : rContinuations)
++        {
++            uno::Reference<document::XInteractionFilterOptions> xFilterOptions(cont, uno::UNO_QUERY);
++            if (xFilterOptions.is())
++            {
++                // Use the filter options that were passed in the request (if any)
++                xFilterOptions->setFilterOptions(aFilterOptionsRequest.rProperties);
++                xFilterOptions->select();
++                return true;
++            }
++        }
++        // No filter options continuation, try abort
++        for (auto const & cont : rContinuations)
++        {
++            uno::Reference<task::XInteractionAbort> xAbort(cont, uno::UNO_QUERY);
++            if (xAbort.is())
++            {
++                xAbort->select();
++                return true;
++            }
++        }
+         return true;
+     }
+     return false;
+@@ -413,6 +430,23 @@ sal_Bool SAL_CALL LOKInteractionHandler::handleInteractionRequest(
+     uno::Sequence<uno::Reference<task::XInteractionContinuation>> const &rContinuations = xRequest->getContinuations();
+     uno::Any const request(xRequest->getRequest());
+ 
++    // Check for abort request - select XInteractionAbort if available
++    if (comphelper::LibreOfficeKit::shouldAbortOperation())
++    {
++        SAL_INFO("lok", "handleInteractionRequest: abort requested");
++        for (auto const & cont : rContinuations)
++        {
++            uno::Reference<task::XInteractionAbort> xAbort(cont, uno::UNO_QUERY);
++            if (xAbort.is())
++            {
++                xAbort->select();
++                return true;
++            }
++        }
++        // No abort continuation available, continue with normal handling
++        // but the operation will likely fail at the next checkpoint
++    }
++
+     if (handleIOException(rContinuations, request))
+         return true;
+ 
 diff --git a/external/pdfium/Library_pdfium.mk b/external/pdfium/Library_pdfium.mk
 index 648b4d22c..53578d765 100644
 --- a/external/pdfium/Library_pdfium.mk
@@ -1672,6 +2186,111 @@ index 648b4d22c..53578d765 100644
  # fxge
  $(eval $(call gb_Library_add_generated_exception_objects,pdfium,\
      UnpackedTarball/pdfium/core/fxge/linux/fx_linux_impl \
+diff --git a/generate-wasm-patch.sh b/generate-wasm-patch.sh
+new file mode 100644
+index 000000000..1e843a21c
+--- /dev/null
++++ b/generate-wasm-patch.sh
+@@ -0,0 +1,60 @@
++#!/bin/bash
++#
++# Generate WASM build fixes patch
++# This script creates a clean patch from the base LibreOffice commit to the latest WASM changes
++#
++
++set -e
++
++# Base commit (upstream LibreOffice before WASM changes)
++BASE_COMMIT="d1c9e0e4e1ddeb24fe8f93e56860b3765043f8b1"
++
++# Target commit (latest WASM changes) - update this as needed
++TARGET_COMMIT="${1:-HEAD}"
++
++# Output file
++OUTPUT_FILE="wasm-build-fixes.patch"
++
++# Files to exclude from the patch
++EXCLUSIONS=(
++    ':!*.bak'
++    ':!*.orig'
++    ':!config_build.mk'
++    ':!config_host.mk'
++    ':!config_host_lang.mk'
++    ':!configure'
++)
++
++# Uncomment these to also exclude the autogen config files:
++# EXCLUSIONS+=(':!.gitignore')
++# EXCLUSIONS+=(':!autogen.input')
++# EXCLUSIONS+=(':!autogen.input.writer-only')
++
++echo "=== Generating WASM Build Patch ==="
++echo "Base commit:   $BASE_COMMIT"
++echo "Target commit: $TARGET_COMMIT"
++echo "Output file:   $OUTPUT_FILE"
++echo ""
++
++# Generate the patch
++git diff "$BASE_COMMIT".."$TARGET_COMMIT" -- . "${EXCLUSIONS[@]}" > "$OUTPUT_FILE"
++
++# Show results
++echo "=== Commits included ==="
++git log --oneline "$BASE_COMMIT".."$TARGET_COMMIT"
++echo ""
++
++FILE_COUNT=$(grep -c "^diff --git" "$OUTPUT_FILE" || echo "0")
++FILE_SIZE=$(ls -lh "$OUTPUT_FILE" | awk '{print $5}')
++
++echo "=== Patch Summary ==="
++echo "Files: $FILE_COUNT"
++echo "Size:  $FILE_SIZE"
++echo ""
++
++echo "=== Files in patch ==="
++grep "^diff --git" "$OUTPUT_FILE" | sed 's/diff --git a\///' | sed 's/ b\/.*//'
++echo ""
++
++echo "Done! Patch saved to: $OUTPUT_FILE"
++
+diff --git a/include/comphelper/lok.hxx b/include/comphelper/lok.hxx
+index 555b749fa..0b5fb2d05 100644
+--- a/include/comphelper/lok.hxx
++++ b/include/comphelper/lok.hxx
+@@ -42,6 +42,34 @@ enum class statusIndicatorCallbackType
+     Finish
+ };
+ 
++/// Type of long-running operation for abort tracking
++enum class OperationType
++{
++    None,
++    Load,
++    Save,
++    Export
++};
++
++/// Set the current operation type (called at operation start)
++COMPHELPER_DLLPUBLIC void setCurrentOperation(OperationType type);
++/// Get the current operation type
++COMPHELPER_DLLPUBLIC OperationType getCurrentOperation();
++
++/// Request abort of current operation (can be called from any thread)
++COMPHELPER_DLLPUBLIC void setAbortOperation(bool bAbort);
++/// Check if abort was requested
++COMPHELPER_DLLPUBLIC bool isAbortOperation();
++/// Reset abort flag (called at operation boundaries)
++COMPHELPER_DLLPUBLIC void resetAbortOperation();
++
++/// Set operation timeout in milliseconds (0 = no timeout)
++COMPHELPER_DLLPUBLIC void setOperationTimeout(int timeoutMs);
++/// Check if operation has timed out
++COMPHELPER_DLLPUBLIC bool isOperationTimedOut();
++/// Check if operation should abort (either explicit abort or timeout)
++COMPHELPER_DLLPUBLIC bool shouldAbortOperation();
++
+ COMPHELPER_DLLPUBLIC void setStatusIndicatorCallback(
+     void (*callback)(void* data, statusIndicatorCallbackType type, int percent, const char* pText),
+     void* data);
 diff --git a/sc/source/filter/oox/workbookfragment.cxx b/sc/source/filter/oox/workbookfragment.cxx
 index ea3b0aca4..9517103ee 100644
 --- a/sc/source/filter/oox/workbookfragment.cxx
@@ -1756,6 +2375,23 @@ index 9b08de708..cec95f1af 100644
  }
  
  OString SdXImpressDocument::getViewRenderState(SfxViewShell* pViewShell)
+diff --git a/sfx2/source/doc/objstor.cxx b/sfx2/source/doc/objstor.cxx
+index 18e268ff1..b278ea56b 100644
+--- a/sfx2/source/doc/objstor.cxx
++++ b/sfx2/source/doc/objstor.cxx
+@@ -881,8 +881,10 @@ ErrCode SfxObjectShell::HandleFilter( SfxMedium* pMedium, SfxObjectShell const *
+     SfxItemSet& rSet = pMedium->GetItemSet();
+     const SfxStringItem* pOptions = rSet.GetItem(SID_FILE_FILTEROPTIONS, false);
+     const SfxUnoAnyItem* pData = rSet.GetItem(SID_FILTER_DATA, false);
+-    const bool bTiledRendering = comphelper::LibreOfficeKit::isActive();
+-    if ( !pData && (bTiledRendering || !pOptions) )
++    // Only trigger filter options dialog if neither FilterData nor FilterOptions is set.
++    // The previous logic (bTiledRendering || !pOptions) would always trigger the dialog
++    // in LOK mode even when FilterOptions was provided, which breaks headless WASM usage.
++    if ( !pData && !pOptions )
+     {
+         css::uno::Reference< XMultiServiceFactory > xServiceManager = ::comphelper::getProcessServiceFactory();
+         css::uno::Reference< XNameAccess > xFilterCFG;
 diff --git a/sfx2/source/view/lokhelper.cxx b/sfx2/source/view/lokhelper.cxx
 index 05d6ab884..548ca8005 100644
 --- a/sfx2/source/view/lokhelper.cxx
@@ -1811,7 +2447,7 @@ index 48d91258e..6fa1be137 100644
  
  $$(eval $$(call gb_Module_register_target,$(call gb_Executable_get_target,$(1)),$(call gb_Executable_get_clean_target,$(1))))
 diff --git a/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk b/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
-index 45beedd1a..364c738b2 100644
+index 45beedd1a..0c3d5976b 100644
 --- a/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
 +++ b/solenv/gbuild/platform/EMSCRIPTEN_INTEL_GCC.mk
 @@ -15,17 +15,24 @@ gb_EMSCRIPTEN_CPPFLAGS := -pthread -s USE_PTHREADS=1 -D_LARGEFILE64_SOURCE -D_LA
@@ -1829,10 +2465,11 @@ index 45beedd1a..364c738b2 100644
  # See emscripten.py, finalize_wasm, modify_wasm = True
  # So we need WASM_BIGINT=1 and ASSERTIONS=1 (2 implies STACK_OVERFLOW_CHECK)
 -gb_EMSCRIPTEN_LDFLAGS += --bind -s FORCE_FILESYSTEM=1 -s WASM_BIGINT=1 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s FETCH=1 -s ASSERTIONS=1 -s EXIT_RUNTIME=0 -s EXPORTED_RUNTIME_METHODS=["UTF16ToString","stringToUTF16","UTF8ToString","ccall","cwrap","addOnPreMain","addOnPostRun","registerType","throwBindingError"$(if $(ENABLE_QT6),$(COMMA)"callMain"$(COMMA)"specialHTMLTargets")]
-+gb_EMSCRIPTEN_LDFLAGS += --bind -s FORCE_FILESYSTEM=1 -s WASM_BIGINT=1 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s FETCH=1 -s ASSERTIONS=1 -s EXIT_RUNTIME=0 -s EXPORTED_RUNTIME_METHODS=["FS","wasmTable","UTF16ToString","stringToUTF16","UTF8ToString","ccall","cwrap","addOnPreMain","addOnPostRun","registerType","throwBindingError","ENV"$(if $(ENABLE_QT6),$(COMMA)"callMain"$(COMMA)"specialHTMLTargets")]
++gb_EMSCRIPTEN_LDFLAGS += --bind -s FORCE_FILESYSTEM=1 -s WASM_BIGINT=1 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s FETCH=1 -s ASSERTIONS=1 -s EXIT_RUNTIME=0 -s EXPORTED_RUNTIME_METHODS=["FS","wasmMemory","wasmTable","UTF16ToString","stringToUTF16","UTF8ToString","ccall","cwrap","addOnPreMain","addOnPostRun","registerType","throwBindingError","ENV"$(if $(ENABLE_QT6),$(COMMA)"callMain"$(COMMA)"specialHTMLTargets")]
  gb_EMSCRIPTEN_QTDEFS := -DQT_NO_LINKED_LIST -DQT_NO_JAVA_STYLE_ITERATORS -DQT_NO_EXCEPTIONS -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB
  
- gb_Executable_EXT := .html
+-gb_Executable_EXT := .html
++gb_Executable_EXT := .mjs
  gb_EMSCRIPTEN_EXCEPT = -fwasm-exceptions -s SUPPORT_LONGJMP=wasm
  
 +# EXPORTED_FUNCTIONS for LOK API moved to desktop/Executable_soffice_bin.mk
@@ -1842,9 +2479,18 @@ index 45beedd1a..364c738b2 100644
  
  # Here we don't use += because gb_LinkTarget_EXCEPTIONFLAGS from com_GCC_defs.mk contains -fexceptions and
 diff --git a/solenv/gbuild/platform/unxgcc.mk b/solenv/gbuild/platform/unxgcc.mk
-index 68ea5c571..3544614f5 100644
+index 68ea5c571..04205fee0 100644
 --- a/solenv/gbuild/platform/unxgcc.mk
 +++ b/solenv/gbuild/platform/unxgcc.mk
+@@ -171,7 +171,7 @@ $(call gb_Helper_abbreviate_dirs,\
+                 ) \
+ 		-o $(1) \
+ 	$(if $(SOVERSIONSCRIPT),&& ln -sf ../../program/$(notdir $(1)) $(ILIBTARGET)) \
+-	$(if $(filter EMSCRIPTEN,$(OS)),$(if $(filter TRUE,$(HAVE_EXTERNAL_DWARF)),&& emdwp -e $(patsubst %.html,%.wasm,$(1)) -o $(patsubst %.html,%.wasm.dwp,$(1)))) \
++	$(if $(filter EMSCRIPTEN,$(OS)),$(if $(filter TRUE,$(HAVE_EXTERNAL_DWARF)),&& emdwp -e $(patsubst %$(gb_Executable_EXT),%.wasm,$(1)) -o $(patsubst %$(gb_Executable_EXT),%.wasm.dwp,$(1)))) \
+ 	$(if $(call gb_LinkTarget__WantLock,$(2)),; RC=$$? ; rm -f $(gb_LinkTarget__Lock); if test $$RC -ne 0; then exit $$RC; fi))
+ 
+ $(if $(filter Library,$(TARGETTYPE)), $(call gb_Helper_abbreviate_dirs,\
 @@ -188,8 +188,7 @@ $(if $(filter TRUE,$(ENABLE_QT5)), \
      sed -e 's/@APPNAME@/$(basename $(notdir $(1)))/g' -e 's/@APPEXPORTNAME@/$(basename $(notdir $(1)))_entry/g' -e 's/@PRELOAD@//g' -e 's|const instance = await qtLoad$(OPEN_PAREN){|const instance = await qtLoad$(OPEN_PAREN){ "arguments": ["--norestore"$(COMMA) "--nologo"$(COMMA) "--writer"$(COMMA) "/android/default-document/example.odt"]$(COMMA)|' -e 's/}$(CLOSE_PAREN);$$/}$(CLOSE_PAREN); window.Module = instance;/' $(QT6_PLATFORMS_SRCDIR)/wasm_shell.html > $(dir $(1))qt_$(basename $(notdir $(1))).html && \
      cp $(QT6_PLATFORMS_SRCDIR)/qtlogo.svg $(QT6_PLATFORMS_SRCDIR)/qtloader.js $(dir $(1)) && \

@@ -89,6 +89,7 @@ class NodeXHR {
 import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
+import { buildLoadOptions } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
 // Import the WASM loader - path is relative to dist/ after build
@@ -383,8 +384,14 @@ async function handleOpenDocument(payload: OpenDocumentPayload): Promise<{
   const inputData = new Uint8Array(payload.inputData);
   module.FS.writeFile(filePath, inputData);
 
-  // Load document
-  const docPtr = lokBindings.documentLoad(filePath);
+  // Load document (with CSV import filter options if needed)
+  const loadOptions = buildLoadOptions(payload.inputFormat);
+  let docPtr: number;
+  if (loadOptions) {
+    docPtr = lokBindings.documentLoadWithOptions(filePath, loadOptions);
+  } else {
+    docPtr = lokBindings.documentLoad(filePath);
+  }
   if (docPtr === 0) {
     const error = lokBindings.getError();
     module.FS.unlink(filePath);

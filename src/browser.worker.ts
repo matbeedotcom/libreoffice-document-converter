@@ -7,7 +7,7 @@
 
 import type { EditorOperationResult, EmscriptenModule, WasmLoadPhase, WasmLoadProgress } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
-import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK } from './types.js';
+import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK, buildLoadOptions } from './types.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OperationResult } from './editor/types.js';
 import { LibreOfficeConverter } from './converter.js';
@@ -485,7 +485,15 @@ function getOrLoadDocument(inputData: Uint8Array, inputExt: string): { docPtr: n
   // Load new document
   const filePath = `/tmp/input/cached_doc.${inputExt || 'docx'}`;
   module!.FS.writeFile(filePath, inputData);
-  const docPtr = lokBindings!.documentLoad(filePath);
+  
+  // Build load options for CSV import filter
+  const loadOptions = buildLoadOptions(inputExt);
+  let docPtr: number;
+  if (loadOptions) {
+    docPtr = lokBindings!.documentLoadWithOptions(filePath, loadOptions);
+  } else {
+    docPtr = lokBindings!.documentLoad(filePath);
+  }
 
   if (docPtr === 0) {
     const error = lokBindings!.getError();
@@ -724,8 +732,10 @@ function handleConvert(msg: WorkerMessage) {
     module.FS.writeFile(inPath, inputData);
 
     postProgress(msg.id, 30, 'Loading document...');
-    if (password) {
-      docPtr = lokBindings.documentLoadWithOptions(inPath, `,Password=${password}`);
+    // Build load options for CSV import filter and/or password
+    const loadOptions = buildLoadOptions(inputExt, password);
+    if (loadOptions) {
+      docPtr = lokBindings.documentLoadWithOptions(inPath, loadOptions);
     } else {
       docPtr = lokBindings.documentLoad(inPath);
     }

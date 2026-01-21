@@ -34,6 +34,7 @@ import {
   getValidOutputFormats,
   InputFormat,
   getOutputFormatsForDocType,
+  buildLoadOptions,
 } from './types.js';
 import { LOKBindings } from './lok-bindings.js';
 
@@ -501,10 +502,8 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     let docPtr = 0;
 
     try {
-      // Build load options (e.g., for password-protected documents)
-      const loadOptions = options.password 
-        ? `,Password=${options.password}` 
-        : '';
+      // Build load options (e.g., for CSV import filter or password-protected documents)
+      const loadOptions = buildLoadOptions(options.inputFormat, options.password);
 
       // Debug: verify file exists before LOK load
       if (this.options.verbose) {
@@ -513,6 +512,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
           console.log('[Convert] File exists before LOK load:', inputPath, 'size:', stat.size);
         } catch (e) {
           console.log('[Convert] File NOT found before LOK load:', inputPath, (e as Error).message);
+        }
+        if (loadOptions) {
+          console.log('[Convert] Using load options:', loadOptions);
         }
       }
 
