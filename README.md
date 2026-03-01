@@ -54,9 +54,9 @@ const highRes = await exportAsImage(pptxBuffer, [0, 1, 2], 'png', { dpi: 300, wi
 For servers, use the worker converter to avoid blocking the main thread:
 
 ```javascript
-import { createWorkerConverter } from '@matbee/libreoffice-converter';
+import { createWorkerConverter } from '@matbee/libreoffice-converter/server';
 
-const converter = await createWorkerConverter({ wasmPath: './wasm' });
+const converter = await createWorkerConverter();
 
 // Reuse for multiple conversions
 const pdf = await converter.convert(docxBuffer, { outputFormat: 'pdf' });
