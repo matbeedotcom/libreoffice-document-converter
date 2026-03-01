@@ -118,12 +118,14 @@ MPL-2.0 (same as LibreOffice)
 
 ## Contributing
 
+Ensure you have [git LFS](https://git-lfs.com/) and [pnpm](https://pnpm.io/) installed.
+
 ```bash
 git clone https://github.com/matbeedotcom/libreoffice-document-converter.git
 cd libreoffice-document-converter
-npm install
-npm run build
-npm test
+pnpm install
+pnpm build
+pnpm test
 ```
 
 See [docs/API.md#building-from-source](docs/API.md#building-from-source) for building the WASM module.
