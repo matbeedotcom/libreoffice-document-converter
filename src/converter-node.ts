@@ -233,7 +233,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
    * Requires wasmLoader option to be provided for bundler compatibility
    */
   private async loadModule(): Promise<EmscriptenModule> {
-    console.log('[LibreOfficeConverter] Loading WASM module...', this.options.wasmPath, this.options.workerPath, this.options.wasmLoader);
+    if (this.options.verbose) {
+      console.log('[LibreOfficeConverter] Loading WASM module...', this.options.wasmPath, this.options.workerPath, this.options.wasmLoader);
+    }
 
     // wasmLoader must be provided - no dynamic require
     if (!this.options.wasmLoader) {
