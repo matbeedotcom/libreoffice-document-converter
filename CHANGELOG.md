@@ -1,3 +1,10 @@
+## [2.5.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.5.0...v2.5.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* conditionally log wasm loading based on verbose flag ([2ff3e80](https://github.com/matbeedotcom/libreoffice-document-converter/commit/2ff3e80730700bb6cf27290e01ffd1990d4b2de2))
+
 # [2.5.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.4.0...v2.5.0) (2026-01-21)
 
 
