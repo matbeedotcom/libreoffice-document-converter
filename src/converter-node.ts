@@ -155,7 +155,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       this.setupFileSystem();
 
       // Inject user-supplied fonts before LOK init
-      this.injectFonts();
+      await this.injectFonts();
 
       // Initialize LibreOfficeKit
       this.initializeLibreOfficeKit();
@@ -206,7 +206,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       this.setupFileSystem();
 
       // Inject user-supplied fonts before LOK init (fontconfig scans at startup)
-      this.injectFonts();
+      await this.injectFonts();
 
       this.emitProgress('initializing', 60, 'Initializing LibreOfficeKit...');
 
@@ -292,13 +292,25 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
   }
 
   /**
-   * Inject user-supplied fonts into the WASM virtual filesystem.
+   * Inject user-supplied and system fonts into the WASM virtual filesystem.
    * Must be called after module load (FS available) and before LOK init (fontconfig scan).
    */
-  private injectFonts(): void {
-    const fonts = this.options.fonts;
-    if (!fonts || fonts.length === 0) return;
+  private async injectFonts(): Promise<void> {
     if (!this.module?.FS) return;
+
+    let fonts = this.options.fonts ? [...this.options.fonts] : [];
+
+    // Load system fonts if requested
+    if (this.options.includeSystemFonts) {
+      const { loadSystemFonts } = await import('./font-loader.js');
+      const systemFonts = await loadSystemFonts();
+      if (this.options.verbose) {
+        console.log(`[Fonts] Found ${systemFonts.length} system font(s)`);
+      }
+      fonts = [...systemFonts, ...fonts];
+    }
+
+    if (fonts.length === 0) return;
 
     const emFs = this.module.FS;
     const fontDir = '/instdir/share/fonts/truetype';
@@ -315,7 +327,7 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     }
 
     if (this.options.verbose) {
-      console.log(`[Fonts] Injected ${fonts.length} font(s)`);
+      console.log(`[Fonts] Injected ${fonts.length} font(s) total`);
     }
   }
 

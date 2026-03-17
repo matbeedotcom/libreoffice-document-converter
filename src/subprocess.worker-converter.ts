@@ -140,12 +140,17 @@ export class SubprocessConverter implements ILibreOfficeConverter {
       this.child?.on('message', h);
     });
 
-    // Build init payload with fonts if provided
-    const initPayload = this.options.fonts?.length
-      ? { fonts: this.options.fonts.map(f => ({
-          filename: f.filename,
-          data: Array.from(f.data instanceof ArrayBuffer ? new Uint8Array(f.data) : f.data),
-        })) }
+    // Build init payload with fonts and options
+    const hasFonts = this.options.fonts?.length;
+    const hasSystemFonts = this.options.includeSystemFonts;
+    const initPayload = (hasFonts || hasSystemFonts)
+      ? {
+          fonts: this.options.fonts?.map(f => ({
+            filename: f.filename,
+            data: Array.from(f.data instanceof ArrayBuffer ? new Uint8Array(f.data) : f.data),
+          })),
+          includeSystemFonts: this.options.includeSystemFonts,
+        }
       : undefined;
 
     // Now send init message to start WASM loading

@@ -175,6 +175,7 @@ interface FontPayload {
 
 interface InitPayload {
   fonts?: FontPayload[];
+  includeSystemFonts?: boolean;
 }
 
 interface WorkerMessage {
@@ -571,6 +572,7 @@ async function handleInit(payload?: InitPayload): Promise<void> {
     verbose,
     wasmLoader,
     fonts,
+    includeSystemFonts: payload?.includeSystemFonts,
   });
 
   log('Initializing converter...');

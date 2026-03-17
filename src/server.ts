@@ -25,7 +25,7 @@ export { WorkerConverter, createWorkerConverter } from './node.worker-converter.
 export { SubprocessConverter, createSubprocessConverter } from './subprocess.worker-converter.js';
 
 // Font loading utilities (Node.js)
-export { loadFontsFromZip, loadFontsFromDirectory } from './font-loader.js';
+export { loadFontsFromZip, loadFontsFromDirectory, loadSystemFonts, loadFontsFromPackage, loadFontsFromPackages } from './font-loader.js';
 
 // ============================================
 // Image encoding utilities

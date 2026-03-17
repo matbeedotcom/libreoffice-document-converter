@@ -106,8 +106,8 @@
     "node": ">=18.0.0"
   },
   "peerDependencies": {
-    "sharp": ">=0.32.0",
-    "jszip": ">=3.0.0"
+    "jszip": ">=3.0.0",
+    "sharp": ">=0.32.0"
   },
   "peerDependenciesMeta": {
     "sharp": {
@@ -126,6 +126,7 @@
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.54.0",
+    "jszip": "^3.10.1",
     "playwright": "^1.57.0",
     "semantic-release": "^25.0.2",
     "sharp": "^0.33.5",

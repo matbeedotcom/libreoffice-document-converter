@@ -236,6 +236,20 @@ export interface LibreOfficeWasmOptions {
    * ```
    */
   fonts?: FontData[];
+
+  /**
+   * Automatically discover and load system-installed fonts (Node.js only).
+   * Scans standard OS font directories:
+   * - Linux: /usr/share/fonts, /usr/local/share/fonts, ~/.fonts
+   * - macOS: /System/Library/Fonts, /Library/Fonts, ~/Library/Fonts
+   * - Windows: C:\Windows\Fonts
+   *
+   * Loaded system fonts are merged with any explicitly provided `fonts` array.
+   * Has no effect in browser environments.
+   *
+   * @default false
+   */
+  includeSystemFonts?: boolean;
 }
 
 /**
