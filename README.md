@@ -101,6 +101,74 @@ Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
+## Font Support
+
+The WASM build includes Latin, Arabic, Hebrew, and other common fonts. For CJK (Chinese, Japanese, Korean), Indic, and other scripts, you can inject additional fonts at runtime.
+
+### Using System Fonts (Node.js)
+
+```javascript
+const converter = await createSubprocessConverter({ includeSystemFonts: true });
+```
+
+### Using @fontsource Packages
+
+Install fonts from npm, then load them:
+
+```bash
+npm install @fontsource/noto-sans-jp @fontsource/noto-sans-kr
+```
+
+```javascript
+import { loadFontsFromPackages, createSubprocessConverter } from '@matbee/libreoffice-converter';
+
+const fonts = await loadFontsFromPackages([
+  '@fontsource/noto-sans-jp',
+  '@fontsource/noto-sans-kr',
+]);
+const converter = await createSubprocessConverter({ fonts });
+```
+
+### Using Prebuilt Font Bundles
+
+Download regional font bundles from [GitHub Releases](https://github.com/matbeedotcom/libreoffice-document-converter/releases):
+
+| Bundle | Scripts | Size |
+|--------|---------|------|
+| `fonts-core.zip` | Latin, Cyrillic, Greek | ~6 MB |
+| `fonts-cjk.zip` | Chinese, Japanese, Korean | ~250 MB |
+| `fonts-arabic.zip` | Arabic, Hebrew | ~1.3 MB |
+| `fonts-indic.zip` | Devanagari, Bengali, Tamil, Telugu, etc. | ~4.5 MB |
+| `fonts-southeast-asian.zip` | Thai, Myanmar, Khmer, Lao | ~1.4 MB |
+| `fonts-african.zip` | Ethiopic | ~835 KB |
+| `fonts-all.zip` | All of the above | ~264 MB |
+
+```javascript
+import { loadFontsFromZip, createSubprocessConverter } from '@matbee/libreoffice-converter';
+
+const fonts = await loadFontsFromZip('./fonts/fonts-cjk.zip');
+const converter = await createSubprocessConverter({ fonts });
+```
+
+### Custom Font Files
+
+```javascript
+import { loadFontsFromDirectory, createSubprocessConverter } from '@matbee/libreoffice-converter';
+
+const fonts = await loadFontsFromDirectory('./my-fonts/');
+const converter = await createSubprocessConverter({ fonts });
+```
+
+### Browser Font Loading
+
+```javascript
+import { loadFontsFromUrl, WorkerBrowserConverter } from '@matbee/libreoffice-converter/browser';
+
+const fonts = await loadFontsFromUrl('/assets/fonts-cjk.zip');
+const converter = new WorkerBrowserConverter({ ...wasmPaths, fonts });
+await converter.initialize();
+```
+
 ## Documentation
 
 - **[API Reference](docs/API.md)** - Complete API documentation, types, configuration options
