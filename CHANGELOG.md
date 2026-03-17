@@ -1,3 +1,20 @@
+# [2.6.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.5.1...v2.6.0) (2026-03-17)
+
+
+### Bug Fixes
+
+* add eslint-disable for unsafe jszip dynamic import access ([a35d876](https://github.com/matbeedotcom/libreoffice-document-converter/commit/a35d87608985148f938f6315ddafd4684e2d9cfc))
+* exclude WASM converter tests from CI ([36255d0](https://github.com/matbeedotcom/libreoffice-document-converter/commit/36255d04fb7dbdc972eab7a9dabeaa8b0154845c))
+* fix Release workflow checkout and test step ([6455ca4](https://github.com/matbeedotcom/libreoffice-document-converter/commit/6455ca41b6d3190a92f94feb26844b42230aff96))
+* use single glob pattern for vitest --exclude ([e5e1f54](https://github.com/matbeedotcom/libreoffice-document-converter/commit/e5e1f54f402635bc06781bcf865f6f2eb5b299b7))
+
+
+### Features
+
+* add font packaging script and zip loading helpers ([78f2343](https://github.com/matbeedotcom/libreoffice-document-converter/commit/78f2343a9a3785bf107f95c1b367490a54f44a89))
+* add runtime font injection for WASM virtual filesystem ([7efb2ff](https://github.com/matbeedotcom/libreoffice-document-converter/commit/7efb2ff5e9ff4ef67cb67928d11e734a7cc035de))
+* add system font loading, fontsource integration, and font bundle CI ([c511c03](https://github.com/matbeedotcom/libreoffice-document-converter/commit/c511c034767fd2f1f3f0d16fae98595d3c7130e5))
+
 ## [2.5.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.5.0...v2.5.1) (2026-03-13)
 
 
