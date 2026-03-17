@@ -168,6 +168,16 @@ interface CloseDocumentPayload {
   sessionId: string;
 }
 
+interface FontPayload {
+  filename: string;
+  data: number[];
+}
+
+interface InitPayload {
+  fonts?: FontPayload[];
+  includeSystemFonts?: boolean;
+}
+
 interface WorkerMessage {
   type: string;
   id: string;
@@ -545,16 +555,24 @@ async function handleDestroy(): Promise<void> {
 /**
  * Handle init message - initialize the converter
  */
-async function handleInit(): Promise<void> {
+async function handleInit(payload?: InitPayload): Promise<void> {
   if (converter?.isReady()) {
     return;
   }
+
+  // Convert font payloads (number[] from IPC) to FontData (Uint8Array)
+  const fonts = payload?.fonts?.map(f => ({
+    filename: f.filename,
+    data: new Uint8Array(f.data),
+  }));
 
   log('Creating LibreOfficeConverter...');
   converter = new LibreOfficeConverter({
     wasmPath: wasmDir,
     verbose,
     wasmLoader,
+    fonts,
+    includeSystemFonts: payload?.includeSystemFonts,
   });
 
   log('Initializing converter...');
@@ -569,7 +587,7 @@ process.on('message', async (msg: WorkerMessage) => {
 
     switch (msg.type) {
       case 'init':
-        await handleInit();
+        await handleInit(msg.payload as InitPayload | undefined);
         break;
 
       case 'convert':

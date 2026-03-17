@@ -266,6 +266,8 @@ interface WorkerMessage {
   sofficeWorkerJs?: string;
   enableProgressTracking?: boolean;  // Opt-in: enable download progress tracking (disabled by default)
   verbose?: boolean;
+  // Font injection
+  fonts?: Array<{ filename: string; data: Uint8Array | ArrayBuffer }>;
   inputData?: Uint8Array;
   inputExt?: string;
   outputFormat?: string;
@@ -673,9 +675,15 @@ async function handleInit(msg: WorkerMessage) {
 
     emitPhaseProgress('lok-init', 'Initializing LibreOfficeKit...');
 
+    // Convert font payloads to FontData format
+    const fonts = msg.fonts?.map(f => ({
+      filename: f.filename,
+      data: f.data instanceof ArrayBuffer ? new Uint8Array(f.data) : f.data,
+    }));
+
     // Initialize LibreOfficeConverter with the pre-loaded module
-    // This reuses the same LOK initialization logic as the Node.js converter
-    converter = new LibreOfficeConverter({ verbose });
+    // Fonts are injected into the virtual FS before LOK init (fontconfig scans at startup)
+    converter = new LibreOfficeConverter({ verbose, fonts });
     await converter.initializeWithModule(module);
 
     // Get LOK bindings from converter for direct access (needed for browser-specific features)

@@ -10,6 +10,7 @@
 export type {
   ConversionOptions,
   ConversionResult,
+  FontData,
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,
@@ -34,6 +35,9 @@ export {
   createWasmPaths,
   DEFAULT_WASM_BASE_URL,
 } from './types.js';
+
+// Font loading utilities (browser-compatible)
+export { loadFontsFromUrl } from './font-loader.browser.js';
 
 // Export editor API
 export {
@@ -182,6 +186,7 @@ export class BrowserConverter {
       this.module = await this.loadModule();
       this.emitProgress('initializing', 50, 'Initializing...');
       this.setupFileSystem();
+      this.injectFonts();
       this.initLOK();
       this.initialized = true;
       this.emitProgress('complete', 100, 'Ready');
@@ -244,6 +249,26 @@ export class BrowserConverter {
     try { fs.mkdir('/tmp'); } catch { /* exists */ }
     try { fs.mkdir('/tmp/input'); } catch { /* exists */ }
     try { fs.mkdir('/tmp/output'); } catch { /* exists */ }
+  }
+
+  private injectFonts(): void {
+    const fonts = this.options.fonts;
+    if (!fonts || fonts.length === 0) return;
+    if (!this.module?.FS) return;
+
+    const fs = this.module.FS;
+    const fontDir = '/instdir/share/fonts/truetype';
+
+    for (const font of fonts) {
+      const data = font.data instanceof ArrayBuffer
+        ? new Uint8Array(font.data)
+        : font.data;
+      fs.writeFile(`${fontDir}/${font.filename}`, data);
+    }
+
+    if (this.options.verbose) {
+      console.log(`[Fonts] Injected ${fonts.length} font(s)`);
+    }
   }
 
   private initLOK(): void {
@@ -578,7 +603,7 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
         this.worker!.addEventListener('message', handler);
       });
 
-      // Initialize WASM in worker with explicit paths
+      // Initialize WASM in worker with explicit paths and optional fonts
       await this.sendMessage('init', {
         sofficeJs: this.options.sofficeJs,
         sofficeWasm: this.options.sofficeWasm,
@@ -586,6 +611,7 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
         sofficeWorkerJs: this.options.sofficeWorkerJs,
         enableProgressTracking: this.options.enableProgressTracking,
         verbose: this.options.verbose,
+        fonts: this.options.fonts,
       });
 
       this.initialized = true;

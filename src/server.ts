@@ -24,6 +24,9 @@ export { LibreOfficeConverter } from './converter-node.js';
 export { WorkerConverter, createWorkerConverter } from './node.worker-converter.js';
 export { SubprocessConverter, createSubprocessConverter } from './subprocess.worker-converter.js';
 
+// Font loading utilities (Node.js)
+export { loadFontsFromZip, loadFontsFromDirectory, loadSystemFonts, loadFontsFromPackage, loadFontsFromPackages } from './font-loader.js';
+
 // ============================================
 // Image encoding utilities
 // ============================================
@@ -81,6 +84,7 @@ export async function convertDocument(
 export type {
   ConversionOptions,
   ConversionResult,
+  FontData,
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,

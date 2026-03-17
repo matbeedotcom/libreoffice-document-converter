@@ -57,6 +57,9 @@ tests/large_sample*.docx
 tmp/
 temp/
 
+# Font bundles (built by CI workflow, uploaded as release assets)
+fonts/*.zip
+
 # Development artifacts
 build.log
 lazy-loading-test-*.png
