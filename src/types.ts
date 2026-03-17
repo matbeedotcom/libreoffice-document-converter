@@ -220,6 +220,32 @@ export interface LibreOfficeWasmOptions {
    * Called with progress updates during initialization
    */
   onProgress?: (progress: ProgressInfo) => void;
+
+  /**
+   * Fonts to inject into the WASM virtual filesystem before LOK initialization.
+   * These are written to /instdir/share/fonts/truetype/ so fontconfig discovers them.
+   * Must be provided before initialize() is called.
+   *
+   * @example
+   * ```typescript
+   * const converter = new LibreOfficeConverter({
+   *   fonts: [
+   *     { filename: 'NotoSansCJK-Regular.ttc', data: fs.readFileSync('./fonts/NotoSansCJK-Regular.ttc') },
+   *   ],
+   * });
+   * ```
+   */
+  fonts?: FontData[];
+}
+
+/**
+ * Font data for injection into the WASM virtual filesystem
+ */
+export interface FontData {
+  /** Font filename (e.g., 'NotoSansCJK-Regular.ttc') */
+  filename: string;
+  /** Raw font file data */
+  data: Uint8Array | ArrayBuffer;
 }
 
 /**
@@ -271,6 +297,12 @@ export interface BrowserConverterOptions {
    * Called with progress updates during initialization
    */
   onProgress?: (progress: WasmLoadProgress) => void;
+
+  /**
+   * Fonts to inject into the WASM virtual filesystem before LOK initialization.
+   * Font data is transferred to the Web Worker and written before fontconfig scans.
+   */
+  fonts?: FontData[];
 }
 
 /**

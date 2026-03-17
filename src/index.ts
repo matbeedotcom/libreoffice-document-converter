@@ -26,6 +26,7 @@ export type { ImageEncodeOptions } from './image-utils.js';
 export type {
   ConversionOptions,
   ConversionResult,
+  FontData,
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,

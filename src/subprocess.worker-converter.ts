@@ -140,8 +140,16 @@ export class SubprocessConverter implements ILibreOfficeConverter {
       this.child?.on('message', h);
     });
 
+    // Build init payload with fonts if provided
+    const initPayload = this.options.fonts?.length
+      ? { fonts: this.options.fonts.map(f => ({
+          filename: f.filename,
+          data: Array.from(f.data instanceof ArrayBuffer ? new Uint8Array(f.data) : f.data),
+        })) }
+      : undefined;
+
     // Now send init message to start WASM loading
-    await this.send('init', undefined, 180000); // 3 minute timeout for WASM init
+    await this.send('init', initPayload, 180000); // 3 minute timeout for WASM init
   }
 
   private killWorker(): void {

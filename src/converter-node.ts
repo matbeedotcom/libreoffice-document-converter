@@ -154,6 +154,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       // Set up filesystem
       this.setupFileSystem();
 
+      // Inject user-supplied fonts before LOK init
+      this.injectFonts();
+
       // Initialize LibreOfficeKit
       this.initializeLibreOfficeKit();
 
@@ -201,6 +204,9 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
       // Create directories in virtual filesystem
       this.setupFileSystem();
+
+      // Inject user-supplied fonts before LOK init (fontconfig scans at startup)
+      this.injectFonts();
 
       this.emitProgress('initializing', 60, 'Initializing LibreOfficeKit...');
 
@@ -283,6 +289,34 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     tryMkdir('/tmp');
     tryMkdir('/tmp/input');
     tryMkdir('/tmp/output');
+  }
+
+  /**
+   * Inject user-supplied fonts into the WASM virtual filesystem.
+   * Must be called after module load (FS available) and before LOK init (fontconfig scan).
+   */
+  private injectFonts(): void {
+    const fonts = this.options.fonts;
+    if (!fonts || fonts.length === 0) return;
+    if (!this.module?.FS) return;
+
+    const emFs = this.module.FS;
+    const fontDir = '/instdir/share/fonts/truetype';
+
+    for (const font of fonts) {
+      const destPath = `${fontDir}/${font.filename}`;
+      const data = font.data instanceof ArrayBuffer
+        ? new Uint8Array(font.data)
+        : font.data;
+      emFs.writeFile(destPath, data);
+      if (this.options.verbose) {
+        console.log(`[Fonts] Injected ${font.filename} (${data.byteLength} bytes)`);
+      }
+    }
+
+    if (this.options.verbose) {
+      console.log(`[Fonts] Injected ${fonts.length} font(s)`);
+    }
   }
 
   /**
