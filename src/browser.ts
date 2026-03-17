@@ -36,6 +36,9 @@ export {
   DEFAULT_WASM_BASE_URL,
 } from './types.js';
 
+// Font loading utilities (browser-compatible)
+export { loadFontsFromUrl } from './font-loader.browser.js';
+
 // Export editor API
 export {
   createEditor,

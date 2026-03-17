@@ -12,6 +12,9 @@ export { LibreOfficeConverter } from './converter-node.js';
 export { WorkerConverter, createWorkerConverter } from './node.worker-converter.js';
 export { SubprocessConverter, createSubprocessConverter } from './subprocess.worker-converter.js';
 
+// Font loading utilities (Node.js)
+export { loadFontsFromZip, loadFontsFromDirectory } from './font-loader.js';
+
 // Image encoding utilities (uses sharp when available, falls back to pure JS)
 export {
   encodeImage,

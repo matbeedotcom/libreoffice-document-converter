@@ -106,10 +106,14 @@
     "node": ">=18.0.0"
   },
   "peerDependencies": {
-    "sharp": ">=0.32.0"
+    "sharp": ">=0.32.0",
+    "jszip": ">=3.0.0"
   },
   "peerDependenciesMeta": {
     "sharp": {
+      "optional": true
+    },
+    "jszip": {
       "optional": true
     }
   },
