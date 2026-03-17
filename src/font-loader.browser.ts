@@ -48,6 +48,7 @@ export async function loadFontsFromUrl(url: string): Promise<FontData[]> {
     throw new Error('jszip is required for loadFontsFromUrl. Install it: npm install jszip');
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   const JSZip = JSZipModule.default || JSZipModule;
 
   const response = await fetch(url);
@@ -56,10 +57,12 @@ export async function loadFontsFromUrl(url: string): Promise<FontData[]> {
   }
 
   const zipData = await response.arrayBuffer();
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
   const zip = await JSZip.loadAsync(zipData);
 
   const fonts: FontData[] = [];
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   for (const [filePath, entry] of Object.entries(zip.files)) {
     const zipEntry = entry as { dir: boolean; async: (type: string) => Promise<Uint8Array> };
     if (zipEntry.dir) continue;
