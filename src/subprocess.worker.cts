@@ -88,7 +88,7 @@ class NodeXHR {
 // Import converter and editor - these will be bundled by tsup
 import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
+import type { ConversionOptions, FilterOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
 import { buildLoadOptions } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
@@ -120,7 +120,7 @@ interface ConvertPayload {
   inputData: number[];
   inputExt: string;
   outputFormat: string;
-  filterOptions: string;
+  filterOptions?: FilterOptions;
 }
 
 interface DocumentPayload {
@@ -198,6 +198,7 @@ async function handleConvert(payload: ConvertPayload): Promise<number[]> {
     {
       inputFormat: payload.inputExt,
       outputFormat: payload.outputFormat,
+      filterOptions: payload.filterOptions,
     } as ConversionOptions,
     'document'
   );
