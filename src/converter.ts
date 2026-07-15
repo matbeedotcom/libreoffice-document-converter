@@ -18,6 +18,7 @@ import {
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
   FORMAT_FILTER_OPTIONS,
+  buildPdfFilterOptions,
   FullQualityPagePreview,
   FullQualityRenderOptions,
   ILibreOfficeConverter,
@@ -572,25 +573,10 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
       const lokFormat = OUTPUT_FORMAT_TO_LOK[options.outputFormat];
       
       // Get filter options for the format
-      let filterOptions = FORMAT_FILTER_OPTIONS[options.outputFormat] || '';
-      
-      // Add PDF-specific options if applicable
-      if (options.outputFormat === 'pdf' && options.pdf) {
-        const pdfOpts: string[] = [];
-        if (options.pdf.pdfaLevel) {
-          const levelMap: Record<string, number> = {
-            'PDF/A-1b': 1,
-            'PDF/A-2b': 2,
-            'PDF/A-3b': 3,
-          };
-          pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
-        }
-        if (options.pdf.quality !== undefined) {
-          pdfOpts.push(`Quality=${options.pdf.quality}`);
-        }
-        if (pdfOpts.length > 0) {
-          filterOptions = pdfOpts.join(',');
-        }
+      let filterOptions = options.filterOptions ?? FORMAT_FILTER_OPTIONS[options.outputFormat] ?? '';
+
+      if (!options.filterOptions && options.outputFormat === 'pdf' && options.pdf) {
+        filterOptions = buildPdfFilterOptions(options.pdf) || filterOptions;
       }
 
       // Add page selection for image exports (png, jpg, svg)

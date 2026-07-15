@@ -85,6 +85,7 @@ export type {
   ConversionOptions,
   ConversionResult,
   FontData,
+  FilterOptions,
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,

@@ -22,6 +22,7 @@ export type {
   OutputFormat,
   ConversionOptions,
   ConversionResult,
+  FilterOptions,
   PdfOptions,
   ImageOptions,
   ProgressInfo,

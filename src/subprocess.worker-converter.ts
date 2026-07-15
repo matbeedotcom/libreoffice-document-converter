@@ -22,6 +22,7 @@ import {
   FullQualityRenderOptions,
   OUTPUT_FORMAT_TO_LOK,
   FORMAT_FILTER_OPTIONS,
+  buildPdfFilterOptions,
   ILibreOfficeConverter,
   InputFormatOptions,
   LibreOfficeWasmOptions,
@@ -238,12 +239,9 @@ export class SubprocessConverter implements ILibreOfficeConverter {
     if (data.length === 0) throw new ConversionError(ConversionErrorCode.INVALID_INPUT, 'Empty');
 
     const ext = options.inputFormat || (filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1).toLowerCase() : 'docx');
-    let filter = FORMAT_FILTER_OPTIONS[options.outputFormat] || '';
-    if (options.outputFormat === 'pdf' && options.pdf) {
-      const o: string[] = [];
-      if (options.pdf.pdfaLevel) o.push(`SelectPdfVersion=${{ 'PDF/A-1b': 1, 'PDF/A-2b': 2, 'PDF/A-3b': 3 }[options.pdf.pdfaLevel] || 0}`);
-      if (options.pdf.quality !== undefined) o.push(`Quality=${options.pdf.quality}`);
-      if (o.length) filter = o.join(',');
+    let filterOptions = options.filterOptions ?? FORMAT_FILTER_OPTIONS[options.outputFormat] ?? '';
+    if (!options.filterOptions && options.outputFormat === 'pdf' && options.pdf) {
+      filterOptions = buildPdfFilterOptions(options.pdf) || filterOptions;
     }
 
     const maxRetries = this.options.maxConversionRetries || 2;
@@ -255,7 +253,7 @@ export class SubprocessConverter implements ILibreOfficeConverter {
           inputData: Array.from(data),
           inputExt: ext,
           outputFormat: OUTPUT_FORMAT_TO_LOK[options.outputFormat],
-          filterOptions: filter
+          filterOptions,
         }) as number[];
 
         const base = filename.includes('.') ? filename.slice(0, filename.lastIndexOf('.')) : filename;

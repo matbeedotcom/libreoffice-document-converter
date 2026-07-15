@@ -11,6 +11,7 @@ export type {
   ConversionOptions,
   ConversionResult,
   FontData,
+  FilterOptions,
   ImageOptions,
   InputFormat,
   LibreOfficeWasmOptions,
@@ -72,6 +73,7 @@ import {
   FORMAT_FILTERS,
   FORMAT_MIME_TYPES,
   FORMAT_FILTER_OPTIONS,
+  buildPdfFilterOptions,
   OUTPUT_FORMAT_TO_LOK,
   BrowserConverterOptions,
   WorkerBrowserConverterOptions,
@@ -334,25 +336,10 @@ export class BrowserConverter {
 
       // Get LOK format string and filter options
       const lokFormat = OUTPUT_FORMAT_TO_LOK[outputExt];
-      let filterOptions = FORMAT_FILTER_OPTIONS[outputExt] || '';
+      let filterOptions = options.filterOptions ?? FORMAT_FILTER_OPTIONS[outputExt] ?? '';
 
-      // Add PDF-specific options
-      if (outputExt === 'pdf' && options.pdf) {
-        const pdfOpts: string[] = [];
-        if (options.pdf.pdfaLevel) {
-          const levelMap: Record<string, number> = {
-            'PDF/A-1b': 1,
-            'PDF/A-2b': 2,
-            'PDF/A-3b': 3,
-          };
-          pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
-        }
-        if (options.pdf.quality !== undefined) {
-          pdfOpts.push(`Quality=${options.pdf.quality}`);
-        }
-        if (pdfOpts.length > 0) {
-          filterOptions = pdfOpts.join(',');
-        }
+      if (!options.filterOptions && outputExt === 'pdf' && options.pdf) {
+        filterOptions = buildPdfFilterOptions(options.pdf) || filterOptions;
       }
 
       this.emitProgress('converting', 70, 'Saving...');
@@ -726,22 +713,9 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
       throw new ConversionError(ConversionErrorCode.UNSUPPORTED_FORMAT, `Unsupported: ${outputExt}`);
     }
 
-    // Build filter options
-    let filterOptions = '';
-    if (outputExt === 'pdf' && options.pdf) {
-      const pdfOpts: string[] = [];
-      if (options.pdf.pdfaLevel) {
-        const levelMap: Record<string, number> = {
-          'PDF/A-1b': 1,
-          'PDF/A-2b': 2,
-          'PDF/A-3b': 3,
-        };
-        pdfOpts.push(`SelectPdfVersion=${levelMap[options.pdf.pdfaLevel] || 0}`);
-      }
-      if (options.pdf.quality !== undefined) {
-        pdfOpts.push(`Quality=${options.pdf.quality}`);
-      }
-      filterOptions = pdfOpts.join(',');
+    let filterOptions = options.filterOptions ?? '';
+    if (!options.filterOptions && outputExt === 'pdf' && options.pdf) {
+      filterOptions = buildPdfFilterOptions(options.pdf);
     }
 
     const result = await this.sendMessage('convert', {

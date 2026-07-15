@@ -53,6 +53,11 @@ export type OutputFormat =
   | 'svg';
 
 /**
+ * LibreOfficeKit saveAs filter options (JSON FilterData or legacy key=value).
+ */
+export type FilterOptions = string;
+
+/**
  * Document conversion options
  */
 export interface ConversionOptions {
@@ -80,6 +85,12 @@ export interface ConversionOptions {
    * Password for encrypted documents
    */
   password?: string;
+
+  /**
+   * Raw LibreOfficeKit filter options string.
+   * When set, overrides options derived from format-specific fields like `pdf`.
+   */
+  filterOptions?: FilterOptions;
 }
 
 /**
@@ -96,6 +107,38 @@ export interface PdfOptions {
    * @default 90
    */
   quality?: number;
+}
+
+const PDFA_LEVEL_TO_VERSION: Record<NonNullable<PdfOptions['pdfaLevel']>, number> = {
+  'PDF/A-1b': 1,
+  'PDF/A-2b': 2,
+  'PDF/A-3b': 3,
+};
+
+/**
+ * Build LOK PDF filter options as JSON FilterData.
+ * LibreOfficeKit ignores legacy key=value strings for PDF export.
+ */
+export function buildPdfFilterOptions(pdf?: PdfOptions): string {
+  if (!pdf) return '';
+
+  const filterData: Record<string, { type: string; value: string }> = {};
+
+  if (pdf.pdfaLevel) {
+    filterData.SelectPdfVersion = {
+      type: 'long',
+      value: String(PDFA_LEVEL_TO_VERSION[pdf.pdfaLevel] ?? 0),
+    };
+  }
+
+  if (pdf.quality !== undefined) {
+    filterData.Quality = {
+      type: 'long',
+      value: String(pdf.quality),
+    };
+  }
+
+  return Object.keys(filterData).length > 0 ? JSON.stringify(filterData) : '';
 }
 
 /**
@@ -729,9 +772,8 @@ export const OUTPUT_FORMAT_TO_LOK: Record<OutputFormat, string> = {
  * These are passed to LibreOfficeKit's saveAs as the filterOptions parameter
  */
 export const FORMAT_FILTER_OPTIONS: Partial<Record<OutputFormat, string>> = {
-  // PDF options can include things like:
+  // PDF export options must be JSON FilterData (see buildPdfFilterOptions):
   // - SelectPdfVersion (0=PDF 1.4, 1=PDF/A-1, 2=PDF/A-2, 3=PDF/A-3)
-  // - UseLosslessCompression
   // - Quality
   pdf: '',
   // CSV can specify separator, encoding, etc.
