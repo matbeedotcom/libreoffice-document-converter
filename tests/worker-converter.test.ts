@@ -314,6 +314,20 @@ describe.skip('WorkerConverter', () => {
         expect(result.data.length).toBeGreaterThan(0);
         expect(result.mimeType).toBe('application/pdf');
       });
+
+      it('should produce PDF/A metadata when pdfaLevel is set', async () => {
+        if (!converter?.isReady() || !fs.existsSync(testDocxPath)) return;
+
+        const docxData = fs.readFileSync(testDocxPath);
+        const result = await converter.convert(
+          docxData,
+          { inputFormat: 'docx', outputFormat: 'pdf', pdf: { pdfaLevel: 'PDF/A-2b' } },
+          'test.docx'
+        );
+
+        const pdfText = Buffer.from(result.data).toString('latin1');
+        expect(pdfText).toContain('pdfaid');
+      });
     });
 
     describe('getPageCount', () => {
