@@ -1,3 +1,10 @@
+## [2.7.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.7.0...v2.7.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* produce PDF/A metadata via JSON FilterData and subprocess filter passthrough ([41ddf3c](https://github.com/matbeedotcom/libreoffice-document-converter/commit/41ddf3c7cba05879dc732652ba06c2d8316679e7)), closes [hi#level](https://github.com/hi/issues/level)
+
 # [2.7.0](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.6.0...v2.7.0) (2026-07-05)
 
 
