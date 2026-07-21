@@ -18,6 +18,7 @@ import {
   DocumentInfo,
   EditorOperationResult,
   EditorSession,
+  FORMAT_FILTER_OPTIONS,
   FORMAT_MIME_TYPES,
   FullQualityPagePreview,
   FullQualityRenderOptions,
@@ -28,6 +29,7 @@ import {
   OutputFormat,
   PagePreview,
   RenderOptions,
+  buildPdfFilterOptions,
 } from './types.js';
 
 // Re-export types used by consumers
@@ -244,10 +246,16 @@ export class WorkerConverter implements ILibreOfficeConverter {
     const inputFormat = options.inputFormat || this.getExtensionFromFilename(filename) || 'docx';
     const outputFormat = options.outputFormat;
 
+    let filterOptions = options.filterOptions ?? FORMAT_FILTER_OPTIONS[outputFormat] ?? '';
+    if (!options.filterOptions && outputFormat === 'pdf' && options.pdf) {
+      filterOptions = buildPdfFilterOptions(options.pdf) || filterOptions;
+    }
+
     const result = await this.sendMessage('convert', {
       inputData,
       inputFormat,
       outputFormat,
+      filterOptions,
       filename,
     });
 

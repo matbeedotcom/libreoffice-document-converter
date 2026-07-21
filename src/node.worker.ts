@@ -11,7 +11,7 @@
 import { parentPort } from 'worker_threads';
 import { LibreOfficeConverter } from './converter-node.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
-import type { ConversionOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
+import type { ConversionOptions, FilterOptions, InputFormatOptions, WasmLoaderModule } from './types.js';
 import { buildLoadOptions } from './types.js';
 import type { OperationResult } from './editor/types.js';
 
@@ -34,7 +34,7 @@ interface ConvertPayload {
   inputData: Uint8Array;
   inputFormat: string;
   outputFormat: string;
-  filterOptions?: string;
+  filterOptions?: FilterOptions;
   filename?: string;
 }
 
@@ -127,6 +127,7 @@ async function handleConvert(payload: ConvertPayload): Promise<Uint8Array> {
   const options: ConversionOptions = {
     inputFormat: payload.inputFormat as ConversionOptions['inputFormat'],
     outputFormat: payload.outputFormat as ConversionOptions['outputFormat'],
+    filterOptions: payload.filterOptions,
   };
 
   const result = await converter.convert(
