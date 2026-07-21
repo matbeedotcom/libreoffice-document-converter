@@ -1,3 +1,10 @@
+## [2.7.2](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.7.1...v2.7.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* forward filter options through WorkerConverter IPC ([8f72b0b](https://github.com/matbeedotcom/libreoffice-document-converter/commit/8f72b0bd4e8e3eb4410502fab9d7c078163efe1a))
+
 ## [2.7.1](https://github.com/matbeedotcom/libreoffice-document-converter/compare/v2.7.0...v2.7.1) (2026-07-15)
 
 
