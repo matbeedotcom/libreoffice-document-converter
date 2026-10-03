@@ -107,13 +107,29 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
 
   /**
    * Force reinitialization of the converter (for recovery from errors)
+   *
+   * Not supported for in-process converters: the Emscripten factory in
+   * `wasm/soffice.cjs` is evaluated at most once per process, so a fresh runtime
+   * cannot be built here. Rebuilding on top of the existing (corrupted) instance
+   * would fail in ways that look unrelated, so this fails immediately with the
+   * supported alternatives instead.
    */
   async reinitialize(): Promise<void> {
-    if (this.options.verbose) {
-      console.log('[LibreOfficeConverter] Reinitializing due to corruption...');
+    if (this.initialized || this.module?.FS) {
+      throw new ConversionError(
+        ConversionErrorCode.WASM_NOT_INITIALIZED,
+        'Cannot reinitialize an in-process converter: the LibreOffice WASM runtime can only ' +
+          'be created once per process, so a corrupted runtime cannot be rebuilt in place. ' +
+          'Use createSubprocessConverter() or createWorkerConverter() to get an isolated ' +
+          'runtime per converter, and destroy/recreate that converter to recover.'
+      );
     }
 
-    // Clean up existing state
+    if (this.options.verbose) {
+      console.log('[LibreOfficeConverter] Reinitializing after a failed initialization...');
+    }
+
+    // Clean up existing state and retry the initial load
     if (this.lokBindings) {
       try {
         this.lokBindings.destroy();
@@ -527,9 +543,11 @@ export class LibreOfficeConverter implements ILibreOfficeConverter {
     } catch (error) {
       // Check if this error indicates corruption
       if (error instanceof Error && this.isCorruptionError(error)) {
+        // The runtime is unusable and cannot be rebuilt in this process, so the next
+        // convert() reports that clearly instead of hanging on a second initialization.
         this.corrupted = true;
         if (this.options.verbose) {
-          console.log('[LibreOfficeConverter] Corruption detected, will reinitialize on next convert');
+          console.log('[LibreOfficeConverter] Corruption detected; the WASM runtime cannot be rebuilt in-process, use an isolated converter to recover');
         }
       }
       throw error;

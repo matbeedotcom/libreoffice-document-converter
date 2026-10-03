@@ -165,9 +165,18 @@ export class WorkerConverter implements ILibreOfficeConverter {
       });
 
       // Initialize the WASM module in the worker
+      // Fonts must be forwarded here: the worker owns the WASM virtual filesystem,
+      // and fonts have to be written into /instdir/share/fonts/truetype before
+      // LOK/fontconfig initializes. Dropping them here silently renders every
+      // document with fallback glyphs (CJK text becomes tofu boxes).
       await this.sendMessage('init', {
         wasmPath: this.options.wasmPath,
         verbose: this.options.verbose,
+        fonts: this.options.fonts?.map((font) => ({
+          filename: font.filename,
+          data: font.data instanceof ArrayBuffer ? new Uint8Array(font.data) : font.data,
+        })),
+        includeSystemFonts: this.options.includeSystemFonts,
       });
 
       this.initialized = true;

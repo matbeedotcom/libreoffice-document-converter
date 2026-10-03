@@ -28,6 +28,13 @@ interface WorkerMessage {
 interface InitPayload {
   wasmPath: string;
   verbose: boolean;
+  /**
+   * Fonts to inject into the WASM virtual filesystem before LOK init.
+   * Structured clone turns Uint8Array/ArrayBuffer payloads into ArrayBuffer
+   * in some Node versions, so both shapes are accepted.
+   */
+  fonts?: Array<{ filename: string; data: Uint8Array | ArrayBuffer }>;
+  includeSystemFonts?: boolean;
 }
 
 interface ConvertPayload {
@@ -111,6 +118,11 @@ async function handleInit(payload: InitPayload): Promise<void> {
     wasmPath: payload.wasmPath,
     verbose: payload.verbose,
     wasmLoader,
+    fonts: payload.fonts?.map((font) => ({
+      filename: font.filename,
+      data: font.data instanceof ArrayBuffer ? new Uint8Array(font.data) : font.data,
+    })),
+    includeSystemFonts: payload.includeSystemFonts,
   });
 
   await converter.initialize();

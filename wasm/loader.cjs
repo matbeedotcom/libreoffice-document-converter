@@ -38,6 +38,14 @@ global.Worker = Worker;
 let cachedWasmModule = null;
 let cachedWasmBinary = null;
 
+// The Emscripten runtime lives in the CommonJS module cache: the factory body in
+// soffice.cjs runs exactly once per process, so a second require() is a no-op and
+// global.Module is never picked up again. Calling createModule() twice therefore
+// used to return a promise that never settles (silent hang). The module promise is
+// cached instead: concurrent and repeated callers share one runtime, and a failed
+// attempt is dropped so a retry can still succeed.
+let modulePromise = null;
+
 // Change to wasm directory for relative path resolution (if supported)
 // Note: process.chdir() is not available in worker threads
 const origCwd = process.cwd();
@@ -166,12 +174,40 @@ global.XMLHttpRequest = NodeXMLHttpRequest;
 
 /**
  * Create and initialize the LibreOffice WASM module
- * 
+ *
+ * Only one Emscripten runtime can exist per process. Repeated and concurrent calls
+ * return the same runtime: while the first initialization is in flight every caller
+ * shares that promise, and once it resolves every caller receives the same module.
+ * If the first attempt fails the cached promise is dropped so the next call retries.
+ *
  * @param {Object} config - Configuration options
  * @param {Function} config.onProgress - Progress callback (phase, percent, message)
  * @returns {Promise<Object>} - The initialized Emscripten module
  */
 function createModule(config = {}) {
+  // One Emscripten runtime per process: hand back the runtime that already exists
+  // (or is still starting up) instead of attempting a second, impossible init.
+  if (modulePromise) {
+    return modulePromise;
+  }
+
+  // Drop the cached promise when this attempt fails, so a later call is a genuine
+  // retry rather than a permanent "already initialized" dead end.
+  modulePromise = startModule(config).catch((err) => {
+    modulePromise = null;
+    throw err;
+  });
+
+  return modulePromise;
+}
+
+/**
+ * Start the Emscripten runtime. Must only be called once per process.
+ *
+ * @param {Object} config - Configuration options
+ * @returns {Promise<Object>} - The initialized Emscripten module
+ */
+function startModule(config = {}) {
   return new Promise((resolve, reject) => {
     // Reset progress tracking
     lastProgress = 0;
