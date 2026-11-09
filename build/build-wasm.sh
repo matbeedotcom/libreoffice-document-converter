@@ -398,7 +398,16 @@ sed -i "s|PACKAGE_NAME='[^']*emscripten_fs_image/soffice\.data'|PACKAGE_NAME='so
 # 3. Fix datafile_ reference
 sed -i 's|datafile_[^"]*emscripten_fs_image/soffice\.data|datafile_soffice.data|g' soffice.cjs
 
-# 4. Create browser-compatible copy (.js from .cjs)
+# 4. Let callers size the pthread pool at runtime (Module.pthreadPoolSize),
+#    keeping the PTHREAD_POOL_SIZE link setting as the default. A pool that is
+#    too small deadlocks LOK calls in browsers on slower CPUs (issue #19).
+sed -i -E 's/var pthreadPoolSize=([0-9]+);/var pthreadPoolSize=Module["pthreadPoolSize"]||\1;/' soffice.cjs
+if ! grep -q 'var pthreadPoolSize=Module\["pthreadPoolSize"\]' soffice.cjs; then
+    log_error "Could not make the pthread pool size configurable in soffice.cjs"
+    exit 1
+fi
+
+# 5. Create browser-compatible copy (.js from .cjs)
 cp soffice.cjs soffice.js
 if [ -f "soffice.worker.cjs" ]; then
     cp soffice.worker.cjs soffice.worker.js
