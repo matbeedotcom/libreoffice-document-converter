@@ -101,6 +101,15 @@ Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
+**Thread pool size:** LibreOffice runs its worker threads as Web Workers that are created up front. A browser cannot start a new Web Worker while LibreOffice is blocked waiting for it, so if a load needs more threads than the pool holds, `documentLoad` hangs. The pool defaults to 8 workers; if conversions hang on slow machines, raise it:
+
+```javascript
+const converter = new WorkerBrowserConverter({
+  ...createWasmPaths('/wasm/'),
+  pthreadPoolSize: 12,
+});
+```
+
 ## Font Support
 
 The WASM build includes Latin, Arabic, Hebrew, and other common fonts. For CJK (Chinese, Japanese, Korean), Indic, and other scripts, you can inject additional fonts at runtime.

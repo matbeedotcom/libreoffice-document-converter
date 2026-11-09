@@ -360,6 +360,21 @@ export interface BrowserConverterOptions {
    * Font data is transferred to the Web Worker and written before fontconfig scans.
    */
   fonts?: FontData[];
+
+  /**
+   * Number of pthread Web Workers to create before LibreOffice starts.
+   *
+   * In browsers a new Web Worker cannot start while the thread that created it
+   * is blocked, and LibreOffice blocks that thread inside calls such as
+   * documentLoad while it waits for its own threads. If LibreOffice asks for
+   * more threads than the pool holds at that moment, the load deadlocks. Slower
+   * CPUs need more threads in flight, so raise this if loads hang there.
+   * Each extra worker costs some memory and startup time.
+   *
+   * Must be a positive integer.
+   * @default 8
+   */
+  pthreadPoolSize?: number;
 }
 
 /**

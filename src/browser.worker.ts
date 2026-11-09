@@ -11,6 +11,7 @@ import { FORMAT_FILTER_OPTIONS, OUTPUT_FORMAT_TO_LOK, buildLoadOptions } from '.
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OperationResult } from './editor/types.js';
 import { LibreOfficeConverter } from './converter.js';
+import { resolvePthreadPoolSize } from './pthread-pool.js';
 
 // ============================================
 // WASM Loading Progress System
@@ -266,6 +267,7 @@ interface WorkerMessage {
   sofficeWorkerJs?: string;
   enableProgressTracking?: boolean;  // Opt-in: enable download progress tracking (disabled by default)
   verbose?: boolean;
+  pthreadPoolSize?: number;  // Number of pthread workers soffice.js creates up front
   // Font injection
   fonts?: Array<{ filename: string; data: Uint8Array | ArrayBuffer }>;
   inputData?: Uint8Array;
@@ -393,6 +395,8 @@ interface WorkerResponse {
 /** Extended EmscriptenModule with pthread worker config */
 interface EmscriptenModuleConfig extends Partial<EmscriptenModule> {
   mainScriptUrlOrBlob?: string;
+  /** Read by soffice.js when it pre-creates its pthread workers */
+  pthreadPoolSize?: number;
 }
 
 interface WorkerGlobalScopeWithModule {
@@ -577,6 +581,9 @@ async function handleInit(msg: WorkerMessage) {
     self.Module = {
       // Tell pthread workers where to load the main module from
       mainScriptUrlOrBlob: sofficeJs,
+      // Pre-create enough pthread workers that LibreOffice never has to start
+      // one while this thread is blocked in a LOK call (that deadlocks)
+      pthreadPoolSize: resolvePthreadPoolSize(msg.pthreadPoolSize),
       locateFile: (path: string, _scriptDir?: string) => {
         let result: string;
         if (path.endsWith('.wasm')) result = sofficeWasm;

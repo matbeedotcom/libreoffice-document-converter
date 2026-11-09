@@ -97,6 +97,7 @@ import {
 } from './types.js';
 
 import { LOKBindings } from './lok-bindings.js';
+import { resolvePthreadPoolSize } from './pthread-pool.js';
 import { createEditor, OfficeEditor } from './editor/index.js';
 import type { OpenDocumentOptions } from './editor/types.js';
 
@@ -104,6 +105,7 @@ import type { OpenDocumentOptions } from './editor/types.js';
 interface EmscriptenWindow extends Window {
   Module?: Partial<EmscriptenModule> & {
     locateFile?: (path: string) => string;
+    pthreadPoolSize?: number;
     print?: (...args: unknown[]) => void;
     printErr?: (...args: unknown[]) => void;
     onRuntimeInitialized?: () => void;
@@ -165,6 +167,7 @@ export class BrowserConverter {
       verbose: false,
       ...defaultPaths,
       ...options,
+      pthreadPoolSize: resolvePthreadPoolSize(options.pthreadPoolSize),
     };
   }
 
@@ -221,6 +224,8 @@ export class BrowserConverter {
           const baseUrl = sofficeJs.substring(0, sofficeJs.lastIndexOf('/') + 1);
           return `${baseUrl}${path}`;
         },
+        // Read by soffice.js when it pre-creates its pthread workers
+        pthreadPoolSize: this.options.pthreadPoolSize,
         print: this.options.verbose ? console.log : () => { },
         printErr: this.options.verbose ? console.error : () => { },
         onRuntimeInitialized: () => {
@@ -546,6 +551,7 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
       browserWorkerJs: '/dist/browser.worker.global.js',
       ...defaultPaths,
       ...options,
+      pthreadPoolSize: resolvePthreadPoolSize(options.pthreadPoolSize),
     };
   }
 
@@ -599,6 +605,7 @@ export class WorkerBrowserConverter implements ILibreOfficeConverter {
         enableProgressTracking: this.options.enableProgressTracking,
         verbose: this.options.verbose,
         fonts: this.options.fonts,
+        pthreadPoolSize: this.options.pthreadPoolSize,
       });
 
       this.initialized = true;
