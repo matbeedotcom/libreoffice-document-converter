@@ -253,6 +253,12 @@ function createModule(config = {}) {
           !['onProgress', 'onRuntimeInitialized', 'print', 'printErr', 'verbose', 'wasmBinary'].includes(k)
         )
       ),
+
+      // Don't start LibreOffice's main(). The build uses PROXY_TO_PTHREAD, so
+      // main() would run on a pthread alongside the LibreOfficeKit init; the two
+      // contend for the same locks and can stall start-up or the first
+      // conversion, or hang it. Pass noInitialRun: false to opt out.
+      noInitialRun: config.noInitialRun ?? true,
     };
 
     try {
@@ -281,6 +287,8 @@ function createModuleSync(config = {}) {
     print: config.print || (() => {}),
     printErr: config.printErr || (() => {}),
     ...config,
+    // See createModule: keep LibreOffice's main() from racing the LOK init
+    noInitialRun: config.noInitialRun ?? true,
   };
 
   require('./soffice.cjs');

@@ -213,6 +213,8 @@ export class BrowserConverter {
       // Pre-configure the global Module object before loading the script
       // soffice.js checks for existing Module and merges with it
       win.Module = {
+        // Don't start LibreOffice's main(); it would run alongside the LibreOfficeKit init and can stall it
+        noInitialRun: true,
         locateFile: (path: string) => {
           if (path.endsWith('.wasm')) return sofficeWasm;
           if (path.endsWith('.data')) return sofficeData;
